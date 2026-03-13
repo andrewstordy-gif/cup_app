@@ -10,11 +10,7 @@ namespace drivers::nfc {
 
 // --------------------------------------------------
 
-static SFE_ST25DV64KC_NDEF tag;
-static bool tagInitialised = false;
-static constexpr uint16_t MAX_FREE_RECORD_LEN = 256;
-static constexpr uint16_t REG_RF_MNGT_DYN = 0x2003;
-static constexpr uint8_t BIT_RF_DISABLE = (1 << 0);
+static constexpr uint16_t MAX_RECORD_LEN = 768;
 
 // --------------------------------------------------
 
@@ -59,63 +55,47 @@ static void powerOff()
 
 // --------------------------------------------------
 
-static void readUidHex(char *out, size_t len)
+static bool readUidHex(SFE_ST25DV64KC_NDEF &tag, char *out, size_t len)
 {
   uint8_t uid[8];
 
-  // NOTE: correct SparkFun API
   if (!tag.getDeviceUID(uid)) {
     out[0] = '\0';
-    return;
+    return false;
   }
 
   snprintf(out, len,
            "%02X%02X%02X%02X%02X%02X%02X%02X",
            uid[0], uid[1], uid[2], uid[3],
            uid[4], uid[5], uid[6], uid[7]);
+  return true;
 }
 
 
 // --------------------------------------------------
 
-static bool writeAllRecords(
-  const char *rec1,
-  const char *rec2,
-  const char *rec3,
-  const char *rec4
-)
+static bool writeSingleRecord(SFE_ST25DV64KC_NDEF &tag, const char *recordJson)
 {
-  if (!tagInitialised) return false;
-
-  // Dynamic register write: temporarily disable RF command processing while
-  // we rewrite the full multi-record NDEF payload over I2C.
-  const SF_ST25DV64KC_ADDRESS systemAddr =
-      static_cast<SF_ST25DV64KC_ADDRESS>(1); // SYSTEM
-  const bool rfDisabled =
-      tag.st25_io.setRegisterBit(systemAddr, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
-
   if (!tag.writeCCFile8Byte()) {
-    if (rfDisabled) {
-      tag.st25_io.clearRegisterBit(systemAddr, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
-    }
     return false;
   }
 
   uint16_t memLoc = tag.getCCFileLen();
 
-  const bool writeOk =
-      tag.writeNDEFText(rec1, &memLoc, true, false) &&
-      tag.writeNDEFText(rec2, &memLoc, false, false) &&
-      tag.writeNDEFText(rec3, &memLoc, false, false) &&
-      tag.writeNDEFText(rec4, &memLoc, false, true);
+  const bool writeOk = tag.writeNDEFText(recordJson, &memLoc, true, true);
+  return writeOk;
+}
 
-  // Best-effort re-enable: even if writes fail, try to restore RF availability.
-  bool rfEnabled = true;
-  if (rfDisabled) {
-    rfEnabled = tag.st25_io.clearRegisterBit(systemAddr, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
-  }
+static bool ensureTagReady(SFE_ST25DV64KC_NDEF &tag)
+{
+  powerOn();
+  Wire.begin();
+  return tag.begin(Wire);
+}
 
-  return writeOk && rfEnabled;
+static void finishTagSession()
+{
+  Wire.end();
 }
 
 // --------------------------------------------------
@@ -124,18 +104,13 @@ static bool writeAllRecords(
 
 void begin()
 {
-  powerOn();
-
-  Wire.begin();
-
-  if (!tag.begin(Wire)) {
-    Wire.end();
+  SFE_ST25DV64KC_NDEF tag;
+  if (!ensureTagReady(tag)) {
+    finishTagSession();
     return;
   }
 
-  tagInitialised = true;
-
-  char tmp[16];
+  char tmp[MAX_RECORD_LEN];
   if (!tag.readNDEFText(tmp, sizeof(tmp), 1)) {
     drivers::json::State    s;
     drivers::json::Status   st;
@@ -145,27 +120,15 @@ void begin()
     drivers::json::initStatus(st);
     drivers::json::initSettings(cfg);
 
-    writeAllRecords(
-      drivers::json::encodeState(s),
-      drivers::json::encodeStatus(st),
-      drivers::json::encodeSettings(cfg),
-      "{}"
-    );
+    writeSingleRecord(tag, drivers::json::encodeRecord(s, st, cfg, "{}"));
   }
-  Wire.end();
+  finishTagSession();
 }
 
 void end()
 {
   powerOff();
-  tagInitialised = false;
 }
-
-
-
-
-
-// old write cup records:
 
 bool writeCupRecords(
   const drivers::json::State    &state,
@@ -173,82 +136,73 @@ bool writeCupRecords(
   const drivers::json::Settings &settings
 )
 {
-  Wire.begin();
-  if (!tagInitialised) {
-    Wire.end();
+  SFE_ST25DV64KC_NDEF tag;
+  if (!ensureTagReady(tag)) {
+    finishTagSession();
     return false;
   }
 
   drivers::json::Status statusCopy = status;
-  readUidHex(statusCopy.uuid, sizeof(statusCopy.uuid));
+  readUidHex(tag, statusCopy.uuid, sizeof(statusCopy.uuid));
 
-  char freeBuf[MAX_FREE_RECORD_LEN] = "{}";
-  tag.readNDEFText(freeBuf, sizeof(freeBuf), 4);
-
-  const bool ok = writeAllRecords(
-    drivers::json::encodeState(state),
-    drivers::json::encodeStatus(statusCopy),
-    drivers::json::encodeSettings(settings),
-    freeBuf
+  const bool ok = writeSingleRecord(
+    tag,
+    drivers::json::encodeRecord(state, statusCopy, settings, "{}")
   );
-  Wire.end();
+  finishTagSession();
   return ok;
 }
 
 
 bool readSettings(drivers::json::Settings &settings)
 {
-  Wire.begin();
-  char buf[sizeof(drivers::json::settingsBuf)];
-  if (!tag.readNDEFText(buf, sizeof(buf), 3)) {
-    Wire.end();
+  SFE_ST25DV64KC_NDEF tag;
+  if (!ensureTagReady(tag)) {
+    finishTagSession();
+    return false;
+  }
+  char buf[MAX_RECORD_LEN];
+  if (!tag.readNDEFText(buf, sizeof(buf), 1)) {
+    finishTagSession();
     return false;
   }
   const bool ok = drivers::json::decodeSettings(buf, settings);
-  Wire.end();
+  finishTagSession();
   return ok;
 }
 
 bool readState(drivers::json::State &state)
 {
-  Wire.begin();
-  char buf[sizeof(drivers::json::stateBuf)];
+  SFE_ST25DV64KC_NDEF tag;
+  if (!ensureTagReady(tag)) {
+    finishTagSession();
+    return false;
+  }
+  char buf[MAX_RECORD_LEN];
   if (!tag.readNDEFText(buf, sizeof(buf), 1)) {
-    Wire.end();
+    finishTagSession();
     return false;
   }
   const bool ok = drivers::json::decodeState(buf, state);
-  Wire.end();
+  finishTagSession();
   return ok;
 }
 
 bool readStatus(drivers::json::Status &status)
 {
-  Wire.begin();
-  char buf[sizeof(drivers::json::statusBuf)];
-  if (!tag.readNDEFText(buf, sizeof(buf), 2)) {
-    Wire.end();
+  SFE_ST25DV64KC_NDEF tag;
+  if (!ensureTagReady(tag)) {
+    finishTagSession();
     return false;
   }
-
-  //uint32_t v;
-  const char *p;
-
-  p = strstr(buf, "temp");
-  if (!p) p = strstr(buf, "\"t\"");
-  if (p && (p = strchr(p, ':'))) status.temp = atoi(p + 1);
-
-  p = strstr(buf, "time");
-  if (!p) p = strstr(buf, "\"m\"");
-  if (!p) p = strstr(buf, "\"tm\"");
-  if (p && (p = strchr(p, ':'))) status.time = atoi(p + 1);
-
-  p = strstr(buf, "battery");
-  if (!p) p = strstr(buf, "\"b\"");
-  if (p && (p = strchr(p, ':'))) status.battery = atoi(p + 1);
-
-  Wire.end();
-  return true;
+  char buf[MAX_RECORD_LEN];
+  if (!tag.readNDEFText(buf, sizeof(buf), 1)) {
+    finishTagSession();
+    return false;
+  }
+  const bool ok = drivers::json::decodeStatus(buf, status);
+  finishTagSession();
+  return ok;
 }
 
 } // namespace drivers::nfc

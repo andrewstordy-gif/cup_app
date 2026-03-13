@@ -21,9 +21,7 @@ void enter() {
   drivers::led::on();
 
   //writes the state to NFC:
-  drivers::nfc::begin();
   drivers::nfc::writeCupRecords(gState, gStatus, gSettings);
-  drivers::nfc::end();
 
   //switch the LED off:
   drivers::led::off();

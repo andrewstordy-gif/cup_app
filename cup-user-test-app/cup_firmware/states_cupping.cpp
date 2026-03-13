@@ -21,7 +21,6 @@ void enter() {
   gState.state = (uint8_t)CupState::CUPPING;
 
   // write the state to the tag:
-  drivers::nfc::begin();
   drivers::nfc::writeCupRecords(gState, gStatus, gSettings);
 
   //swich off the led

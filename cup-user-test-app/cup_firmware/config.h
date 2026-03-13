@@ -1,5 +1,11 @@
 #pragma once
 
+// Firmware version
+static constexpr uint8_t FIRMWARE_VERSION_MAJOR = 1;
+static constexpr uint8_t FIRMWARE_VERSION_MINOR = 0;
+static constexpr uint8_t FIRMWARE_VERSION_PATCH = 1;
+static constexpr char FIRMWARE_VERSION[] = "1.0.1";
+
 // Default cup settings
 constexpr uint8_t DEFAULT_TRIGGER_TEMP = 40;  // Temp that the cup swiches on
 constexpr uint8_t DEFAULT_MAX_START_TEMP = 93; // Max alowable water temp when brew state starts

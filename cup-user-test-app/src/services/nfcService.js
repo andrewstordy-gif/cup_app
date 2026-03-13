@@ -54,9 +54,9 @@ function safeJsonParse(value) {
   }
 }
 
-function normalizeText1Payload(payload) {
+function normalizeCtrlPayload(payload) {
   if (!payload || typeof payload !== "object") {
-    return payload;
+    return {};
   }
 
   const state = payload.state ?? payload.s;
@@ -66,9 +66,9 @@ function normalizeText1Payload(payload) {
   };
 }
 
-function normalizeText2Payload(payload) {
+function normalizeStatusPayload(payload) {
   if (!payload || typeof payload !== "object") {
-    return payload;
+    return {};
   }
 
   const temp = payload.temp ?? payload.t;
@@ -85,9 +85,9 @@ function normalizeText2Payload(payload) {
   };
 }
 
-function normalizeText3Payload(payload) {
+function normalizeSettingsPayload(payload) {
   if (!payload || typeof payload !== "object") {
-    return payload;
+    return {};
   }
 
   const triggerTemp = payload.triggerTemp ?? payload.r;
@@ -108,9 +108,9 @@ function normalizeText3Payload(payload) {
   };
 }
 
-function normalizeText4Payload(payload) {
+function normalizeAppPayload(payload) {
   if (!payload || typeof payload !== "object") {
-    return payload;
+    return {};
   }
 
   const coffeeName = payload.coffeeName ?? payload.n;
@@ -133,7 +133,7 @@ function normalizeText4Payload(payload) {
   };
 }
 
-function compactText1Payload(payload) {
+function compactCtrlPayload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
@@ -141,7 +141,7 @@ function compactText1Payload(payload) {
   return state === undefined ? {} : { s: state };
 }
 
-function compactText2Payload(payload) {
+function compactStatusPayload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
@@ -157,7 +157,7 @@ function compactText2Payload(payload) {
   };
 }
 
-function compactText3Payload(payload) {
+function compactSettingsPayload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
@@ -177,7 +177,7 @@ function compactText3Payload(payload) {
   };
 }
 
-function compactText4Payload(payload) {
+function compactAppPayload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
@@ -199,6 +199,64 @@ function compactText4Payload(payload) {
   };
 }
 
+function valueToObject(value) {
+  if (!value) {
+    return {};
+  }
+  if (typeof value === "string") {
+    return safeJsonParse(value) || {};
+  }
+  if (typeof value === "object") {
+    return value;
+  }
+  return {};
+}
+
+function stringifySection(value) {
+  return JSON.stringify(value || {});
+}
+
+function buildNormalizedSinglePayload(value) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const hasSingleSchema =
+    value.v !== undefined ||
+    value.ctrl !== undefined ||
+    value.status !== undefined ||
+    value.settings !== undefined ||
+    value.app !== undefined;
+
+  if (!hasSingleSchema) {
+    return null;
+  }
+
+  const ctrl = normalizeCtrlPayload(valueToObject(value.ctrl));
+  const status = normalizeStatusPayload(valueToObject(value.status));
+  const settings = normalizeSettingsPayload(valueToObject(value.settings));
+  const app = normalizeAppPayload(valueToObject(value.app));
+
+  return {
+    v: Number.isInteger(value.v) ? value.v : 1,
+    ctrl,
+    status,
+    settings,
+    app,
+    text1: ctrl,
+    text2: status,
+    text3: settings,
+    text4: app,
+    raw: {
+      single: JSON.stringify(value),
+      text1: stringifySection(compactCtrlPayload(ctrl)),
+      text2: stringifySection(compactStatusPayload(status)),
+      text3: stringifySection(compactSettingsPayload(settings)),
+      text4: stringifySection(compactAppPayload(app)),
+    },
+  };
+}
+
 function pickTextRecord(message, index) {
   if (!Array.isArray(message)) {
     return null;
@@ -210,17 +268,30 @@ function pickTextRecord(message, index) {
 }
 
 export function parseNdefMessage(message) {
+  const firstTextRaw = pickTextRecord(message, 0);
+  const firstPayload = safeJsonParse(firstTextRaw);
+  const normalizedSinglePayload = buildNormalizedSinglePayload(firstPayload);
+
+  if (normalizedSinglePayload) {
+    return normalizedSinglePayload;
+  }
+
   const text1Raw = pickTextRecord(message, 0);
   const text2Raw = pickTextRecord(message, 1);
   const text3Raw = pickTextRecord(message, 2);
   const text4Raw = pickTextRecord(message, 3);
 
-  const parsedText1 = normalizeText1Payload(safeJsonParse(text1Raw));
-  const parsedText2 = normalizeText2Payload(safeJsonParse(text2Raw));
-  const parsedText3 = normalizeText3Payload(safeJsonParse(text3Raw));
-  const parsedText4 = normalizeText4Payload(safeJsonParse(text4Raw));
+  const parsedText1 = normalizeCtrlPayload(safeJsonParse(text1Raw));
+  const parsedText2 = normalizeStatusPayload(safeJsonParse(text2Raw));
+  const parsedText3 = normalizeSettingsPayload(safeJsonParse(text3Raw));
+  const parsedText4 = normalizeAppPayload(safeJsonParse(text4Raw));
 
   return {
+    v: 0,
+    ctrl: parsedText1,
+    status: parsedText2,
+    settings: parsedText3,
+    app: parsedText4,
     text1: parsedText1,
     text2: parsedText2,
     text3: parsedText3,
@@ -238,21 +309,32 @@ function buildTextRecord(jsonObject) {
   return Ndef.textRecord(JSON.stringify(jsonObject || {}));
 }
 
-function buildTextRecordFromValue(value, compactFn) {
-  if (typeof value === "string") {
-    return Ndef.textRecord(value);
-  }
-  return buildTextRecord(compactFn(value));
-}
-
 export function buildNdefRecords(records) {
   const payload = records || {};
-  return [
-    buildTextRecordFromValue(payload.text1, compactText1Payload),
-    buildTextRecordFromValue(payload.text2, compactText2Payload),
-    buildTextRecordFromValue(payload.text3, compactText3Payload),
-    buildTextRecordFromValue(payload.text4, compactText4Payload),
-  ];
+  const normalizedSinglePayload = buildNormalizedSinglePayload(payload);
+
+  const ctrl = normalizedSinglePayload
+    ? normalizedSinglePayload.ctrl
+    : normalizeCtrlPayload(valueToObject(payload.text1));
+  const status = normalizedSinglePayload
+    ? normalizedSinglePayload.status
+    : normalizeStatusPayload(valueToObject(payload.text2));
+  const settings = normalizedSinglePayload
+    ? normalizedSinglePayload.settings
+    : normalizeSettingsPayload(valueToObject(payload.text3));
+  const app = normalizedSinglePayload
+    ? normalizedSinglePayload.app
+    : normalizeAppPayload(valueToObject(payload.text4));
+
+  const singleRecord = {
+    v: normalizedSinglePayload?.v ?? 1,
+    ctrl: compactCtrlPayload(ctrl),
+    status: compactStatusPayload(status),
+    settings: compactSettingsPayload(settings),
+    app: compactAppPayload(app),
+  };
+
+  return [buildTextRecord(singleRecord)];
 }
 
 export async function start() {
@@ -343,6 +425,7 @@ async function withNfcOperation(operation, fallbackMessage) {
       throw normalizeNfcError(error, fallbackMessage);
     } finally {
       nfcOperationInFlight = false;
+      await closeIosSessionNow();
       await cancel();
       if (Platform.OS === "ios") {
         // Prevent rapid back-to-back requestTechnology calls while iOS NFC
@@ -473,7 +556,7 @@ export async function writeNdef(records) {
     try {
       await NfcManager.requestTechnology(NfcTech.Ndef, {
         alertMessage: "Hold your phone near the cup to write NDEF.",
-        invalidateAfterFirstRead: true,
+        invalidateAfterFirstRead: false,
       });
     } catch (error) {
       throw createNfcStageError(
@@ -512,7 +595,7 @@ export async function readWriteNdef(recordsOrBuilder) {
     try {
       await NfcManager.requestTechnology(NfcTech.Ndef, {
         alertMessage: "Hold your phone near the cup to read and write NDEF.",
-        invalidateAfterFirstRead: true,
+        invalidateAfterFirstRead: false,
       });
     } catch (error) {
       throw createNfcStageError(
@@ -559,10 +642,12 @@ export async function readWriteNdef(recordsOrBuilder) {
     }
     await closeIosSessionNow();
 
+    const nextParsed = parseNdefMessage(message);
+
     return {
       ok: true,
       tag,
-      parsed,
+      parsed: nextParsed,
       recordCount: ndefMessage.length,
     };
   }, "Unable to update cup via NFC.");

@@ -36,7 +36,6 @@ CupState run() {
   float v = drivers::battery::readVoltage();
   gStatus.battery = drivers::battery::estimatePercent(v);
 
-  drivers::nfc::begin();
   drivers::nfc::writeCupRecords(gState, gStatus, gSettings);
 
   //1st blink:
@@ -50,7 +49,6 @@ CupState run() {
   drivers::power::sleepLockoutMs(5000);
 
   // read latest app values
-  drivers::nfc::begin();
   drivers::nfc::readState(gState);
   drivers::nfc::readSettings(gSettings);
 

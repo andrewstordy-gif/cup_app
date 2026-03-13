@@ -11,7 +11,6 @@ import {
   readWriteNdef,
   sampleNdefPayload,
   start,
-  writeNdef,
 } from "../../../services/nfcService";
 import { logAppError } from "../../../services/errorLogger";
 
@@ -22,6 +21,16 @@ function JsonCard({ title, data }) {
       <Text style={styles.cardBody}>{JSON.stringify(data || {}, null, 2)}</Text>
     </View>
   );
+}
+
+function buildSingleRecordPreview(records) {
+  return {
+    v: records?.v ?? 1,
+    ctrl: toCompactRecord1(records?.text1),
+    status: toCompactRecord2(records?.text2),
+    settings: toCompactRecord3(records?.text3),
+    app: toCompactRecord4(records?.text4),
+  };
 }
 
 function toCompactRecord1(data) {
@@ -213,26 +222,26 @@ export function NfcServiceTestScreen({ onBackPress }) {
         Number.isNaN(parsed.maxTime) ||
         Number.isNaN(parsed.ledBrightness)
       ) {
-        setStatus("Please enter valid numeric values for Text 1 and Text 3 fields.");
+        setStatus("Please enter valid numeric values for ctrl.s and settings fields.");
         return;
       }
 
       const parsedCupNumber = Number.parseInt(cupNumber, 10);
       if (Number.isNaN(parsedCupNumber) || parsedCupNumber < 1 || parsedCupNumber > 5) {
-        setStatus("Please set Text 4 cupNumber to a value between 1 and 5.");
+        setStatus("Please set app.cupNumber to a value between 1 and 5.");
         return;
       }
 
       if (!coffeeName.trim() || !coffeeProcess.trim() || !sessionType.trim() || !sessionName.trim() || !sessionDate.trim() || !sessionUUID.trim()) {
-        setStatus("Please fill all Text 4 fields before writing.");
+        setStatus("Please fill all app fields before writing.");
         return;
       }
 
-      await writeNdef({
-        ...sampleNdefPayload,
+      const result = await readWriteNdef((currentParsed) => ({
         text1: {
           state: parsed.state,
         },
+        text2: currentParsed?.text2 ?? currentParsed?.raw?.text2 ?? {},
         text3: {
           triggerTemp: parsed.triggerTemp,
           maxStartTemp: parsed.maxStartTemp,
@@ -250,8 +259,9 @@ export function NfcServiceTestScreen({ onBackPress }) {
           sessionDate: sessionDate.trim(),
           sessionUUID: sessionUUID.trim(),
         },
-      });
-      setStatus("Write successful (Text 1-4 payload written)");
+      }));
+      setRecords(result?.parsed || null);
+      setStatus("Write successful (single-record payload written)");
     });
   };
 
@@ -278,7 +288,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
         Number.isNaN(parsedFields.maxTime) ||
         Number.isNaN(parsedFields.ledBrightness)
       ) {
-        setStatus("Please enter valid numeric values for Text 1 and Text 3 fields.");
+        setStatus("Please enter valid numeric values for ctrl.s and settings fields.");
         return;
       }
 
@@ -293,7 +303,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
         !sessionDate.trim() ||
         !sessionUUID.trim()
       ) {
-        setStatus("Please fill all Text 4 fields and set cupNumber (1-5) before writing.");
+        setStatus("Please fill all app fields and set cupNumber (1-5) before writing.");
         return;
       }
       const parsedCupNumber = Number.parseInt(cupNumber, 10);
@@ -391,10 +401,10 @@ export function NfcServiceTestScreen({ onBackPress }) {
 
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Write Payload Fields</Text>
-          <Text style={styles.cardCaption}>Edit field values for NDEF Text 1, 3 and 4.</Text>
+          <Text style={styles.cardCaption}>Edit field values for the single NDEF record sections.</Text>
 
           <View style={styles.editorBlock}>
-            <Text style={styles.editorLabel}>NDEF Text 1</Text>
+            <Text style={styles.editorLabel}>ctrl</Text>
             <View style={styles.fieldRow}>
               <Text style={styles.fieldName}>state</Text>
               <TextInput
@@ -402,13 +412,13 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setStateValue}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 1 state"
+                accessibilityLabel="Edit ctrl state"
               />
             </View>
           </View>
 
           <View style={styles.editorBlock}>
-            <Text style={styles.editorLabel}>NDEF Text 3</Text>
+            <Text style={styles.editorLabel}>settings</Text>
             <View style={styles.fieldRow}>
               <Text style={styles.fieldName}>triggerTemp</Text>
               <TextInput
@@ -416,7 +426,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setTriggerTemp}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 3 triggerTemp"
+                accessibilityLabel="Edit settings triggerTemp"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -426,7 +436,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setMaxStartTemp}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 3 maxStartTemp"
+                accessibilityLabel="Edit settings maxStartTemp"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -436,7 +446,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setBrewTime}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 3 brewTime"
+                accessibilityLabel="Edit settings brewTime"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -446,7 +456,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setMaxCupTemp}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 3 maxCupTemp"
+                accessibilityLabel="Edit settings maxCupTemp"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -456,7 +466,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setMaxTime}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 3 maxTime"
+                accessibilityLabel="Edit settings maxTime"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -466,20 +476,20 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setLedBrightness}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 3 ledBrightness"
+                accessibilityLabel="Edit settings ledBrightness"
               />
             </View>
           </View>
 
           <View style={styles.editorBlock}>
-            <Text style={styles.editorLabel}>NDEF Text 4</Text>
+            <Text style={styles.editorLabel}>app</Text>
             <View style={styles.fieldRow}>
               <Text style={styles.fieldName}>coffeeName</Text>
               <TextInput
                 value={coffeeName}
                 onChangeText={setCoffeeName}
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 4 coffeeName"
+                accessibilityLabel="Edit app coffeeName"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -488,7 +498,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 value={coffeeProcess}
                 onChangeText={setCoffeeProcess}
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 4 coffeeProcess"
+                accessibilityLabel="Edit app coffeeProcess"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -497,7 +507,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 value={sessionName}
                 onChangeText={setSessionName}
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 4 sessionName"
+                accessibilityLabel="Edit app sessionName"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -507,7 +517,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 onChangeText={setCupNumber}
                 keyboardType="number-pad"
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 4 cupNumber"
+                accessibilityLabel="Edit app cupNumber"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -516,7 +526,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 value={sessionType}
                 onChangeText={setSessionType}
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 4 sessionType"
+                accessibilityLabel="Edit app sessionType"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -525,7 +535,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 value={sessionDate}
                 onChangeText={setSessionDate}
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 4 sessionDate"
+                accessibilityLabel="Edit app sessionDate"
               />
             </View>
             <View style={styles.fieldRow}>
@@ -534,16 +544,17 @@ export function NfcServiceTestScreen({ onBackPress }) {
                 value={sessionUUID}
                 onChangeText={setSessionUUID}
                 style={styles.fieldInput}
-                accessibilityLabel="Edit NDEF Text 4 sessionUUID"
+                accessibilityLabel="Edit app sessionUUID"
               />
             </View>
           </View>
         </View>
 
-        <JsonCard title="NDEF Text 1" data={toCompactRecord1(records.text1)} />
-        <JsonCard title="NDEF Text 2" data={toCompactRecord2(records.text2)} />
-        <JsonCard title="NDEF Text 3" data={toCompactRecord3(records.text3)} />
-        <JsonCard title="NDEF Text 4" data={toCompactRecord4(records.text4)} />
+        <JsonCard title="NDEF Record" data={buildSingleRecordPreview(records)} />
+        <JsonCard title="ctrl" data={toCompactRecord1(records.text1)} />
+        <JsonCard title="status" data={toCompactRecord2(records.text2)} />
+        <JsonCard title="settings" data={toCompactRecord3(records.text3)} />
+        <JsonCard title="app" data={toCompactRecord4(records.text4)} />
       </ScreenContainer>
     </View>
   );

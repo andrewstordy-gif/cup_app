@@ -25,50 +25,25 @@ void enter() {
 }
 
 CupState run() {
-
-  //read the temp:
-  drivers::temp::begin();
-  float t = drivers::temp::read();  // °C
-  gStatus.temp = t * 10;            // store as ×10, update gStatus
-
-  // read the battery:
-  drivers::battery::begin();
-  float v = drivers::battery::readVoltage();               // read the battery voltage
-  gStatus.battery = drivers::battery::estimatePercent(v);  //store the battery
-
-  //switch the LED on:
+  // OFF is a true low-power state. Sleep until the ST25 NFC interrupt wakes us.
   drivers::led::begin();
-  drivers::led::on();
-
-  //write the cup records:
-  drivers::nfc::begin();
-  drivers::nfc::writeCupRecords(gState, gStatus, gSettings);
-  drivers::nfc::end();
-
-  //switch the LED off:
-  drivers::led::begin();
-  drivers::led::on();
-
-  drivers::power::sleepLockoutMs(5000);  // wiat in sleep for 5 seconds (during this piriod the tag is scanned)
-
-  //wake up and check if the status or settings have changed...
-
-  //switch the LED on:
-  drivers::led::begin();
-  drivers::led::on();
-
-  // Initialise NFC driver (powers tag, formats if needed)
-  drivers::nfc::begin();
-
-  // Read the state from the NFC tag and store in gState
-  drivers::nfc::readState(gState);
-
-  //read the Settings (record 3)
-  drivers::nfc::readSettings(gSettings);
-  drivers::nfc::end();
-
-//switch the LED off:
   drivers::led::off();
+  drivers::power::enterDeepSleepNfcWake();
+
+  // When woken by NFC, refresh internal measurements and then inspect the tag
+  // for requested state/settings changes.
+  if (drivers::power::wakeReason == drivers::power::WakeReason::Nfc) {
+    drivers::temp::begin();
+    float t = drivers::temp::read();
+    gStatus.temp = (uint16_t)(t * 10.0f);
+
+    drivers::battery::begin();
+    float v = drivers::battery::readVoltage();
+    gStatus.battery = drivers::battery::estimatePercent(v);
+
+    drivers::nfc::readState(gState);
+    drivers::nfc::readSettings(gSettings);
+  }
 
 
   // act on requested state
