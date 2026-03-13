@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Cup App Mockup",
+    "slug": "cup-app-mockup",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#f4efe6"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NFCReaderUsageDescription": "This app reads and writes NDEF data to your coffee cup."
+      },
+      "bundleIdentifier": "com.andrewstordy.cupappmockup"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#f4efe6"
+      },
+      "permissions": [
+        "android.permission.NFC"
+      ],
+      "package": "com.andrewstordy.cupappmockup"
+    },
+    "web": {
+      "bundler": "metro"
+    },
+    "plugins": [
+      "react-native-nfc-manager"
+    ]
+  }
+}
