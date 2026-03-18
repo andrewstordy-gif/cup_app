@@ -60,6 +60,17 @@ src/
 
 `nfcService` normalizes compact/full key variants when reading and writes compact keys when encoding.
 
+## Firmware Timing Notes
+
+Measured on 2026-03-16 during `OFF` state wake handling after ST25 field-detect wake:
+
+- Read temperature: `54-55 ms` average `54.8 ms`
+- Read battery: `2-3 ms` average `2.2 ms`
+- Write NFC records: `232-233 ms` average `232.8 ms`
+- Total for temp + battery + NDEF write: about `290 ms`
+
+These timings were captured from repeated wake cycles using Arduino serial logging on the multi-record firmware path.
+
 ## Home Scan Behavior
 
 - Tap cup image overlay to scan.

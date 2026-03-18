@@ -2,21 +2,14 @@ import NfcManager, { Ndef, NfcTech } from "react-native-nfc-manager";
 import { Platform } from "react-native";
 
 let started = false;
-let nfcOperationInFlight = false;
 let nfcOperationQueue = Promise.resolve();
+
 const WRITE_BLOCK_FLAG = "__CUPPING_READ_ONLY_NFC_WRITE_BLOCK__";
 const IOS_SESSION_SETTLE_MS = 260;
-
-function createNfcStageError(stage, error, fallbackMessage) {
-  const raw = String(error?.message || error || "").trim();
-  const message = raw || fallbackMessage;
-  const wrapped = new Error(message);
-  wrapped.nfcStage = stage;
-  wrapped.nfcCode = `NFC_${String(stage || "unknown").toUpperCase()}`;
-  wrapped.nfcRawError = raw || null;
-  wrapped.nfcFallbackMessage = fallbackMessage || null;
-  return wrapped;
-}
+const NDEF_RETRY_DELAY_MS = 250;
+const NDEF_RETRY_ATTEMPTS = 2;
+const IOS_SESSION_ERROR_COOLDOWN_MS = 1000;
+let nextNfcSessionAllowedAt = 0;
 
 function assertWriteAllowed() {
   if (globalThis?.[WRITE_BLOCK_FLAG]) {
@@ -137,6 +130,7 @@ function compactText1Payload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
+
   const state = payload.state ?? payload.s;
   return state === undefined ? {} : { s: state };
 }
@@ -145,10 +139,12 @@ function compactText2Payload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
+
   const temp = payload.t ?? payload.temp;
   const time = payload.m ?? payload.time ?? payload.tm;
   const battery = payload.b ?? payload.battery;
   const uuid = payload.u ?? payload.UUID ?? payload.uuid;
+
   return {
     ...(temp !== undefined ? { t: temp } : {}),
     ...(time !== undefined ? { m: time } : {}),
@@ -161,12 +157,14 @@ function compactText3Payload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
+
   const triggerTemp = payload.r ?? payload.triggerTemp;
   const maxStartTemp = payload.a ?? payload.maxStartTemp;
   const brewTime = payload.w ?? payload.brewTime;
   const maxCupTemp = payload.c ?? payload.maxCupTemp;
   const maxTime = payload.x ?? payload.maxTime;
   const ledBrightness = payload.l ?? payload.ledBrightness;
+
   return {
     ...(triggerTemp !== undefined ? { r: triggerTemp } : {}),
     ...(maxStartTemp !== undefined ? { a: maxStartTemp } : {}),
@@ -181,6 +179,7 @@ function compactText4Payload(payload) {
   if (!payload || typeof payload !== "object") {
     return {};
   }
+
   const coffeeName = payload.n ?? payload.coffeeName;
   const coffeeProcess = payload.p ?? payload.coffeeProcess;
   const cupNumber = payload.y ?? payload.cupNumber;
@@ -188,6 +187,7 @@ function compactText4Payload(payload) {
   const sessionType = payload.t ?? payload.sessionType;
   const sessionDate = payload.d ?? payload.sessionDate;
   const sessionUUID = payload.u ?? payload.sessionUUID;
+
   return {
     ...(coffeeName !== undefined ? { n: coffeeName } : {}),
     ...(coffeeProcess !== undefined ? { p: coffeeProcess } : {}),
@@ -204,9 +204,7 @@ function pickTextRecord(message, index) {
     return null;
   }
 
-  const record = message[index];
-  const text = decodeTextRecord(record);
-  return text || null;
+  return decodeTextRecord(message[index]);
 }
 
 export function parseNdefMessage(message) {
@@ -215,16 +213,11 @@ export function parseNdefMessage(message) {
   const text3Raw = pickTextRecord(message, 2);
   const text4Raw = pickTextRecord(message, 3);
 
-  const parsedText1 = normalizeText1Payload(safeJsonParse(text1Raw));
-  const parsedText2 = normalizeText2Payload(safeJsonParse(text2Raw));
-  const parsedText3 = normalizeText3Payload(safeJsonParse(text3Raw));
-  const parsedText4 = normalizeText4Payload(safeJsonParse(text4Raw));
-
   return {
-    text1: parsedText1,
-    text2: parsedText2,
-    text3: parsedText3,
-    text4: parsedText4,
+    text1: normalizeText1Payload(safeJsonParse(text1Raw)),
+    text2: normalizeText2Payload(safeJsonParse(text2Raw)),
+    text3: normalizeText3Payload(safeJsonParse(text3Raw)),
+    text4: normalizeText4Payload(safeJsonParse(text4Raw)),
     raw: {
       text1: text1Raw,
       text2: text2Raw,
@@ -276,10 +269,101 @@ function delay(ms) {
   });
 }
 
+function normalizeNfcError(error, fallbackMessage) {
+  const stack = String(error?.stack || "");
+  if (stack.includes("UserCancel")) {
+    return new Error("NFC read session was cancelled.");
+  }
+  if (stack.includes("SystemBusy")) {
+    return new Error("NFC scanner is still busy closing the previous session.");
+  }
+
+  const message = String(error?.message || error || "").trim();
+  if (!message) {
+    return new Error(fallbackMessage);
+  }
+  return new Error(message);
+}
+
+function padTime(value, width = 2) {
+  return String(value).padStart(width, "0");
+}
+
+function logTimestamp() {
+  const now = new Date();
+  return `${padTime(now.getHours())}:${padTime(now.getMinutes())}:${padTime(now.getSeconds())}.${padTime(now.getMilliseconds(), 3)}`;
+}
+
+function logNativeNfcError(stage, error) {
+  const ts = logTimestamp();
+  console.log(`${ts} NFC native error stage: ${stage}`);
+  console.log(`${ts} NFC native error object:`, error);
+  console.log(`${ts} NFC native error message:`, error?.message);
+  console.log(`${ts} NFC native error code:`, error?.code);
+  console.log(`${ts} NFC native error stack:`, error?.stack);
+  try {
+    console.log(`${ts} NFC native error property names:`, Object.getOwnPropertyNames(error || {}));
+  } catch {
+    console.log(`${ts} NFC native error property names: <unavailable>`);
+  }
+  try {
+    console.log(`${ts} NFC native error JSON:`, JSON.stringify(error, null, 2));
+  } catch {
+    console.log(`${ts} NFC native error JSON: <unserializable>`);
+  }
+}
+
+function logNfcEvent(stage, payload) {
+  const ts = logTimestamp();
+  if (payload === undefined) {
+    console.log(`${ts} NFC ${stage}`);
+    return;
+  }
+
+  console.log(`${ts} NFC ${stage}:`, payload);
+}
+
+function summarizeTag(tag) {
+  if (!tag || typeof tag !== "object") {
+    return { present: false };
+  }
+
+  const techTypes = Array.isArray(tag.techTypes) ? tag.techTypes : [];
+  const ndefMessage = Array.isArray(tag.ndefMessage) ? tag.ndefMessage : [];
+
+  return {
+    present: true,
+    id: tag.id ?? null,
+    techTypes,
+    type: tag.type ?? null,
+    ndefStatus: tag.ndefStatus ?? null,
+    maxSize: tag.maxSize ?? null,
+    canMakeReadOnly: tag.canMakeReadOnly ?? null,
+    ndefRecordCount: ndefMessage.length,
+    keys: Object.keys(tag).sort(),
+  };
+}
+
+function hasNdefMessage(tag) {
+  return Array.isArray(tag?.ndefMessage);
+}
+
+async function waitForNfcSessionCooldown() {
+  const now = Date.now();
+  if (now >= nextNfcSessionAllowedAt) {
+    return;
+  }
+
+  const delayMs = nextNfcSessionAllowedAt - now;
+  logNfcEvent("waiting for session cooldown", { delayMs });
+  await delay(delayMs);
+}
+
 async function closeIosSessionNow() {
   if (Platform.OS !== "ios") {
     return;
   }
+
   try {
     await NfcManager.invalidateSessionIOS();
   } catch {
@@ -287,66 +371,99 @@ async function closeIosSessionNow() {
   }
 }
 
-function normalizeNfcError(error, fallbackMessage) {
-  const raw = String(error?.message || error || "").trim();
-  const lower = raw.toLowerCase();
-  const stage = error?.nfcStage || null;
-  const code = error?.nfcCode || null;
-  const nativeRaw = error?.nfcRawError || raw || null;
-  const fallback = error?.nfcFallbackMessage || fallbackMessage || null;
-  const context = error?.nfcContext || null;
+async function requestNdefTechnology(alertMessage, invalidateAfterFirstRead) {
+  try {
+    await waitForNfcSessionCooldown();
+    await NfcManager.requestTechnology(NfcTech.Ndef, {
+      alertMessage,
+      invalidateAfterFirstRead,
+    });
+  } catch (error) {
+    const stack = String(error?.stack || "");
+    if (stack.includes("UserCancel") || stack.includes("SystemBusy")) {
+      nextNfcSessionAllowedAt = Date.now() + IOS_SESSION_ERROR_COOLDOWN_MS;
+      logNfcEvent("session cooldown armed", {
+        delayMs: IOS_SESSION_ERROR_COOLDOWN_MS,
+      });
+    }
+    logNativeNfcError("requestTechnology", error);
+    throw normalizeNfcError(error, "Unable to start NFC session.");
+  }
+}
 
-  const wrapNormalized = (message) => {
-    const normalized = new Error(message);
-    normalized.nfcStage = stage;
-    normalized.nfcCode = code;
-    normalized.nfcRawError = nativeRaw;
-    normalized.nfcFallbackMessage = fallback;
-    normalized.nfcContext = context;
-    return normalized;
-  };
+async function getCurrentTag() {
+  try {
+    return await NfcManager.getTag();
+  } catch (error) {
+    logNativeNfcError("getTag", error);
+    throw normalizeNfcError(error, "Unable to read NFC tag data.");
+  }
+}
 
-  if (!raw || lower === "error") {
-    return wrapNormalized(fallback || "Unexpected NFC error.");
+async function getCurrentTagWithNdefRetry(stage) {
+  let tag = await getCurrentTag();
+  logNfcEvent(`${stage} tag summary`, summarizeTag(tag));
+
+  if (hasNdefMessage(tag) || !tag?.id) {
+    return tag;
   }
 
-  if (lower.includes("cancelled") || lower.includes("canceled")) {
-    return wrapNormalized("Scan cancelled.");
+  for (let attempt = 1; attempt <= NDEF_RETRY_ATTEMPTS; attempt += 1) {
+    logNfcEvent(`${stage} missing ndefMessage, retrying`, {
+      id: tag.id,
+      attempt,
+      delayMs: NDEF_RETRY_DELAY_MS,
+    });
+    await delay(NDEF_RETRY_DELAY_MS);
+
+    tag = await getCurrentTag();
+    logNfcEvent(`${stage} retry tag summary`, {
+      attempt,
+      ...summarizeTag(tag),
+    });
+
+    if (hasNdefMessage(tag)) {
+      return tag;
+    }
   }
 
-  if (
-    lower.includes("busy") ||
-    lower.includes("one request at a time") ||
-    lower.includes("duplicated registration") ||
-    lower.includes("already registered")
-  ) {
-    return wrapNormalized("NFC session is busy. Please wait a moment and scan again.");
+  return tag;
+}
+
+function encodeRecords(records) {
+  let bytes;
+
+  try {
+    bytes = Ndef.encodeMessage(buildNdefRecords(records));
+  } catch (error) {
+    throw normalizeNfcError(error, "Unable to encode NDEF payload.");
   }
 
-  if (
-    lower.includes("tag connection lost") ||
-    lower.includes("tag was lost") ||
-    lower.includes("session invalidated")
-  ) {
-    return wrapNormalized("NFC tag moved too quickly. Hold near cup and retry.");
+  if (!bytes) {
+    throw new Error("Unable to encode NDEF payload.");
   }
 
-  return wrapNormalized(raw);
+  return bytes;
+}
+
+async function writeEncodedMessage(bytes) {
+  try {
+    await NfcManager.ndefHandler.writeNdefMessage(bytes);
+  } catch (error) {
+    logNativeNfcError("writeNdefMessage", error);
+    throw normalizeNfcError(error, "Unable to write NDEF payload.");
+  }
 }
 
 async function withNfcOperation(operation, fallbackMessage) {
   const runOperation = async () => {
-    nfcOperationInFlight = true;
     try {
       return await operation();
     } catch (error) {
       throw normalizeNfcError(error, fallbackMessage);
     } finally {
-      nfcOperationInFlight = false;
       await cancel();
       if (Platform.OS === "ios") {
-        // Prevent rapid back-to-back requestTechnology calls while iOS NFC
-        // session teardown is still completing in native.
         await delay(IOS_SESSION_SETTLE_MS);
       }
     }
@@ -357,149 +474,42 @@ async function withNfcOperation(operation, fallbackMessage) {
   return queuedOperation;
 }
 
-export async function readNdef(options = {}) {
-  const {
-    maxAttempts = 2,
-    retryDelayMs = 90,
-    onRetry,
-    maxRequestAttempts = 2,
-  } = options;
-
+export async function readNdef() {
   return withNfcOperation(async () => {
     await start();
-    const requestAttempts = Math.max(1, Number.parseInt(maxRequestAttempts, 10) || 1);
-    let technologyRequested = false;
-    let lastRequestError = null;
+    logNfcEvent("read start");
+    await requestNdefTechnology("Hold your phone near the cup to read NDEF.", false);
+    const tag = await getCurrentTagWithNdefRetry("read");
+    const ndefMessage = tag?.ndefMessage || [];
+    const parsed = parseNdefMessage(ndefMessage);
 
-    for (let reqAttempt = 1; reqAttempt <= requestAttempts; reqAttempt += 1) {
-      try {
-        await NfcManager.requestTechnology(NfcTech.Ndef, {
-          alertMessage: "Hold your phone near the cup to read NDEF.",
-          invalidateAfterFirstRead: true,
-        });
-        technologyRequested = true;
-        break;
-      } catch (error) {
-        lastRequestError = createNfcStageError(
-          "request_technology_read",
-          error,
-          "Unable to start NFC scan session."
-        );
-        if (reqAttempt < requestAttempts) {
-          if (typeof onRetry === "function") {
-            onRetry({
-              attempt: reqAttempt,
-              maxAttempts: requestAttempts,
-              reason: "request_tech_error",
-            });
-          }
-          await cancel();
-          await delay(retryDelayMs);
-          continue;
-        }
-      }
-    }
+    logNfcEvent("read result", {
+      recordCount: ndefMessage.length,
+      text1: parsed.text1,
+      text2: parsed.text2,
+      text3: parsed.text3,
+      text4: parsed.text4,
+    });
 
-    if (!technologyRequested) {
-      throw lastRequestError || new Error("Unable to start NFC scan session.");
-    }
-
-    let lastTag = null;
-    let lastRecordCount = 0;
-    const attempts = Math.max(1, Number.parseInt(maxAttempts, 10) || 1);
-    let lastGetTagError = null;
-
-    for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      let tag = null;
-      let ndefMessage = [];
-      let recordCount = 0;
-
-      try {
-        tag = await NfcManager.getTag();
-        ndefMessage = tag?.ndefMessage || [];
-        recordCount = ndefMessage.length;
-        lastGetTagError = null;
-      } catch (error) {
-        lastGetTagError = createNfcStageError(
-          "get_tag_read",
-          error,
-          "Unable to read NFC tag data."
-        );
-      }
-
-      lastTag = tag;
-      lastRecordCount = recordCount;
-
-      if (recordCount > 0) {
-        await closeIosSessionNow();
-        return {
-          tag,
-          parsed: parseNdefMessage(ndefMessage),
-          recordCount,
-          attemptCount: attempt,
-        };
-      }
-
-      if (attempt < attempts) {
-        if (typeof onRetry === "function") {
-          onRetry({
-            attempt,
-            maxAttempts: attempts,
-            reason: lastGetTagError ? "get_tag_error" : "empty_ndef",
-          });
-        }
-        await delay(retryDelayMs);
-        continue;
-      }
-
-      if (lastGetTagError) {
-        throw lastGetTagError;
-      }
-    }
-
+    await closeIosSessionNow();
     return {
-      tag: lastTag,
-      parsed: parseNdefMessage([]),
-      recordCount: lastRecordCount,
-      attemptCount: attempts,
+      tag,
+      parsed,
+      recordCount: ndefMessage.length,
     };
-  }, "Unable to scan cup. Please try again.");
+  }, "Unable to scan cup.");
 }
 
 export async function writeNdef(records) {
   assertWriteAllowed();
+
   return withNfcOperation(async () => {
     await start();
-    try {
-      await NfcManager.requestTechnology(NfcTech.Ndef, {
-        alertMessage: "Hold your phone near the cup to write NDEF.",
-        invalidateAfterFirstRead: true,
-      });
-    } catch (error) {
-      throw createNfcStageError(
-        "request_technology_write",
-        error,
-        "Unable to start NFC write session."
-      );
-    }
-
-    const message = buildNdefRecords(records);
-    let bytes;
-    try {
-      bytes = Ndef.encodeMessage(message);
-    } catch (error) {
-      throw createNfcStageError("encode_ndef_write", error, "Unable to encode NDEF payload.");
-    }
-
-    if (!bytes) {
-      throw new Error("Unable to encode NDEF payload.");
-    }
-
-    try {
-      await NfcManager.ndefHandler.writeNdefMessage(bytes);
-    } catch (error) {
-      throw createNfcStageError("write_ndef", error, "Unable to write NDEF payload.");
-    }
+    logNfcEvent("write start", records);
+    await requestNdefTechnology("Hold your phone near the cup to write NDEF.", false);
+    const bytes = encodeRecords(records);
+    await writeEncodedMessage(bytes);
+    logNfcEvent("write success", { byteLength: bytes.length });
     await closeIosSessionNow();
     return { ok: true };
   }, "Unable to write NFC tag.");
@@ -507,56 +517,33 @@ export async function writeNdef(records) {
 
 export async function readWriteNdef(recordsOrBuilder) {
   assertWriteAllowed();
+
   return withNfcOperation(async () => {
     await start();
-    try {
-      await NfcManager.requestTechnology(NfcTech.Ndef, {
-        alertMessage: "Hold your phone near the cup to read and write NDEF.",
-        invalidateAfterFirstRead: true,
-      });
-    } catch (error) {
-      throw createNfcStageError(
-        "request_technology_read_write",
-        error,
-        "Unable to start NFC read/write session."
-      );
-    }
+    logNfcEvent("readWrite start");
+    await requestNdefTechnology("Hold your phone near the cup to read and write NDEF.", false);
 
-    let tag;
-    try {
-      tag = await NfcManager.getTag();
-    } catch (error) {
-      throw createNfcStageError("get_tag_read_write", error, "Unable to read NFC tag data.");
-    }
+    const tag = await getCurrentTagWithNdefRetry("readWrite");
     const ndefMessage = tag?.ndefMessage || [];
     const parsed = parseNdefMessage(ndefMessage);
-
+    logNfcEvent("readWrite read result", {
+      recordCount: ndefMessage.length,
+      text1: parsed.text1,
+      text2: parsed.text2,
+      text3: parsed.text3,
+      text4: parsed.text4,
+    });
     const nextRecords =
       typeof recordsOrBuilder === "function"
         ? await recordsOrBuilder(parsed, tag)
         : recordsOrBuilder;
 
-    const message = buildNdefRecords(nextRecords || {});
-    let bytes;
-    try {
-      bytes = Ndef.encodeMessage(message);
-    } catch (error) {
-      throw createNfcStageError(
-        "encode_ndef_read_write",
-        error,
-        "Unable to encode NDEF payload."
-      );
-    }
-
-    if (!bytes) {
-      throw new Error("Unable to encode NDEF payload.");
-    }
-
-    try {
-      await NfcManager.ndefHandler.writeNdefMessage(bytes);
-    } catch (error) {
-      throw createNfcStageError("write_ndef_read_write", error, "Unable to write NDEF payload.");
-    }
+    const bytes = encodeRecords(nextRecords || {});
+    await writeEncodedMessage(bytes);
+    logNfcEvent("readWrite write success", {
+      byteLength: bytes.length,
+      nextRecords: nextRecords || {},
+    });
     await closeIosSessionNow();
 
     return {
@@ -572,7 +559,7 @@ export async function cancel() {
   try {
     await NfcManager.cancelTechnologyRequest();
   } catch {
-    // no-op: request may already be closed
+    // no-op
   }
 }
 

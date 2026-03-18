@@ -12,9 +12,13 @@ namespace drivers::nfc {
 
 static SFE_ST25DV64KC_NDEF tag;
 static bool tagInitialised = false;
+static uint8_t gLastWriteCupFailCode = WriteCupFailNone;
 static constexpr uint16_t MAX_FREE_RECORD_LEN = 256;
 static constexpr uint16_t REG_RF_MNGT_DYN = 0x2003;
 static constexpr uint8_t BIT_RF_DISABLE = (1 << 0);
+static constexpr uint8_t TAG_INIT_MAX_ATTEMPTS = 5;
+static constexpr SF_ST25DV64KC_ADDRESS DYN_ADDR =
+    SF_ST25DV64KC_ADDRESS::DATA;
 
 // --------------------------------------------------
 
@@ -24,7 +28,7 @@ static void powerOn()
   // 1) Assert LPD HIGH first (per AN5733)
   pinMode(ST25DVLPD_PIN, OUTPUT);          // LPD
   digitalWrite(ST25DVLPD_PIN, HIGH);
-  delayMicroseconds(10);       // allow internal switch
+  delay(1);       // allow internal switch
 
   // 2) Apply VCC
   pinMode(ST25DVPWR_PIN, OUTPUT);
@@ -59,20 +63,51 @@ static void powerOff()
 
 // --------------------------------------------------
 
-static void readUidHex(char *out, size_t len)
+static bool readUidHex(char *out, size_t len)
 {
   uint8_t uid[8];
 
   // NOTE: correct SparkFun API
   if (!tag.getDeviceUID(uid)) {
     out[0] = '\0';
-    return;
+    return false;
   }
 
   snprintf(out, len,
            "%02X%02X%02X%02X%02X%02X%02X%02X",
            uid[0], uid[1], uid[2], uid[3],
            uid[4], uid[5], uid[6], uid[7]);
+  return true;
+}
+
+
+// --------------------------------------------------
+
+static bool disableRf()
+{
+  return tag.st25_io.setRegisterBit(DYN_ADDR, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
+}
+
+static bool disableRfWithRetry()
+{
+  if (disableRf()) return true;
+  delay(5);
+  return disableRf();
+}
+
+static bool enableRf()
+{
+  return tag.st25_io.clearRegisterBit(DYN_ADDR, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
+}
+
+static bool beginTagWithWait()
+{
+  const unsigned long start = millis();
+  while ((millis() - start) < 25) {
+    if (tag.begin(Wire)) return true;
+    delay(5);
+  }
+  return false;
 }
 
 
@@ -86,36 +121,15 @@ static bool writeAllRecords(
 )
 {
   if (!tagInitialised) return false;
-
-  // Dynamic register write: temporarily disable RF command processing while
-  // we rewrite the full multi-record NDEF payload over I2C.
-  const SF_ST25DV64KC_ADDRESS systemAddr =
-      static_cast<SF_ST25DV64KC_ADDRESS>(1); // SYSTEM
-  const bool rfDisabled =
-      tag.st25_io.setRegisterBit(systemAddr, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
-
-  if (!tag.writeCCFile8Byte()) {
-    if (rfDisabled) {
-      tag.st25_io.clearRegisterBit(systemAddr, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
-    }
-    return false;
-  }
+  if (!tag.writeCCFile8Byte()) return false;
 
   uint16_t memLoc = tag.getCCFileLen();
 
-  const bool writeOk =
+  return
       tag.writeNDEFText(rec1, &memLoc, true, false) &&
       tag.writeNDEFText(rec2, &memLoc, false, false) &&
       tag.writeNDEFText(rec3, &memLoc, false, false) &&
       tag.writeNDEFText(rec4, &memLoc, false, true);
-
-  // Best-effort re-enable: even if writes fail, try to restore RF availability.
-  bool rfEnabled = true;
-  if (rfDisabled) {
-    rfEnabled = tag.st25_io.clearRegisterBit(systemAddr, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
-  }
-
-  return writeOk && rfEnabled;
 }
 
 // --------------------------------------------------
@@ -124,41 +138,75 @@ static bool writeAllRecords(
 
 void begin()
 {
-  powerOn();
+  tagInitialised = false;
+  gLastWriteCupFailCode = WriteCupFailNone;
 
-  Wire.begin();
+  for (uint8_t attempt = 0; attempt < TAG_INIT_MAX_ATTEMPTS; ++attempt) {
+    powerOn();
+    Wire.begin();
 
-  if (!tag.begin(Wire)) {
+    if (beginTagWithWait()) {
+      // Give the tag a brief settle period after I2C init before the first
+      // higher-level accesses. This is a practical guard for the init/write path,
+      // not a replacement for the datasheet tbootLPD requirement.
+      delay(5);
+      tagInitialised = true;
+      Wire.end();
+      return;
+    }
+
     Wire.end();
-    return;
+    powerOff();
+
+    if (attempt + 1 < TAG_INIT_MAX_ATTEMPTS) {
+      delay(5);
+    }
   }
 
-  tagInitialised = true;
-
-  char tmp[16];
-  if (!tag.readNDEFText(tmp, sizeof(tmp), 1)) {
-    drivers::json::State    s;
-    drivers::json::Status   st;
-    drivers::json::Settings cfg;
-
-    drivers::json::initState(s);
-    drivers::json::initStatus(st);
-    drivers::json::initSettings(cfg);
-
-    writeAllRecords(
-      drivers::json::encodeState(s),
-      drivers::json::encodeStatus(st),
-      drivers::json::encodeSettings(cfg),
-      "{}"
-    );
-  }
-  Wire.end();
+  gLastWriteCupFailCode = WriteCupFailTagNotInitialised;
 }
 
 void end()
 {
   powerOff();
   tagInitialised = false;
+}
+
+bool disableRfAccess()
+{
+  if (!tagInitialised) {
+    gLastWriteCupFailCode = WriteCupFailTagNotInitialised;
+    return false;
+  }
+
+  Wire.begin();
+  const bool ok = disableRfWithRetry();
+  Wire.end();
+  if (!ok) {
+    gLastWriteCupFailCode = WriteCupFailRfDisable;
+  }
+  return ok;
+}
+
+bool enableRfAccess()
+{
+  if (!tagInitialised) {
+    gLastWriteCupFailCode = WriteCupFailTagNotInitialised;
+    return false;
+  }
+
+  Wire.begin();
+  const bool ok = enableRf();
+  Wire.end();
+  if (!ok) {
+    gLastWriteCupFailCode = WriteCupFailRfEnable;
+  }
+  return ok;
+}
+
+uint8_t lastWriteCupFailCode()
+{
+  return gLastWriteCupFailCode;
 }
 
 
@@ -173,17 +221,28 @@ bool writeCupRecords(
   const drivers::json::Settings &settings
 )
 {
+  gLastWriteCupFailCode = WriteCupFailNone;
   Wire.begin();
   if (!tagInitialised) {
+    gLastWriteCupFailCode = WriteCupFailTagNotInitialised;
     Wire.end();
     return false;
   }
 
   drivers::json::Status statusCopy = status;
-  readUidHex(statusCopy.uuid, sizeof(statusCopy.uuid));
+  if (!readUidHex(statusCopy.uuid, sizeof(statusCopy.uuid))) {
+    gLastWriteCupFailCode = WriteCupFailUidRead;
+    Wire.end();
+    return false;
+  }
 
   char freeBuf[MAX_FREE_RECORD_LEN] = "{}";
-  tag.readNDEFText(freeBuf, sizeof(freeBuf), 4);
+  const bool record4Ok = tag.readNDEFText(freeBuf, sizeof(freeBuf), 4);
+  if (!record4Ok) {
+    gLastWriteCupFailCode = WriteCupFailRecord4Read;
+    Wire.end();
+    return false;
+  }
 
   const bool ok = writeAllRecords(
     drivers::json::encodeState(state),
@@ -191,6 +250,9 @@ bool writeCupRecords(
     drivers::json::encodeSettings(settings),
     freeBuf
   );
+  if (!ok) {
+    gLastWriteCupFailCode = WriteCupFailWriteAllRecords;
+  }
   Wire.end();
   return ok;
 }
@@ -220,35 +282,6 @@ bool readState(drivers::json::State &state)
   const bool ok = drivers::json::decodeState(buf, state);
   Wire.end();
   return ok;
-}
-
-bool readStatus(drivers::json::Status &status)
-{
-  Wire.begin();
-  char buf[sizeof(drivers::json::statusBuf)];
-  if (!tag.readNDEFText(buf, sizeof(buf), 2)) {
-    Wire.end();
-    return false;
-  }
-
-  //uint32_t v;
-  const char *p;
-
-  p = strstr(buf, "temp");
-  if (!p) p = strstr(buf, "\"t\"");
-  if (p && (p = strchr(p, ':'))) status.temp = atoi(p + 1);
-
-  p = strstr(buf, "time");
-  if (!p) p = strstr(buf, "\"m\"");
-  if (!p) p = strstr(buf, "\"tm\"");
-  if (p && (p = strchr(p, ':'))) status.time = atoi(p + 1);
-
-  p = strstr(buf, "battery");
-  if (!p) p = strstr(buf, "\"b\"");
-  if (p && (p = strchr(p, ':'))) status.battery = atoi(p + 1);
-
-  Wire.end();
-  return true;
 }
 
 } // namespace drivers::nfc

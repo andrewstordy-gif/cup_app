@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "expo": "^54.0.0",
+    "expo-av": "~16.0.8",
     "expo-dev-client": "~6.0.20",
     "expo-file-system": "~19.0.21",
     "expo-sharing": "~14.0.8",

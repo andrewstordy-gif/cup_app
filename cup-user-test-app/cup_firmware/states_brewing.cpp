@@ -13,7 +13,6 @@ extern drivers::json::Status gStatus;
 extern drivers::json::Settings gSettings;
 
 static uint32_t lastSeconds = UINT32_MAX;
-static bool ledFlag = false;
 static float t = 0;
 
 namespace states::brewing {

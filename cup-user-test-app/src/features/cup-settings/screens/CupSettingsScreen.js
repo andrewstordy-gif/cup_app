@@ -4,7 +4,7 @@ import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
-import { readNdef, readWriteNdef } from "../../../services/nfcService";
+import { readWriteNdef } from "../../../services/nfcService";
 import { logAppError } from "../../../services/errorLogger";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
@@ -232,33 +232,6 @@ export function CupSettingsScreen({ onBackPress }) {
           "Settings can only be changed when cup is OFF, READY, or LOW_BATTERY.",
         );
       } else {
-        try {
-          const verification = await readNdef({
-            maxAttempts: 2,
-            retryDelayMs: 180,
-          });
-          const parsedText3 = verification?.parsed?.text3 || {};
-          const verifiedTriggerTemp = Number(parsedText3.r ?? parsedText3.triggerTemp);
-          const verifiedMaxWaterTemp = Number(parsedText3.a ?? parsedText3.maxStartTemp);
-          const verifiedBrewTime = Number(parsedText3.w ?? parsedText3.brewTime);
-          const verifiedMaxCupTemp = Number(parsedText3.c ?? parsedText3.maxCupTemp);
-          const verifiedLedBrightness = Number(parsedText3.l ?? parsedText3.ledBrightness);
-
-          const settingsVerified =
-            verifiedTriggerTemp === Number(settingsPayload.r) &&
-            verifiedMaxWaterTemp === Number(settingsPayload.a) &&
-            verifiedBrewTime === Number(settingsPayload.w) &&
-            verifiedMaxCupTemp === Number(settingsPayload.c) &&
-            verifiedLedBrightness === Number(settingsPayload.l);
-
-          if (settingsVerified) {
-            setStatusMessage("Settings sync confirmed.");
-            return;
-          }
-        } catch {
-          // Ignore verification read errors and show original sync failure below.
-        }
-
         setStatusMessage("Could not read/write settings.");
         openWarning("Sync Failed", error?.message || "Could not read/write settings.");
       }

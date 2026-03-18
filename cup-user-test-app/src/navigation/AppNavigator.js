@@ -238,22 +238,7 @@ export function AppNavigator() {
     const actionToken = beginNfcAction(statusPrefix || "Scan cup to start assessment...");
 
     try {
-      const readWithRetryStatus = () =>
-        readNdef({
-          maxAttempts: 1,
-          retryDelayMs: 0,
-          maxRequestAttempts: 1,
-          onRetry: ({ attempt, maxAttempts }) => {
-            if (!isCurrentNfcAction(actionToken)) {
-              return;
-            }
-            setScanStatusMessage(
-              `Cup is updating, retrying scan (${attempt + 1}/${maxAttempts})...`
-            );
-          },
-        });
-
-      const readResult = await readWithRetryStatus();
+      const readResult = await readNdef();
       addFlowEvent(flowEvents, `READ_OK records=${Number(readResult?.recordCount) || 0}`);
       if (!isCurrentNfcAction(actionToken)) {
         addFlowEvent(flowEvents, "SCAN_ABORT_STALE_ACTION");
@@ -427,26 +412,6 @@ export function AppNavigator() {
       }
       const message = mapScanErrorMessage(error, "Unable to wake cup.");
       addFlowEvent(flowEvents, `ERROR ${message}`);
-      try {
-        const verification = await readNdef({
-          maxAttempts: 2,
-          retryDelayMs: 180,
-        });
-        const parsed = verification?.parsed || {};
-        const verifiedState = resolveCupState(parsed);
-
-        if (verifiedState === 1 && isNoSessionMode(parsed)) {
-          setHomeTemperatureC(resolveTemperatureC(parsed));
-          setHomeTimeLabel(formatTime(parsed?.text2?.time));
-          setHomeStateLabel("Ready");
-          setScanStatusMessage("Cup wake confirmed. State set to READY.");
-          addFlowEvent(flowEvents, "VERIFY_OK_READY");
-          return;
-        }
-      } catch {
-        // Ignore verification read errors and show original wake failure below.
-        addFlowEvent(flowEvents, "VERIFY_READ_FAILED");
-      }
       setScanStatusMessage(message);
       logHomeError({
         flow: "use_without_session_from_sleep",
@@ -505,26 +470,6 @@ export function AppNavigator() {
       }
       const message = mapScanErrorMessage(error, "Unable to update cup state.");
       addFlowEvent(flowEvents, `ERROR ${message}`);
-      try {
-        const verification = await readNdef({
-          maxAttempts: 2,
-          retryDelayMs: 180,
-        });
-        const parsed = verification?.parsed || {};
-        const verifiedState = resolveCupState(parsed);
-
-        if (verifiedState === 1 && isNoSessionMode(parsed)) {
-          setHomeTemperatureC(resolveTemperatureC(parsed));
-          setHomeTimeLabel(formatTime(parsed?.text2?.time));
-          setHomeStateLabel("Ready");
-          setScanStatusMessage("Cup update confirmed. State set to READY.");
-          addFlowEvent(flowEvents, "VERIFY_OK_READY");
-          return;
-        }
-      } catch {
-        // Ignore verification read errors and show original update failure below.
-        addFlowEvent(flowEvents, "VERIFY_READ_FAILED");
-      }
       setScanStatusMessage(message);
       logHomeError({
         flow: "use_without_session_from_not_in_session",
@@ -568,27 +513,6 @@ export function AppNavigator() {
       }
       const message = mapScanErrorMessage(error, "Unable to reset cup state.");
       addFlowEvent(flowEvents, `ERROR ${message}`);
-      try {
-        const verification = await readNdef({
-          maxAttempts: 2,
-          retryDelayMs: 180,
-        });
-        const parsed = verification?.parsed || {};
-        const verifiedState = resolveCupState(parsed);
-
-        if (verifiedState === 0) {
-          setHomeTemperatureC(resolveTemperatureC(parsed));
-          setHomeTimeLabel(formatTime(parsed?.text2?.time));
-          setHomeStateLabel("Off");
-          setScanStatusMessage("Cup reset confirmed. State set to OFF.");
-          addFlowEvent(flowEvents, "VERIFY_OK_OFF");
-          return;
-        }
-      } catch {
-        // Ignore verification read errors and show original reset failure below.
-        addFlowEvent(flowEvents, "VERIFY_READ_FAILED");
-      }
-
       setScanStatusMessage(message);
       logHomeError({
         flow: "reset_cup_to_off",

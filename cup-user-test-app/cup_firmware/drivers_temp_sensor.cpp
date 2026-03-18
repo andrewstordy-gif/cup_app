@@ -30,7 +30,7 @@ void begin() {
   // CTRL register (0x04)
   // You currently set 0x78 (BDU=1, IF_ADD_INC=1, AVG=??, etc.)
   writeReg(I2C_ADDR_STTS, 0x04, 0x78);
-  delay(30);
+  //delay(30);
   Wire.end();
 }
 

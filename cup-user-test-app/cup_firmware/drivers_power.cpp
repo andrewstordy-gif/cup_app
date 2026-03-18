@@ -125,11 +125,6 @@ static void pinsToLowLeakage_powerDown() {
   pinMode(BATT_SENSE_PIN, OUTPUT);
   digitalWrite(BATT_SENSE_PIN, LOW);
 
-  pinMode(ST25DVLPD_PIN, OUTPUT);
-  digitalWrite(ST25DVLPD_PIN, LOW);
-  pinMode(ST25DVPWR_PIN, OUTPUT);
-  digitalWrite(ST25DVPWR_PIN, HIGH);
-
   // POWER-DOWN: drive crystal pins low for lowest leakage (RTC is off here)
   pinMode(TOSC2_PIN, OUTPUT);
   digitalWrite(TOSC2_PIN, LOW);
@@ -291,8 +286,8 @@ void rtcStart() {
 void enterDeepSleepNfcWake() {
   wakeReason = WakeReason::None;
 
-  pinsToLowLeakage_powerDown();
   drivers::nfc::end();
+  pinsToLowLeakage_powerDown();
   disablePeripherals_powerDownOnly();
 
   attachInterrupt(digitalPinToInterrupt(INT2_PIN), int2Isr, CHANGE);
@@ -311,8 +306,8 @@ void enterDeepSleepNfcTempWake() {
 
   drivers::temp::interrupt();  //confure teh sensor with the intereupt
 
-  pinsToLowLeakage_powerDown();
   drivers::nfc::end();
+  pinsToLowLeakage_powerDown();
   disablePeripherals_powerDownOnly();
 
   attachInterrupt(digitalPinToInterrupt(INT2_PIN), int2Isr, CHANGE);
