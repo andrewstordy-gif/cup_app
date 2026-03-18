@@ -9,6 +9,8 @@ const IOS_SESSION_SETTLE_MS = 260;
 const NDEF_RETRY_DELAY_MS = 250;
 const NDEF_RETRY_ATTEMPTS = 2;
 const IOS_SESSION_ERROR_COOLDOWN_MS = 1000;
+const WRITE_RETRY_DELAY_MS = 650;
+const WRITE_RETRY_ATTEMPTS = 1;
 let nextNfcSessionAllowedAt = 0;
 
 function assertWriteAllowed() {
@@ -323,6 +325,11 @@ function logNfcEvent(stage, payload) {
   console.log(`${ts} NFC ${stage}:`, payload);
 }
 
+function isRetryableWriteError(error) {
+  const stack = String(error?.stack || "");
+  return stack.includes("TagConnectionLost") || stack.includes("TagUpdateFailure");
+}
+
 function summarizeTag(tag) {
   if (!tag || typeof tag !== "object") {
     return { present: false };
@@ -447,11 +454,25 @@ function encodeRecords(records) {
 }
 
 async function writeEncodedMessage(bytes) {
-  try {
-    await NfcManager.ndefHandler.writeNdefMessage(bytes);
-  } catch (error) {
-    logNativeNfcError("writeNdefMessage", error);
-    throw normalizeNfcError(error, "Unable to write NDEF payload.");
+  for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      await NfcManager.ndefHandler.writeNdefMessage(bytes);
+      return;
+    } catch (error) {
+      logNativeNfcError("writeNdefMessage", error);
+
+      const shouldRetry =
+        attempt < WRITE_RETRY_ATTEMPTS && isRetryableWriteError(error);
+      if (!shouldRetry) {
+        throw normalizeNfcError(error, "Unable to write NDEF payload.");
+      }
+
+      logNfcEvent("write retry scheduled", {
+        attempt: attempt + 1,
+        delayMs: WRITE_RETRY_DELAY_MS,
+      });
+      await delay(WRITE_RETRY_DELAY_MS);
+    }
   }
 }
 

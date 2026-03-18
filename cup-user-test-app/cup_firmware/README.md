@@ -125,6 +125,9 @@ Standalone debug sketches:
     - direct raw I2C access to ST25
     - raw `RF_MNGT_DYN` readback
     - raw byte write / readback of RF disable on the dynamic register map
+    - `IT_STS_Dyn` / NoAck based RF-busy detection experiments
+- ST25DV RF activity notes:
+  - [`docs/hardware/ST25DVxxKC_RF_Activity_README.md`](./docs/hardware/ST25DVxxKC_RF_Activity_README.md)
 
 ## Current Development Notes
 
@@ -258,6 +261,55 @@ Standalone sketch results:
 
 Interpretation of the pre-init test:
 - It is possible to:
+  - assert `RF_DISABLE` before `tag.begin(Wire)`
+  - keep RF hidden from the phone while still using I2C from the MCU
+  - re-enable RF afterward and recover normal phone reads
+
+RF activity detection investigation:
+- The standalone sketch was then repurposed to poll `IT_STS_Dyn (0x2005)` directly over I2C.
+- Empirical result:
+  - when the phone approaches or talks to the tag, the MCU can observe RF-side activity either as:
+    - short `IT_STS_Dyn` event pulses
+    - or I2C `NoAck` while RF owns the interface
+- This matches the ST25DVxxKC arbitration rule:
+  - when RF is busy, I2C can answer with `NoAck`
+- Practical firmware strategy now adopted:
+  - poll `IT_STS_Dyn`
+  - treat RF event bits as busy
+  - also treat `NoAck` as busy
+  - extend a short holdoff window before disabling RF
+
+Current OFF-state behavior:
+- The first RF-disable/write path is intentionally unchanged.
+  - cup wakes quickly
+  - disables RF
+  - writes fresh Text 1 / 2 / 3 while preserving Text 4
+- After the existing 5 second delay, the second NFC session now waits for RF idle before disabling RF and reading back state/settings.
+- This uses [`drivers::nfc::waitForRfIdle()`](./drivers_nfc.cpp), which currently:
+  - polls every `25 ms`
+  - extends a `300 ms` holdoff on:
+    - `RF_ACTIVITY`
+    - `RF_PUT_MSG`
+    - `RF_GET_MSG`
+    - `RF_WRITE`
+    - I2C `NoAck` / read failure
+
+Observed result in `off2` logs:
+- a new timing slot now exists between second `begin()` and second RF disable
+- most runs show `0-2 ms` there
+- some runs show about `300 ms`
+- that indicates the second session really is deferring until phone activity settles
+
+Current `off2` shape:
+- `states_off.cpp` now prints 15 timing fields before the bitmasks/fail code
+- the extra field is:
+  - wait time spent inside `waitForRfIdle()` before second RF disable
+
+Record 4 preservation / size notes:
+- Firmware still treats Text 4 as app-owned and preserves it during cup writes.
+- `MAX_FREE_RECORD_LEN` in [`drivers_nfc.cpp`](./drivers_nfc.cpp) was increased from `256` to `512`
+  so larger Text 4 payloads are less likely to be truncated.
+- If record 4 fills the buffer without a null terminator, the firmware now aborts instead of writing truncated JSON back to the tag.
   1. power the ST25DV,
   2. disable RF immediately over raw I2C,
   3. then run `tag.begin(Wire)` successfully while RF remains off,

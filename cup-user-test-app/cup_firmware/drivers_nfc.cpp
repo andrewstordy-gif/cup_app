@@ -13,10 +13,18 @@ namespace drivers::nfc {
 static SFE_ST25DV64KC_NDEF tag;
 static bool tagInitialised = false;
 static uint8_t gLastWriteCupFailCode = WriteCupFailNone;
-static constexpr uint16_t MAX_FREE_RECORD_LEN = 256;
+static constexpr uint16_t MAX_FREE_RECORD_LEN = 512;
+static constexpr uint8_t ST25_DATA_ADDR = 0x53;
 static constexpr uint16_t REG_RF_MNGT_DYN = 0x2003;
+static constexpr uint16_t REG_IT_STS_DYN = 0x2005;
 static constexpr uint8_t BIT_RF_DISABLE = (1 << 0);
+static constexpr uint8_t BIT_IT_RF_ACTIVITY = (1 << 1);
+static constexpr uint8_t BIT_IT_RF_PUT_MSG = (1 << 5);
+static constexpr uint8_t BIT_IT_RF_GET_MSG = (1 << 6);
+static constexpr uint8_t BIT_IT_RF_WRITE = (1 << 7);
 static constexpr uint8_t TAG_INIT_MAX_ATTEMPTS = 5;
+static constexpr uint8_t RF_BUSY_POLL_INTERVAL_MS = 25;
+static constexpr uint16_t RF_BUSY_HOLDOFF_MS = 300;
 static constexpr SF_ST25DV64KC_ADDRESS DYN_ADDR =
     SF_ST25DV64KC_ADDRESS::DATA;
 
@@ -86,6 +94,23 @@ static bool readUidHex(char *out, size_t len)
 static bool disableRf()
 {
   return tag.st25_io.setRegisterBit(DYN_ADDR, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
+}
+
+static bool readDynamicRegisterRaw(uint16_t reg, uint8_t &value)
+{
+  Wire.beginTransmission(ST25_DATA_ADDR);
+  Wire.write(uint8_t(reg >> 8));
+  Wire.write(uint8_t(reg & 0xFF));
+  if (Wire.endTransmission() != 0) return false;
+
+  if (Wire.requestFrom(int(ST25_DATA_ADDR), 1) != 1) return false;
+  value = Wire.read();
+  return true;
+}
+
+static bool isRfBusyEvent(uint8_t value)
+{
+  return (value & (BIT_IT_RF_ACTIVITY | BIT_IT_RF_PUT_MSG | BIT_IT_RF_GET_MSG | BIT_IT_RF_WRITE)) != 0;
 }
 
 static bool disableRfWithRetry()
@@ -204,6 +229,43 @@ bool enableRfAccess()
   return ok;
 }
 
+void waitForRfIdle()
+{
+  if (!tagInitialised) {
+    gLastWriteCupFailCode = WriteCupFailTagNotInitialised;
+    return;
+  }
+
+  unsigned long rfBusyUntilMs = 0;
+
+  for (;;) {
+    const unsigned long nowMs = millis();
+    if (nowMs < rfBusyUntilMs) {
+      delay(RF_BUSY_POLL_INTERVAL_MS);
+      continue;
+    }
+
+    Wire.begin();
+    uint8_t itStatus = 0;
+    const bool readOk = readDynamicRegisterRaw(REG_IT_STS_DYN, itStatus);
+    Wire.end();
+
+    if (!readOk) {
+      rfBusyUntilMs = millis() + RF_BUSY_HOLDOFF_MS;
+      delay(RF_BUSY_POLL_INTERVAL_MS);
+      continue;
+    }
+
+    if (isRfBusyEvent(itStatus)) {
+      rfBusyUntilMs = millis() + RF_BUSY_HOLDOFF_MS;
+      delay(RF_BUSY_POLL_INTERVAL_MS);
+      continue;
+    }
+
+    return;
+  }
+}
+
 uint8_t lastWriteCupFailCode()
 {
   return gLastWriteCupFailCode;
@@ -239,6 +301,14 @@ bool writeCupRecords(
   char freeBuf[MAX_FREE_RECORD_LEN] = "{}";
   const bool record4Ok = tag.readNDEFText(freeBuf, sizeof(freeBuf), 4);
   if (!record4Ok) {
+    gLastWriteCupFailCode = WriteCupFailRecord4Read;
+    Wire.end();
+    return false;
+  }
+
+  // If record 4 fills the buffer without a terminator, treat it as a failed read
+  // rather than writing truncated JSON back to the tag.
+  if (freeBuf[sizeof(freeBuf) - 1] != '\0') {
     gLastWriteCupFailCode = WriteCupFailRecord4Read;
     Wire.end();
     return false;

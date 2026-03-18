@@ -18,6 +18,7 @@ void begin();
 void end();
 bool disableRfAccess();
 bool enableRfAccess();
+void waitForRfIdle();
 
 bool writeCupRecords(
   const drivers::json::State    &state,

@@ -70,6 +70,11 @@ CupState run() {
   const bool begin2Ok = drivers::nfc::lastWriteCupFailCode() == drivers::nfc::WriteCupFailNone;
   const unsigned long t9 = millis();
 
+  if (begin2Ok) {
+    drivers::nfc::waitForRfIdle();
+  }
+  const unsigned long t9a = millis();
+
   const bool rfOff2Ok = drivers::nfc::disableRfAccess();
   const unsigned long t10 = millis();
 
@@ -95,7 +100,8 @@ CupState run() {
     (uint16_t)(t7 - t6),
     (uint16_t)(t8 - t7),
     (uint16_t)(t9 - t8),
-    (uint16_t)(t10 - t9),
+    (uint16_t)(t9a - t9),
+    (uint16_t)(t10 - t9a),
     (uint16_t)(t11 - t10),
     (uint16_t)(t12 - t11),
     (uint16_t)(t13 - t12),

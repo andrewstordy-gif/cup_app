@@ -11,6 +11,13 @@ Working development build with:
 - State-based Home scan routing
 - Cupping capture, final mode, defects, and score calculation
 
+Recent NFC test improvements:
+- iOS read retry when the first tag object is missing `ndefMessage`
+- iOS session cooldown after `UserCancel` / `SystemBusy`
+- failure sound + temporary test-screen lockout
+- direct NFC test-screen write support for Text 1 / 3 / 4
+- direct write retry for transient iOS `TagUpdateFailure` / `TagConnectionLost`
+
 ## Run
 
 ```bash
@@ -59,6 +66,13 @@ src/
 - Text 4: `n` (coffee name), `p` (coffee process), `y` (cup number), `e` (session name), `t` (session type), `d` (session date), `u` (session UUID)
 
 `nfcService` normalizes compact/full key variants when reading and writes compact keys when encoding.
+
+Important distinction in the app:
+- UI code often uses normalized friendly keys internally:
+  - `state`, `triggerTemp`, `coffeeName`, etc.
+- NFC encoding always writes the compact on-tag keys:
+  - `s`, `r`, `n`, etc.
+- The NFC test screen now displays parsed records back in the compact on-tag shape so they match what is stored on the cup.
 
 ## Firmware Timing Notes
 
@@ -145,6 +159,44 @@ Core entities:
 - No automated test suite yet; device testing is primary validation path.
 - `react-native-nfc-manager` is currently flagged by Expo Doctor as untested on New Architecture.
 - This app keeps native `ios/` and `android/` folders (prebuild workflow).
+- `expo-av` is currently used for NFC test-screen failure feedback and is deprecated on SDK 54; it still works in the current dev build but should eventually move to `expo-audio`.
+
+## NFC Test Screen
+
+Location:
+- [`src/features/nfc/screens/NfcServiceTestScreen.js`](./src/features/nfc/screens/NfcServiceTestScreen.js)
+
+Current purpose:
+- read raw/parsed NDEF records from the cup
+- manually edit and write Text 1 / 3 / 4
+- preserve Text 2 from the last successful read during test writes
+
+Current behavior:
+- `Read Tag`
+  - scans the tag
+  - retries if the first iOS tag result is missing `ndefMessage`
+  - populates the editable fields from parsed values
+- `Write Tag`
+  - performs a direct `writeNdef(...)`
+  - does not do a read-before-write anymore
+  - uses the last good Text 2 object from the screen state
+- On failure:
+  - the screen plays a clang sound
+  - the button is locked out briefly
+
+Current iOS write reliability behavior:
+- intermittent first-attempt failures still happen during contention with cup-side NFC activity
+- these usually surface as:
+  - `TagUpdateFailure`
+  - `TagConnectionLost`
+- `nfcService` now performs one targeted retry after `650 ms` for those two errors only
+- in recent device testing, that retry materially improved write reliability
+
+Practical recommendation for test use:
+1. `Read Tag`
+2. change one field
+3. `Write Tag`
+4. `Read Tag` again to verify
 
 ## Error Logs (new)
 
