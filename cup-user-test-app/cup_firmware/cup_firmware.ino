@@ -31,7 +31,12 @@ void setup() {
 
   //write then to the NFC:
   drivers::nfc::begin();
-  drivers::nfc::writeCupRecords(gState, gStatus, gSettings);
+  const bool rfOffOk = drivers::nfc::disableRfAccess();
+  if (rfOffOk) {
+    drivers::nfc::writeBootstrapRecords(gState, gStatus, gSettings);
+    drivers::nfc::enableRfAccess();
+  }
+  drivers::nfc::end();
 
   //Set the inital state as off
   states::fsm::init(CupState::OFF);

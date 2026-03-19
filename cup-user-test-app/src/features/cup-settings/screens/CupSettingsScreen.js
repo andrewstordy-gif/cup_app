@@ -4,7 +4,7 @@ import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
-import { readWriteNdef } from "../../../services/nfcService";
+import { readNdef, writeNdef } from "../../../services/nfcService";
 import { logAppError } from "../../../services/errorLogger";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
@@ -195,21 +195,21 @@ export function CupSettingsScreen({ onBackPress }) {
     setStatusMessage("Hold your phone near the cup to read and sync settings.");
 
     try {
-      await readWriteNdef((parsed) => {
-        const state = parsed?.text1?.s ?? parsed?.text1?.state;
-        if (![0, 1, 4].includes(Number(state))) {
-          throw new Error("STATE_BLOCKED");
-        }
+      const result = await readNdef();
+      const parsed = result?.parsed || {};
+      const state = parsed?.text1?.s ?? parsed?.text1?.state;
+      if (![0, 1, 4].includes(Number(state))) {
+        throw new Error("STATE_BLOCKED");
+      }
 
-        return {
-          text1: parsed?.text1 || {},
-          text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-          text3: {
-            ...(parsed?.text3 || {}),
-            ...settingsPayload,
-          },
-          text4: parsed?.text4 ?? parsed?.raw?.text4 ?? {},
-        };
+      await writeNdef({
+        text1: parsed?.text1 || {},
+        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
+        text3: {
+          ...(parsed?.text3 || {}),
+          ...settingsPayload,
+        },
+        text4: parsed?.text4 ?? parsed?.raw?.text4 ?? {},
       });
 
       setStatusMessage("Settings synced successfully.");
@@ -217,8 +217,8 @@ export function CupSettingsScreen({ onBackPress }) {
       void logAppError({
         screen: "CupSettings",
         route: "Cup Settings",
-        flow: "read_write_settings",
-        friendlyMessage: error?.message || "Could not read/write settings.",
+        flow: "read_then_write_settings",
+        friendlyMessage: error?.message || "Could not sync settings.",
         error,
         context: {
           fields,
@@ -232,8 +232,8 @@ export function CupSettingsScreen({ onBackPress }) {
           "Settings can only be changed when cup is OFF, READY, or LOW_BATTERY.",
         );
       } else {
-        setStatusMessage("Could not read/write settings.");
-        openWarning("Sync Failed", error?.message || "Could not read/write settings.");
+        setStatusMessage("Could not sync settings.");
+        openWarning("Sync Failed", error?.message || "Could not sync settings.");
       }
     } finally {
       setIsSyncing(false);

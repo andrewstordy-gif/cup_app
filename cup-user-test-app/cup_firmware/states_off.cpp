@@ -16,8 +16,8 @@ extern drivers::json::Settings gSettings;
 
 namespace states::off {
 
-static void printCsvU16(const uint16_t *values, uint8_t count)
-{
+// Helper for printing the fixed-width timing/debug CSV line.
+static void printCsvU16(const uint16_t *values, uint8_t count) {
   for (uint8_t i = 0; i < count; ++i) {
     if (i) Serial.write(',');
     Serial.print(values[i]);
@@ -25,6 +25,7 @@ static void printCsvU16(const uint16_t *values, uint8_t count)
 }
 
 void enter() {
+
   // sets the current state:
   gState.state = (uint8_t)CupState::OFF;
 
@@ -34,15 +35,28 @@ void enter() {
 
 CupState run() {
 
+  // The OFF flow is intentionally split into two NFC sessions:
+  // 1. Immediately publish fresh cup-owned data to the tag.
+  // 2. After a 5 s phone window, read app-owned changes back from the tag.
+
+
   const unsigned long t0 = millis();
 
+  // Session 1: power the tag and take RF ownership so the MCU can update the
+  // cup-owned records (state/status/settings) without the phone talking to it.
   drivers::nfc::begin();
+
+  // begin() stores its own failure code, so capture whether it came up cleanly.
   const bool begin1Ok = drivers::nfc::lastWriteCupFailCode() == drivers::nfc::WriteCupFailNone;
   const unsigned long t1 = millis();
 
+  // Turn RF off for the first session so the cup fully owns the tag.
   const bool rfOff1Ok = drivers::nfc::disableRfAccess();
   const unsigned long t2 = millis();
 
+
+
+  // Sample the live sensors that feed the cup-owned records.
   drivers::temp::begin();
   const float t = drivers::temp::read();
   gStatus.temp = t * 10;
@@ -53,28 +67,41 @@ CupState run() {
   gStatus.battery = drivers::battery::estimatePercent(v);
   const unsigned long t4 = millis();
 
+
+
+  // Rewrite NDEF 1/2/3 while preserving app-owned NDEF 4.
   const bool writeOk = rfOff1Ok && drivers::nfc::writeCupRecords(gState, gStatus, gSettings);
   const uint8_t writeFailCode = drivers::nfc::lastWriteCupFailCode();
+
+
   const unsigned long t5 = millis();
 
+  // Re-enable RF so the phone can see and use the updated tag contents.
   const bool rfOn1Ok = rfOff1Ok ? drivers::nfc::enableRfAccess() : false;
+
+
   const unsigned long t6 = millis();
 
   drivers::nfc::end();
   const unsigned long t7 = millis();
 
+  // Give the phone a fixed window to read/write while RF is enabled.
   drivers::power::sleepLockoutMs(5000);
   const unsigned long t8 = millis();
 
+  // Session 2: come back after the phone window and read the app-owned values
+  // back into firmware runtime state.
   drivers::nfc::begin();
   const bool begin2Ok = drivers::nfc::lastWriteCupFailCode() == drivers::nfc::WriteCupFailNone;
   const unsigned long t9 = millis();
 
+  // Wait for RF activity to stop before stealing ownership back from the phone.
   if (begin2Ok) {
     drivers::nfc::waitForRfIdle();
   }
   const unsigned long t9a = millis();
 
+  // Once RF is quiet, disable it again and read the tag over I2C.
   const bool rfOff2Ok = drivers::nfc::disableRfAccess();
   const unsigned long t10 = millis();
 
@@ -90,6 +117,8 @@ CupState run() {
   drivers::nfc::end();
   const unsigned long t14 = millis();
 
+  // The timing array is printed for debugging/regression checks. Each slot is
+  // one stage of the two-session OFF transaction.
   const uint16_t timings[] = {
     (uint16_t)(t1 - t0),
     (uint16_t)(t2 - t1),
@@ -109,16 +138,9 @@ CupState run() {
   };
 
   const uint8_t session1Mask =
-      (begin1Ok ? 0x01 : 0) |
-      (rfOff1Ok ? 0x02 : 0) |
-      (writeOk ? 0x04 : 0) |
-      (rfOn1Ok ? 0x08 : 0);
+    (begin1Ok ? 0x01 : 0) | (rfOff1Ok ? 0x02 : 0) | (writeOk ? 0x04 : 0) | (rfOn1Ok ? 0x08 : 0);
   const uint8_t session2Mask =
-      (begin2Ok ? 0x01 : 0) |
-      (rfOff2Ok ? 0x02 : 0) |
-      (stateOk ? 0x04 : 0) |
-      (settingsOk ? 0x08 : 0) |
-      (rfOn2Ok ? 0x10 : 0);
+    (begin2Ok ? 0x01 : 0) | (rfOff2Ok ? 0x02 : 0) | (stateOk ? 0x04 : 0) | (settingsOk ? 0x08 : 0) | (rfOn2Ok ? 0x10 : 0);
 
   Serial.swap();
   Serial.begin(9600);
@@ -134,6 +156,10 @@ CupState run() {
   Serial.println();
   Serial.flush();
 
+
+
+  // Any state the phone wrote into NDEF1 during the phone window becomes the
+  // next firmware state here.
   if (gState.state == 1) return CupState::READY;
   if (gState.state == 2) return CupState::BREWING;
   if (gState.state == 3) return CupState::CUPPING;

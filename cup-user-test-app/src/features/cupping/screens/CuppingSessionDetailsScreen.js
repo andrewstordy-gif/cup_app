@@ -6,7 +6,7 @@ import { full_page_button as FullPageButton } from "../../../components/ui/full_
 import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
-import { readWriteNdef } from "../../../services/nfcService";
+import { readNdef, writeNdef } from "../../../services/nfcService";
 import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
@@ -245,49 +245,45 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
     try {
       setScanStatusMessage("Scan cup to link sample and write session data...");
-      const result = await readWriteNdef(async (parsed, tag) => {
-        const detectedCupUUID = resolveCupUUIDFromReadResult({ parsed, tag });
-        if (!detectedCupUUID) {
-          throw new Error("Could not read cup UUID from tag. Please try scanning again.");
-        }
-
-        const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
-        const conflictingSession = await findPendingSessionByCupUUID({
-          cupUUID: normalizedDetectedCupUUID,
-          excludeSessionId: sessionUUID,
-        });
-
-        if (conflictingSession) {
-          const conflictName = conflictingSession.sessionName || conflictingSession.sessionDisplayId || "another session";
-          const conflictType = conflictingSession.sessionType || "Pending";
-          throw createPendingConflictError(
-            `Cup UUID ${normalizedDetectedCupUUID} is already assigned to ${conflictName} (${conflictType}).`
-          );
-        }
-
-        return {
-          text1: {
-            state: 1,
-          },
-          text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-          text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
-          text4: {
-            coffeeName: sheetCoffeeNameOrigin.trim(),
-            coffeeProcess: sheetProcess.trim(),
-            sessionName: sessionName.trim(),
-            sessionType: sessionType.trim(),
-            sessionDate: sessionDate,
-            sessionUUID: sessionUUID,
-            cupNumber: sheetCupNumber,
-          },
-        };
-      });
-
-      const detectedCupUUID = resolveCupUUIDFromReadResult(result);
+      const result = await readNdef();
+      const parsed = result?.parsed || {};
+      const tag = result?.tag;
+      const detectedCupUUID = resolveCupUUIDFromReadResult({ parsed, tag });
       if (!detectedCupUUID) {
         throw new Error("Could not read cup UUID from tag. Please try scanning again.");
       }
+
       const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
+      const conflictingSession = await findPendingSessionByCupUUID({
+        cupUUID: normalizedDetectedCupUUID,
+        excludeSessionId: sessionUUID,
+      });
+
+      if (conflictingSession) {
+        const conflictName = conflictingSession.sessionName || conflictingSession.sessionDisplayId || "another session";
+        const conflictType = conflictingSession.sessionType || "Pending";
+        throw createPendingConflictError(
+          `Cup UUID ${normalizedDetectedCupUUID} is already assigned to ${conflictName} (${conflictType}).`
+        );
+      }
+
+      await writeNdef({
+        text1: {
+          state: 1,
+        },
+        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
+        text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
+        text4: {
+          coffeeName: sheetCoffeeNameOrigin.trim(),
+          coffeeProcess: sheetProcess.trim(),
+          sessionName: sessionName.trim(),
+          sessionType: sessionType.trim(),
+          sessionDate: sessionDate,
+          sessionUUID: sessionUUID,
+          cupNumber: sheetCupNumber,
+        },
+      });
+
       const duplicateIndex = samples.findIndex(
         (sample) => normalizeCupUuid(sample.cupUUID) === normalizedDetectedCupUUID
       );

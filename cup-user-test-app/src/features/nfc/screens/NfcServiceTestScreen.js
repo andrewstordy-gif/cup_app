@@ -242,6 +242,13 @@ function buildWritablePayload(draft) {
   };
 }
 
+function requirePreservedText2(text2) {
+  if (!text2 || typeof text2 !== "object") {
+    throw new Error("Read the tag first so NDEF2 can be preserved.");
+  }
+  return text2;
+}
+
 export function NfcServiceTestScreen({ onBackPress }) {
   const failureSoundRef = useRef(null);
   const [busy, setBusy] = useState(false);
@@ -426,7 +433,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
 
     try {
       const nextPayload = buildWritablePayload(draft);
-      const text2Payload = parsed.text2 ?? sampleNdefPayload.text2;
+      const text2Payload = requirePreservedText2(parsed.text2);
 
       await writeNdef({
         text1: nextPayload.text1,
@@ -450,6 +457,45 @@ export function NfcServiceTestScreen({ onBackPress }) {
         screen: "NFCTest",
         route: "NFC Test",
         flow: "nfc_test_write",
+        friendlyMessage: message,
+        error,
+      });
+      setStatus(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleWriteGoodNdef = async () => {
+    setBusy(true);
+    setStatus("Writing known-good NDEF...");
+
+    try {
+      const text2Payload = requirePreservedText2(parsed.text2);
+      const knownGoodPayload = {
+        text1: { state: 0 },
+        text2: text2Payload,
+        text3: sampleNdefPayload.text3,
+        text4: sampleNdefPayload.text4,
+      };
+
+      await writeNdef(knownGoodPayload);
+
+      setParsed({
+        text1: knownGoodPayload.text1,
+        text2: knownGoodPayload.text2,
+        text3: knownGoodPayload.text3,
+        text4: knownGoodPayload.text4,
+      });
+      setDraft(createInitialDraft());
+      setStatus("Known-good NDEF write complete");
+    } catch (error) {
+      const message = error?.message || "Unknown NFC error";
+      await triggerFailureFeedback();
+      void logAppError({
+        screen: "NFCTest",
+        route: "NFC Test",
+        flow: "nfc_test_write_good_ndef",
         friendlyMessage: message,
         error,
       });
@@ -496,6 +542,13 @@ export function NfcServiceTestScreen({ onBackPress }) {
             loading={busy}
             disabled={actionDisabled}
             accessibilityLabel="Write NFC tag"
+          />
+          <FullPageButton
+            label="Write Good NDEF"
+            onPress={handleWriteGoodNdef}
+            loading={busy}
+            disabled={actionDisabled}
+            accessibilityLabel="Write known good NFC payload"
           />
         </View>
 

@@ -13,6 +13,8 @@ namespace drivers::nfc {
 static SFE_ST25DV64KC_NDEF tag;
 static bool tagInitialised = false;
 static uint8_t gLastWriteCupFailCode = WriteCupFailNone;
+// Record 4 is app-owned JSON, so keep a generous buffer when preserving it
+// during cup-side writes to records 1-3.
 static constexpr uint16_t MAX_FREE_RECORD_LEN = 512;
 static constexpr uint8_t ST25_DATA_ADDR = 0x53;
 static constexpr uint16_t REG_RF_MNGT_DYN = 0x2003;
@@ -31,6 +33,8 @@ static constexpr SF_ST25DV64KC_ADDRESS DYN_ADDR =
 // --------------------------------------------------
 
 
+// Power the ST25DV up using the VCC and LPD sequencing used throughout the
+// firmware. The later tag.begin() call handles the higher-level NDEF init.
 static void powerOn()
 {
   // 1) Assert LPD HIGH first (per AN5733)
@@ -64,13 +68,15 @@ static void powerOff()
 
  // Now float LPD (avoids any leakage via clamp structures)
   pinMode(ST25DVLPD_PIN, INPUT);
-  // Leave LPD HIGH while off (per ST recommendation)
+
+
 }
 
 
 
 // --------------------------------------------------
 
+// Read the tag UID and convert it into the hex string stored in NDEF2.
 static bool readUidHex(char *out, size_t len)
 {
   uint8_t uid[8];
@@ -91,11 +97,14 @@ static bool readUidHex(char *out, size_t len)
 
 // --------------------------------------------------
 
+// Set the RF disable bit through the SparkFun ST25 register wrapper.
 static bool disableRf()
 {
   return tag.st25_io.setRegisterBit(DYN_ADDR, REG_RF_MNGT_DYN, BIT_RF_DISABLE);
 }
 
+// Raw one-byte read helper for ST25 dynamic registers. This bypasses the
+// higher-level NDEF helpers and is used for RF activity polling.
 static bool readDynamicRegisterRaw(uint16_t reg, uint8_t &value)
 {
   Wire.beginTransmission(ST25_DATA_ADDR);
@@ -127,6 +136,8 @@ static bool enableRf()
 
 static bool beginTagWithWait()
 {
+  // tag.begin(Wire) can be touchy immediately after power-up, so retry for a
+  // short window before giving up on this power cycle.
   const unsigned long start = millis();
   while ((millis() - start) < 25) {
     if (tag.begin(Wire)) return true;
@@ -146,6 +157,8 @@ static bool writeAllRecords(
 )
 {
   if (!tagInitialised) return false;
+  // Rebuild the entire multi-record NDEF payload in one pass so the records stay
+  // in a predictable order: 1=state, 2=status, 3=settings, 4=app-owned JSON.
   if (!tag.writeCCFile8Byte()) return false;
 
   uint16_t memLoc = tag.getCCFileLen();
@@ -166,6 +179,8 @@ void begin()
   tagInitialised = false;
   gLastWriteCupFailCode = WriteCupFailNone;
 
+  // Power cycle and re-initialise the tag until either NDEF access comes up or
+  // we exhaust the small retry budget.
   for (uint8_t attempt = 0; attempt < TAG_INIT_MAX_ATTEMPTS; ++attempt) {
     powerOn();
     Wire.begin();
@@ -205,6 +220,8 @@ bool disableRfAccess()
   }
 
   Wire.begin();
+  // A second attempt helps with the occasional transient NACK on the ST25
+  // dynamic register path.
   const bool ok = disableRfWithRetry();
   Wire.end();
   if (!ok) {
@@ -245,6 +262,8 @@ void waitForRfIdle()
       continue;
     }
 
+    // IT_STS_Dyn is an event register. Poll it until we have seen a quiet
+    // window long enough that the phone is no longer actively using RF.
     Wire.begin();
     uint8_t itStatus = 0;
     const bool readOk = readDynamicRegisterRaw(REG_IT_STS_DYN, itStatus);
@@ -271,12 +290,6 @@ uint8_t lastWriteCupFailCode()
   return gLastWriteCupFailCode;
 }
 
-
-
-
-
-// old write cup records:
-
 bool writeCupRecords(
   const drivers::json::State    &state,
   const drivers::json::Status   &status,
@@ -298,6 +311,8 @@ bool writeCupRecords(
     return false;
   }
 
+  // Record 4 belongs to the app. Read and preserve it before rewriting the
+  // three cup-owned records.
   char freeBuf[MAX_FREE_RECORD_LEN] = "{}";
   const bool record4Ok = tag.readNDEFText(freeBuf, sizeof(freeBuf), 4);
   if (!record4Ok) {
@@ -306,8 +321,8 @@ bool writeCupRecords(
     return false;
   }
 
-  // If record 4 fills the buffer without a terminator, treat it as a failed read
-  // rather than writing truncated JSON back to the tag.
+  // If record 4 fills the buffer without a terminator, treat it as a failed
+  // read rather than writing truncated JSON back to the tag.
   if (freeBuf[sizeof(freeBuf) - 1] != '\0') {
     gLastWriteCupFailCode = WriteCupFailRecord4Read;
     Wire.end();
@@ -327,11 +342,48 @@ bool writeCupRecords(
   return ok;
 }
 
+bool writeBootstrapRecords(
+  const drivers::json::State    &state,
+  const drivers::json::Status   &status,
+  const drivers::json::Settings &settings
+)
+{
+  gLastWriteCupFailCode = WriteCupFailNone;
+  Wire.begin();
+  if (!tagInitialised) {
+    gLastWriteCupFailCode = WriteCupFailTagNotInitialised;
+    Wire.end();
+    return false;
+  }
+
+  drivers::json::Status statusCopy = status;
+  if (!readUidHex(statusCopy.uuid, sizeof(statusCopy.uuid))) {
+    gLastWriteCupFailCode = WriteCupFailUidRead;
+    Wire.end();
+    return false;
+  }
+
+  // Startup recovery path: force a valid baseline NDEF payload without relying
+  // on an existing readable record 4.
+  const bool ok = writeAllRecords(
+    drivers::json::encodeState(state),
+    drivers::json::encodeStatus(statusCopy),
+    drivers::json::encodeSettings(settings),
+    "{}"
+  );
+  if (!ok) {
+    gLastWriteCupFailCode = WriteCupFailWriteAllRecords;
+  }
+  Wire.end();
+  return ok;
+}
+
 
 bool readSettings(drivers::json::Settings &settings)
 {
   Wire.begin();
   char buf[sizeof(drivers::json::settingsBuf)];
+  // NDEF3 is the settings record written by the app and consumed by firmware.
   if (!tag.readNDEFText(buf, sizeof(buf), 3)) {
     Wire.end();
     return false;
@@ -345,6 +397,7 @@ bool readState(drivers::json::State &state)
 {
   Wire.begin();
   char buf[sizeof(drivers::json::stateBuf)];
+  // NDEF1 is the state request record used to drive firmware state changes.
   if (!tag.readNDEFText(buf, sizeof(buf), 1)) {
     Wire.end();
     return false;

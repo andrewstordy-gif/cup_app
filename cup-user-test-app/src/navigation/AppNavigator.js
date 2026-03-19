@@ -10,7 +10,7 @@ import { CupSettingsScreen } from "../features/cup-settings/screens/CupSettingsS
 import { AccountScreen } from "../features/account/screens/AccountScreen";
 import { WarningDialog } from "../components/ui/WarningDialog";
 import { colors } from "../theme/colors";
-import { readNdef, readWriteNdef } from "../services/nfcService";
+import { readNdef, writeNdef } from "../services/nfcService";
 import { logAppError, shareLatestErrorLog } from "../services/errorLogger";
 import { findActiveSampleByCupUUID, hasFinalFeedbackForSample } from "../data/sessionRepository";
 
@@ -375,34 +375,34 @@ export function AppNavigator() {
     const actionToken = beginNfcAction("Scan sleeping cup to wake it up...");
 
     try {
-      const result = await readWriteNdef((parsed) => {
-        const currentState = resolveCupState(parsed || {});
-        addFlowEvent(flowEvents, `READ_STATE value=${String(currentState)}`);
-        if (currentState !== 0) {
-          throw new Error("Scanned cup is not in sleeping state.");
-        }
+      const result = await readNdef();
+      const parsed = result?.parsed || {};
+      const currentState = resolveCupState(parsed || {});
+      addFlowEvent(flowEvents, `READ_STATE value=${String(currentState)}`);
+      if (currentState !== 0) {
+        throw new Error("Scanned cup is not in sleeping state.");
+      }
 
-        return {
-          text1: {
-            ...(parsed?.text1 || {}),
-            state: 1,
-          },
-          text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-          text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
-          text4: {
-            coffeeName: "",
-            coffeeProcess: "",
-            cupNumber: "",
-            sessionName: "",
-            sessionType: "",
-            sessionDate: "",
-            sessionUUID: "NO-SESSION",
-          },
-        };
+      await writeNdef({
+        text1: {
+          ...(parsed?.text1 || {}),
+          state: 1,
+        },
+        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
+        text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
+        text4: {
+          coffeeName: "",
+          coffeeProcess: "",
+          cupNumber: "",
+          sessionName: "",
+          sessionType: "",
+          sessionDate: "",
+          sessionUUID: "NO-SESSION",
+        },
       });
 
-      setHomeTemperatureC(resolveTemperatureC(result?.parsed || {}));
-      setHomeTimeLabel(formatTime(result?.parsed?.text2?.time));
+      setHomeTemperatureC(resolveTemperatureC(parsed || {}));
+      setHomeTimeLabel(formatTime(parsed?.text2?.time));
       setHomeStateLabel("Ready");
       setScanStatusMessage("Cup wake successful. State set to READY.");
       addFlowEvent(flowEvents, "WRITE_OK_READY");
@@ -433,34 +433,34 @@ export function AppNavigator() {
     const actionToken = beginNfcAction("Scan cup to set it to READY...");
 
     try {
-      const result = await readWriteNdef((parsed) => {
-        const currentState = resolveCupState(parsed || {});
-        addFlowEvent(flowEvents, `READ_STATE value=${String(currentState)}`);
-        if (![1, 2, 3].includes(currentState)) {
-          throw new Error("Scanned cup is not in state READY, BREWING, or CUPPING.");
-        }
+      const result = await readNdef();
+      const parsed = result?.parsed || {};
+      const currentState = resolveCupState(parsed || {});
+      addFlowEvent(flowEvents, `READ_STATE value=${String(currentState)}`);
+      if (![1, 2, 3].includes(currentState)) {
+        throw new Error("Scanned cup is not in state READY, BREWING, or CUPPING.");
+      }
 
-        return {
-          text1: {
-            ...(parsed?.text1 || {}),
-            state: 1,
-          },
-          text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-          text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
-          text4: {
-            coffeeName: "",
-            coffeeProcess: "",
-            cupNumber: "",
-            sessionName: "",
-            sessionType: "",
-            sessionDate: "",
-            sessionUUID: "NO-SESSION",
-          },
-        };
+      await writeNdef({
+        text1: {
+          ...(parsed?.text1 || {}),
+          state: 1,
+        },
+        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
+        text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
+        text4: {
+          coffeeName: "",
+          coffeeProcess: "",
+          cupNumber: "",
+          sessionName: "",
+          sessionType: "",
+          sessionDate: "",
+          sessionUUID: "NO-SESSION",
+        },
       });
 
-      setHomeTemperatureC(resolveTemperatureC(result?.parsed || {}));
-      setHomeTimeLabel(formatTime(result?.parsed?.text2?.time));
+      setHomeTemperatureC(resolveTemperatureC(parsed || {}));
+      setHomeTimeLabel(formatTime(parsed?.text2?.time));
       setHomeStateLabel("Ready");
       setScanStatusMessage("Cup updated. State set to READY.");
       addFlowEvent(flowEvents, "WRITE_OK_READY");
@@ -492,7 +492,10 @@ export function AppNavigator() {
     const actionToken = beginNfcAction("Scan cup to reset state to OFF...");
 
     try {
-      const result = await readWriteNdef((parsed) => ({
+      const result = await readNdef();
+      const parsed = result?.parsed || {};
+
+      await writeNdef({
         text1: {
           ...(parsed?.text1 || {}),
           state: 0,
@@ -500,10 +503,10 @@ export function AppNavigator() {
         text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
         text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
         text4: parsed?.text4 ?? parsed?.raw?.text4 ?? {},
-      }));
+      });
 
-      setHomeTemperatureC(resolveTemperatureC(result?.parsed || {}));
-      setHomeTimeLabel(formatTime(result?.parsed?.text2?.time));
+      setHomeTemperatureC(resolveTemperatureC(parsed || {}));
+      setHomeTimeLabel(formatTime(parsed?.text2?.time));
       setHomeStateLabel("Off");
       setScanStatusMessage("Cup reset successful. State set to OFF.");
       addFlowEvent(flowEvents, "WRITE_OK_OFF");

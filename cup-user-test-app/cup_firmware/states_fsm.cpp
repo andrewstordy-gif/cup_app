@@ -1,35 +1,31 @@
 #include "states_fsm.h"
-
-#include "states_off.h"
+#include "states_low_battery.h"
 
 namespace {
-
-// current state only
-CupState s = CupState::OFF;
+CupState s = CupState::LOW_BATTERY;
 
 void callEnter(CupState st) {
   (void)st;
-  states::off::enter();
+  states::low_battery::enter();
 }
 
 void callExit(CupState st) {
   (void)st;
-  states::off::exit();
+  states::low_battery::exit();
 }
 
 CupState callRun(CupState st) {
   (void)st;
-  return states::off::run();
+  return states::low_battery::run();
 }
 
 void transitionTo(CupState next) {
   if (next == s) return;
   callExit(s);
-  s = CupState::OFF;
+  s = CupState::LOW_BATTERY;
   callEnter(s);
 }
-
-} // anonymous namespace
+}
 
 namespace states::fsm {
 
@@ -50,4 +46,4 @@ void force(CupState next) {
   transitionTo(next);
 }
 
-} // namespace states::fsm
+}  // namespace states::fsm

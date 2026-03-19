@@ -26,6 +26,12 @@ bool writeCupRecords(
   const drivers::json::Settings &settings
 );
 
+bool writeBootstrapRecords(
+  const drivers::json::State    &state,
+  const drivers::json::Status   &status,
+  const drivers::json::Settings &settings
+);
+
 uint8_t lastWriteCupFailCode();
 
 bool readSettings(drivers::json::Settings &settings);
