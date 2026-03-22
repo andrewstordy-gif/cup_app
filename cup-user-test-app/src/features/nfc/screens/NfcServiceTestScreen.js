@@ -7,10 +7,12 @@ import { full_page_button as FullPageButton } from "../../../components/ui/full_
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import {
-  readNdef,
-  writeNdef,
   sampleNdefPayload,
 } from "../../../services/nfcService";
+import {
+  readNdefMinimal,
+  writeNdefMinimal,
+} from "../../../services/nfcServiceMinimal";
 import { logAppError } from "../../../services/errorLogger";
 
 const FAILURE_LOCKOUT_MS = 2000;
@@ -171,26 +173,29 @@ function buildDraftFromParsed(parsed) {
 
 function mergeDraftWithFallback(nextDraft) {
   const fallback = createInitialDraft();
+  const pickValue = (value, fallbackValue) =>
+    value === undefined || value === null ? fallbackValue : value;
+
   return {
     text1: {
-      state: nextDraft?.text1?.state || fallback.text1.state,
+      state: pickValue(nextDraft?.text1?.state, fallback.text1.state),
     },
     text3: {
-      triggerTemp: nextDraft?.text3?.triggerTemp || fallback.text3.triggerTemp,
-      maxStartTemp: nextDraft?.text3?.maxStartTemp || fallback.text3.maxStartTemp,
-      brewTime: nextDraft?.text3?.brewTime || fallback.text3.brewTime,
-      maxCupTemp: nextDraft?.text3?.maxCupTemp || fallback.text3.maxCupTemp,
-      maxTime: nextDraft?.text3?.maxTime || fallback.text3.maxTime,
-      ledBrightness: nextDraft?.text3?.ledBrightness || fallback.text3.ledBrightness,
+      triggerTemp: pickValue(nextDraft?.text3?.triggerTemp, fallback.text3.triggerTemp),
+      maxStartTemp: pickValue(nextDraft?.text3?.maxStartTemp, fallback.text3.maxStartTemp),
+      brewTime: pickValue(nextDraft?.text3?.brewTime, fallback.text3.brewTime),
+      maxCupTemp: pickValue(nextDraft?.text3?.maxCupTemp, fallback.text3.maxCupTemp),
+      maxTime: pickValue(nextDraft?.text3?.maxTime, fallback.text3.maxTime),
+      ledBrightness: pickValue(nextDraft?.text3?.ledBrightness, fallback.text3.ledBrightness),
     },
     text4: {
-      coffeeName: nextDraft?.text4?.coffeeName || fallback.text4.coffeeName,
-      coffeeProcess: nextDraft?.text4?.coffeeProcess || fallback.text4.coffeeProcess,
-      cupNumber: nextDraft?.text4?.cupNumber || fallback.text4.cupNumber,
-      sessionName: nextDraft?.text4?.sessionName || fallback.text4.sessionName,
-      sessionType: nextDraft?.text4?.sessionType || fallback.text4.sessionType,
-      sessionDate: nextDraft?.text4?.sessionDate || fallback.text4.sessionDate,
-      sessionUUID: nextDraft?.text4?.sessionUUID || fallback.text4.sessionUUID,
+      coffeeName: pickValue(nextDraft?.text4?.coffeeName, fallback.text4.coffeeName),
+      coffeeProcess: pickValue(nextDraft?.text4?.coffeeProcess, fallback.text4.coffeeProcess),
+      cupNumber: pickValue(nextDraft?.text4?.cupNumber, fallback.text4.cupNumber),
+      sessionName: pickValue(nextDraft?.text4?.sessionName, fallback.text4.sessionName),
+      sessionType: pickValue(nextDraft?.text4?.sessionType, fallback.text4.sessionType),
+      sessionDate: pickValue(nextDraft?.text4?.sessionDate, fallback.text4.sessionDate),
+      sessionUUID: pickValue(nextDraft?.text4?.sessionUUID, fallback.text4.sessionUUID),
     },
   };
 }
@@ -242,11 +247,57 @@ function buildWritablePayload(draft) {
   };
 }
 
-function requirePreservedText2(text2) {
-  if (!text2 || typeof text2 !== "object") {
-    throw new Error("Read the tag first so NDEF2 can be preserved.");
-  }
-  return text2;
+function buildStateUpdatePayload(draft) {
+  return {
+    text1: {
+      state: requireInteger("NDEF1 state", draft.text1.state),
+    },
+  };
+}
+
+function buildSettingsUpdatePayload(draft) {
+  return {
+    text3: {
+      triggerTemp: requireInteger("NDEF3 triggerTemp", draft.text3.triggerTemp),
+      maxStartTemp: requireInteger("NDEF3 maxStartTemp", draft.text3.maxStartTemp),
+      brewTime: requireInteger("NDEF3 brewTime", draft.text3.brewTime),
+      maxCupTemp: requireInteger("NDEF3 maxCupTemp", draft.text3.maxCupTemp),
+      maxTime: requireInteger("NDEF3 maxTime", draft.text3.maxTime),
+      ledBrightness: requireInteger("NDEF3 ledBrightness", draft.text3.ledBrightness),
+    },
+  };
+}
+
+function buildMetadataUpdatePayload(draft) {
+  return {
+    text4: {
+      coffeeName: requireString("NDEF4 coffeeName", draft.text4.coffeeName),
+      coffeeProcess: requireString("NDEF4 coffeeProcess", draft.text4.coffeeProcess),
+      cupNumber: requireInteger("NDEF4 cupNumber", draft.text4.cupNumber),
+      sessionName: requireString("NDEF4 sessionName", draft.text4.sessionName),
+      sessionType: requireString("NDEF4 sessionType", draft.text4.sessionType),
+      sessionDate: requireString("NDEF4 sessionDate", draft.text4.sessionDate),
+      sessionUUID: requireString("NDEF4 sessionUUID", draft.text4.sessionUUID),
+    },
+  };
+}
+
+function buildCompactWritePreview(records) {
+  return {
+    text1: toCupText1(records?.text1),
+    text2: toCupText2(records?.text2),
+    text3: toCupText3(records?.text3),
+    text4: toCupText4(records?.text4),
+  };
+}
+
+function buildSparseFrame({ text1 = {}, text3 = {}, text4 = {} } = {}) {
+  return {
+    text1,
+    text2: {},
+    text3,
+    text4,
+  };
 }
 
 export function NfcServiceTestScreen({ onBackPress }) {
@@ -263,6 +314,12 @@ export function NfcServiceTestScreen({ onBackPress }) {
     text4: null,
   });
   const [raw, setRaw] = useState({
+    text1: null,
+    text2: null,
+    text3: null,
+    text4: null,
+  });
+  const [writePreview, setWritePreview] = useState({
     text1: null,
     text2: null,
     text3: null,
@@ -380,7 +437,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
     });
 
     try {
-      const result = await readNdef();
+      const result = await readNdefMinimal();
       const nextParsed = result?.parsed || {};
       const nextRaw = nextParsed?.raw || {};
 
@@ -396,12 +453,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
         text3: nextRaw.text3 ?? null,
         text4: nextRaw.text4 ?? null,
       });
-      setDraft((current) =>
-        mergeDraftWithFallback({
-          ...current,
-          ...buildDraftFromParsed(nextParsed),
-        }),
-      );
+      setDraft(mergeDraftWithFallback(buildDraftFromParsed(nextParsed)));
 
       const nextRecordCount = Number(result?.recordCount) || 0;
       setRecordCount(nextRecordCount);
@@ -429,27 +481,22 @@ export function NfcServiceTestScreen({ onBackPress }) {
 
   const handleWrite = async () => {
     setBusy(true);
-    setStatus("Writing...");
+    setStatus("Writing state update...");
 
     try {
-      const nextPayload = buildWritablePayload(draft);
-      const text2Payload = requirePreservedText2(parsed.text2);
-
-      await writeNdef({
+      const nextPayload = buildStateUpdatePayload(draft);
+      const outgoingPayload = buildSparseFrame({
         text1: nextPayload.text1,
-        text2: text2Payload,
-        text3: nextPayload.text3,
-        text4: nextPayload.text4,
       });
+      setWritePreview(buildCompactWritePreview(outgoingPayload));
+
+      await writeNdefMinimal(outgoingPayload);
 
       setParsed((current) => ({
         ...current,
         text1: nextPayload.text1,
-        text2: text2Payload,
-        text3: nextPayload.text3,
-        text4: nextPayload.text4,
       }));
-      setStatus("Write complete");
+      setStatus("State update write complete");
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
@@ -466,36 +513,98 @@ export function NfcServiceTestScreen({ onBackPress }) {
     }
   };
 
-  const handleWriteGoodNdef = async () => {
+  const handleWriteSettingsUpdate = async () => {
     setBusy(true);
-    setStatus("Writing known-good NDEF...");
+    setStatus("Writing settings update...");
 
     try {
-      const text2Payload = requirePreservedText2(parsed.text2);
-      const knownGoodPayload = {
-        text1: { state: 0 },
-        text2: text2Payload,
-        text3: sampleNdefPayload.text3,
-        text4: sampleNdefPayload.text4,
-      };
-
-      await writeNdef(knownGoodPayload);
-
-      setParsed({
-        text1: knownGoodPayload.text1,
-        text2: knownGoodPayload.text2,
-        text3: knownGoodPayload.text3,
-        text4: knownGoodPayload.text4,
+      const nextPayload = buildSettingsUpdatePayload(draft);
+      const outgoingPayload = buildSparseFrame({
+        text3: nextPayload.text3,
       });
-      setDraft(createInitialDraft());
-      setStatus("Known-good NDEF write complete");
+      setWritePreview(buildCompactWritePreview(outgoingPayload));
+
+      await writeNdefMinimal(outgoingPayload);
+
+      setParsed((current) => ({
+        ...current,
+        text3: nextPayload.text3,
+      }));
+      setStatus("Settings update write complete");
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
       void logAppError({
         screen: "NFCTest",
         route: "NFC Test",
-        flow: "nfc_test_write_good_ndef",
+        flow: "nfc_test_write_settings_update",
+        friendlyMessage: message,
+        error,
+      });
+      setStatus(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleWriteMetadataUpdate = async () => {
+    setBusy(true);
+    setStatus("Writing metadata update...");
+
+    try {
+      const nextPayload = buildMetadataUpdatePayload(draft);
+      const outgoingPayload = buildSparseFrame({
+        text4: nextPayload.text4,
+      });
+      setWritePreview(buildCompactWritePreview(outgoingPayload));
+
+      await writeNdefMinimal(outgoingPayload);
+
+      setParsed((current) => ({
+        ...current,
+        text4: nextPayload.text4,
+      }));
+      setStatus("Metadata update write complete");
+    } catch (error) {
+      const message = error?.message || "Unknown NFC error";
+      await triggerFailureFeedback();
+      void logAppError({
+        screen: "NFCTest",
+        route: "NFC Test",
+        flow: "nfc_test_write_metadata_update",
+        friendlyMessage: message,
+        error,
+      });
+      setStatus(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleWriteNoSessionMetadata = async () => {
+    setBusy(true);
+    setStatus("Writing no-session metadata...");
+
+    try {
+      const outgoingPayload = buildSparseFrame({
+        text4: { sessionUUID: "NO-SESSION" },
+      });
+      setWritePreview(buildCompactWritePreview(outgoingPayload));
+
+      await writeNdefMinimal(outgoingPayload);
+
+      setParsed((current) => ({
+        ...current,
+        text4: { sessionUUID: "NO-SESSION" },
+      }));
+      setStatus("No-session metadata write complete");
+    } catch (error) {
+      const message = error?.message || "Unknown NFC error";
+      await triggerFailureFeedback();
+      void logAppError({
+        screen: "NFCTest",
+        route: "NFC Test",
+        flow: "nfc_test_write_no_session_metadata",
         friendlyMessage: message,
         error,
       });
@@ -537,20 +646,39 @@ export function NfcServiceTestScreen({ onBackPress }) {
             accessibilityLabel="Read NFC tag"
           />
           <FullPageButton
-            label="Write Tag"
+            label="Write State Update"
             onPress={handleWrite}
             loading={busy}
             disabled={actionDisabled}
-            accessibilityLabel="Write NFC tag"
+            accessibilityLabel="Write state update to NFC tag"
           />
           <FullPageButton
-            label="Write Good NDEF"
-            onPress={handleWriteGoodNdef}
+            label="Write Settings Update"
+            onPress={handleWriteSettingsUpdate}
             loading={busy}
             disabled={actionDisabled}
-            accessibilityLabel="Write known good NFC payload"
+            accessibilityLabel="Write settings update to NFC tag"
+          />
+          <FullPageButton
+            label="Write Metadata Update"
+            onPress={handleWriteMetadataUpdate}
+            loading={busy}
+            disabled={actionDisabled}
+            accessibilityLabel="Write metadata update to NFC tag"
+          />
+          <FullPageButton
+            label="Write No Session"
+            onPress={handleWriteNoSessionMetadata}
+            loading={busy}
+            disabled={actionDisabled}
+            accessibilityLabel="Write no-session metadata to NFC tag"
           />
         </View>
+
+        <JsonCard title="Last Write NDEF1" data={writePreview.text1} />
+        <JsonCard title="Last Write NDEF2" data={writePreview.text2} />
+        <JsonCard title="Last Write NDEF3" data={writePreview.text3} />
+        <JsonCard title="Last Write NDEF4" data={writePreview.text4} />
 
         <SectionCard title="Write NDEF1">
           <FieldRow

@@ -3,8 +3,10 @@
 #include <SparkFun_ST25DV64KC_Arduino_Library.h>
 
 #include "config.h"
+#include "drivers_battery.h"
 #include "drivers_nfc.h"
 #include "drivers_json.h"
+#include "drivers_temp_sensor.h"
 
 namespace drivers::nfc {
 
@@ -16,6 +18,7 @@ static uint8_t gLastWriteCupFailCode = WriteCupFailNone;
 // Record 4 is app-owned JSON, so keep a generous buffer when preserving it
 // during cup-side writes to records 1-3.
 static constexpr uint16_t MAX_FREE_RECORD_LEN = 512;
+static char gLastMeaningfulRecord4[MAX_FREE_RECORD_LEN] = "{}";
 static constexpr uint8_t ST25_DATA_ADDR = 0x53;
 static constexpr uint16_t REG_RF_MNGT_DYN = 0x2003;
 static constexpr uint16_t REG_IT_STS_DYN = 0x2005;
@@ -170,6 +173,54 @@ static bool writeAllRecords(
       tag.writeNDEFText(rec4, &memLoc, false, true);
 }
 
+static const char *skipWhitespace(const char *p)
+{
+  while (p && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) {
+    ++p;
+  }
+  return p;
+}
+
+static bool isEmptyJsonObject(const char *text)
+{
+  const char *p = skipWhitespace(text);
+  if (!p || *p != '{') return false;
+  p = skipWhitespace(p + 1);
+  return p && *p == '}';
+}
+
+static void cacheMeaningfulRecord4(const char *record4)
+{
+  if (!record4 || isEmptyJsonObject(record4)) {
+    return;
+  }
+
+  strncpy(gLastMeaningfulRecord4, record4, sizeof(gLastMeaningfulRecord4) - 1);
+  gLastMeaningfulRecord4[sizeof(gLastMeaningfulRecord4) - 1] = '\0';
+}
+
+static const char *selectRecord4ForCupWrite(char *record4Buf, bool record4ReadOk)
+{
+  if (record4ReadOk && record4Buf[sizeof(gLastMeaningfulRecord4) - 1] == '\0') {
+    if (!isEmptyJsonObject(record4Buf)) {
+      cacheMeaningfulRecord4(record4Buf);
+      return record4Buf;
+    }
+
+    if (!isEmptyJsonObject(gLastMeaningfulRecord4)) {
+      return gLastMeaningfulRecord4;
+    }
+
+    return "{}";
+  }
+
+  if (!isEmptyJsonObject(gLastMeaningfulRecord4)) {
+    return gLastMeaningfulRecord4;
+  }
+
+  return "{}";
+}
+
 // --------------------------------------------------
 // Public API
 // --------------------------------------------------
@@ -315,25 +366,20 @@ bool writeCupRecords(
   // three cup-owned records.
   char freeBuf[MAX_FREE_RECORD_LEN] = "{}";
   const bool record4Ok = tag.readNDEFText(freeBuf, sizeof(freeBuf), 4);
-  if (!record4Ok) {
+  // If record 4 fills the buffer without a terminator, treat it as unreadable
+  // and fall back to the last meaningful cached metadata payload.
+  const bool record4Terminated = freeBuf[sizeof(freeBuf) - 1] == '\0';
+  const bool usableRecord4 = record4Ok && record4Terminated;
+  const char *record4ToWrite = selectRecord4ForCupWrite(freeBuf, usableRecord4);
+  if (!usableRecord4) {
     gLastWriteCupFailCode = WriteCupFailRecord4Read;
-    Wire.end();
-    return false;
-  }
-
-  // If record 4 fills the buffer without a terminator, treat it as a failed
-  // read rather than writing truncated JSON back to the tag.
-  if (freeBuf[sizeof(freeBuf) - 1] != '\0') {
-    gLastWriteCupFailCode = WriteCupFailRecord4Read;
-    Wire.end();
-    return false;
   }
 
   const bool ok = writeAllRecords(
     drivers::json::encodeState(state),
     drivers::json::encodeStatus(statusCopy),
     drivers::json::encodeSettings(settings),
-    freeBuf
+    record4ToWrite
   );
   if (!ok) {
     gLastWriteCupFailCode = WriteCupFailWriteAllRecords;
@@ -365,6 +411,8 @@ bool writeBootstrapRecords(
 
   // Startup recovery path: force a valid baseline NDEF payload without relying
   // on an existing readable record 4.
+  strncpy(gLastMeaningfulRecord4, "{}", sizeof(gLastMeaningfulRecord4) - 1);
+  gLastMeaningfulRecord4[sizeof(gLastMeaningfulRecord4) - 1] = '\0';
   const bool ok = writeAllRecords(
     drivers::json::encodeState(state),
     drivers::json::encodeStatus(statusCopy),
@@ -376,6 +424,84 @@ bool writeBootstrapRecords(
   }
   Wire.end();
   return ok;
+}
+
+Stage1Result runStage1(
+  drivers::json::State    &state,
+  drivers::json::Status   &status,
+  const drivers::json::Settings &settings
+)
+{
+  bool beginOk = false;
+  bool rfOffOk = false;
+  bool writeOk = false;
+  bool rfOnOk = false;
+
+  begin();
+  beginOk = lastWriteCupFailCode() == WriteCupFailNone;
+
+  rfOffOk = disableRfAccess();
+  if (rfOffOk) {
+    drivers::temp::begin();
+    const float t = drivers::temp::read();
+    status.temp = (uint16_t)(t * 10.0f);
+
+    drivers::battery::begin();
+    const float v = drivers::battery::readVoltage();
+    status.battery = drivers::battery::estimatePercent(v);
+
+    writeOk = writeCupRecords(state, status, settings);
+    rfOnOk = enableRfAccess();
+  }
+
+  const uint8_t failCode = lastWriteCupFailCode();
+  end();
+
+  const uint8_t mask =
+    (beginOk ? 0x01 : 0) |
+    (rfOffOk ? 0x02 : 0) |
+    (writeOk ? 0x04 : 0) |
+    (rfOnOk ? 0x08 : 0);
+
+  return { mask, failCode };
+}
+
+Stage2Result runStage2(
+  drivers::json::State    &state,
+  drivers::json::Settings *settings
+)
+{
+  bool beginOk = false;
+  bool rfOffOk = false;
+  bool stateOk = false;
+  bool settingsOk = false;
+  bool rfOnOk = false;
+
+  begin();
+  beginOk = lastWriteCupFailCode() == WriteCupFailNone;
+  if (beginOk) {
+    waitForRfIdle();
+  }
+
+  rfOffOk = disableRfAccess();
+  if (rfOffOk) {
+    stateOk = readState(state);
+    if (settings) {
+      settingsOk = readSettings(*settings);
+    }
+    rfOnOk = enableRfAccess();
+  }
+
+  end();
+
+  const uint8_t mask =
+    (beginOk ? 0x01 : 0) |
+    (rfOffOk ? 0x02 : 0) |
+    (stateOk ? 0x04 : 0) |
+    (settingsOk ? 0x08 : 0) |
+    (rfOnOk ? 0x10 : 0);
+
+  return { mask };
 }
 
 

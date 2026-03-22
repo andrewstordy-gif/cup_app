@@ -52,6 +52,7 @@ bool decodeState(const char *json, State &s) {
   const char *p = findKeyValue(json, "state");
   if (!p) p = findKeyValue(json, "s");
   if (!p || !parseUint(p, v)) return false;
+  if (v > 4u) return false;
   s.state = (uint8_t)v;
   return true;
 }

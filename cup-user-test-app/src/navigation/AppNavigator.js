@@ -10,7 +10,7 @@ import { CupSettingsScreen } from "../features/cup-settings/screens/CupSettingsS
 import { AccountScreen } from "../features/account/screens/AccountScreen";
 import { WarningDialog } from "../components/ui/WarningDialog";
 import { colors } from "../theme/colors";
-import { readNdef, writeNdef } from "../services/nfcService";
+import { readNdef } from "../services/nfcService";
 import { logAppError, shareLatestErrorLog } from "../services/errorLogger";
 import { findActiveSampleByCupUUID, hasFinalFeedbackForSample } from "../data/sessionRepository";
 
@@ -366,167 +366,36 @@ export function AppNavigator() {
   };
 
   const handleUseWithoutSessionFromSleepDialog = async () => {
-    const flowEvents = [];
-    addFlowEvent(flowEvents, "USE_WITHOUT_SESSION_FROM_SLEEP_START");
     sleepDialogVisibleRef.current = false;
     notInSessionDialogVisibleRef.current = false;
     setSleepDialogVisible(false);
     setNotInSessionDialogVisible(false);
-    const actionToken = beginNfcAction("Scan sleeping cup to wake it up...");
-
-    try {
-      const result = await readNdef();
-      const parsed = result?.parsed || {};
-      const currentState = resolveCupState(parsed || {});
-      addFlowEvent(flowEvents, `READ_STATE value=${String(currentState)}`);
-      if (currentState !== 0) {
-        throw new Error("Scanned cup is not in sleeping state.");
-      }
-
-      await writeNdef({
-        text1: {
-          ...(parsed?.text1 || {}),
-          state: 1,
-        },
-        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-        text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
-        text4: {
-          coffeeName: "",
-          coffeeProcess: "",
-          cupNumber: "",
-          sessionName: "",
-          sessionType: "",
-          sessionDate: "",
-          sessionUUID: "NO-SESSION",
-        },
-      });
-
-      setHomeTemperatureC(resolveTemperatureC(parsed || {}));
-      setHomeTimeLabel(formatTime(parsed?.text2?.time));
-      setHomeStateLabel("Ready");
-      setScanStatusMessage("Cup wake successful. State set to READY.");
-      addFlowEvent(flowEvents, "WRITE_OK_READY");
-    } catch (error) {
-      if (!isCurrentNfcAction(actionToken)) {
-        return;
-      }
-      const message = mapScanErrorMessage(error, "Unable to wake cup.");
-      addFlowEvent(flowEvents, `ERROR ${message}`);
-      setScanStatusMessage(message);
-      logHomeError({
-        flow: "use_without_session_from_sleep",
-        friendlyMessage: message,
-        error,
-        events: flowEvents,
-      });
-      showWarning("Wake Failed", message);
-    } finally {
-      finishCurrentNfcAction(actionToken);
-    }
+    setScanStatusMessage("Home screen writes are temporarily disabled. Use NFC Test or NFC Tools to change cup state.");
+    showWarning(
+      "Home Writes Disabled",
+      "Home screen NFC writes are temporarily disabled while we stabilise the tag write path. Use NFC Test or NFC Tools to change cup state."
+    );
   };
 
   const handleUseWithoutSessionFromNotInSessionDialog = async () => {
-    const flowEvents = [];
-    addFlowEvent(flowEvents, "USE_WITHOUT_SESSION_NOT_IN_SESSION_START");
     notInSessionDialogVisibleRef.current = false;
     setNotInSessionDialogVisible(false);
-    const actionToken = beginNfcAction("Scan cup to set it to READY...");
-
-    try {
-      const result = await readNdef();
-      const parsed = result?.parsed || {};
-      const currentState = resolveCupState(parsed || {});
-      addFlowEvent(flowEvents, `READ_STATE value=${String(currentState)}`);
-      if (![1, 2, 3].includes(currentState)) {
-        throw new Error("Scanned cup is not in state READY, BREWING, or CUPPING.");
-      }
-
-      await writeNdef({
-        text1: {
-          ...(parsed?.text1 || {}),
-          state: 1,
-        },
-        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-        text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
-        text4: {
-          coffeeName: "",
-          coffeeProcess: "",
-          cupNumber: "",
-          sessionName: "",
-          sessionType: "",
-          sessionDate: "",
-          sessionUUID: "NO-SESSION",
-        },
-      });
-
-      setHomeTemperatureC(resolveTemperatureC(parsed || {}));
-      setHomeTimeLabel(formatTime(parsed?.text2?.time));
-      setHomeStateLabel("Ready");
-      setScanStatusMessage("Cup updated. State set to READY.");
-      addFlowEvent(flowEvents, "WRITE_OK_READY");
-    } catch (error) {
-      if (!isCurrentNfcAction(actionToken)) {
-        return;
-      }
-      const message = mapScanErrorMessage(error, "Unable to update cup state.");
-      addFlowEvent(flowEvents, `ERROR ${message}`);
-      setScanStatusMessage(message);
-      logHomeError({
-        flow: "use_without_session_from_not_in_session",
-        friendlyMessage: message,
-        error,
-        events: flowEvents,
-      });
-      showWarning("Update Failed", message);
-    } finally {
-      finishCurrentNfcAction(actionToken);
-    }
+    setScanStatusMessage("Home screen writes are temporarily disabled. Use NFC Test or NFC Tools to change cup state.");
+    showWarning(
+      "Home Writes Disabled",
+      "Home screen NFC writes are temporarily disabled while we stabilise the tag write path. Use NFC Test or NFC Tools to change cup state."
+    );
   };
 
   const handleResetCupToOffFromMenu = async () => {
-    const flowEvents = [];
-    addFlowEvent(flowEvents, "RESET_TO_OFF_START");
     closeDrawer();
     setRoute("Home");
     setSelectedCupContext(null);
-    const actionToken = beginNfcAction("Scan cup to reset state to OFF...");
-
-    try {
-      const result = await readNdef();
-      const parsed = result?.parsed || {};
-
-      await writeNdef({
-        text1: {
-          ...(parsed?.text1 || {}),
-          state: 0,
-        },
-        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-        text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
-        text4: parsed?.text4 ?? parsed?.raw?.text4 ?? {},
-      });
-
-      setHomeTemperatureC(resolveTemperatureC(parsed || {}));
-      setHomeTimeLabel(formatTime(parsed?.text2?.time));
-      setHomeStateLabel("Off");
-      setScanStatusMessage("Cup reset successful. State set to OFF.");
-      addFlowEvent(flowEvents, "WRITE_OK_OFF");
-    } catch (error) {
-      if (!isCurrentNfcAction(actionToken)) {
-        return;
-      }
-      const message = mapScanErrorMessage(error, "Unable to reset cup state.");
-      addFlowEvent(flowEvents, `ERROR ${message}`);
-      setScanStatusMessage(message);
-      logHomeError({
-        flow: "reset_cup_to_off",
-        friendlyMessage: message,
-        error,
-        events: flowEvents,
-      });
-      showWarning("Reset Failed", message);
-    } finally {
-      finishCurrentNfcAction(actionToken);
-    }
+    setScanStatusMessage("Home screen writes are temporarily disabled. Use NFC Test or NFC Tools to reset the cup state.");
+    showWarning(
+      "Home Writes Disabled",
+      "Home screen NFC writes are temporarily disabled while we stabilise the tag write path. Use NFC Test or NFC Tools to reset the cup state."
+    );
   };
 
   const handleShareLatestErrorLog = async () => {
