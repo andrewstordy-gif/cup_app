@@ -1,35 +1,39 @@
 {
   "expo": {
-    "name": "Cup App Mockup",
-    "slug": "cup-app-mockup",
+    "name": "Cup User Test App",
+    "slug": "cup-user-test-app",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
-    "splash": {
-      "resizeMode": "contain",
-      "backgroundColor": "#f4efe6"
-    },
+    "icon": "./src/assets/images/cup_image_transparrent.png",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NFCReaderUsageDescription": "This app reads and writes NDEF data to your coffee cup."
+        "NFCReaderUsageDescription": "This app scans NFC cup tags to read and write cupping session data."
       },
-      "bundleIdentifier": "com.andrewstordy.cupappmockup"
+      "entitlements": {
+        "com.apple.developer.nfc.readersession.formats": [
+          "NDEF"
+        ]
+      },
+      "bundleIdentifier": "com.andrewstordy.cupusertestapp"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#f4efe6"
+        "foregroundImage": "./src/assets/images/cup_image_transparrent.png",
+        "backgroundColor": "#f5f5f5"
       },
       "permissions": [
         "android.permission.NFC"
       ],
-      "package": "com.andrewstordy.cupappmockup"
+      "package": "com.andrewstordy.cupusertestapp"
     },
     "web": {
       "bundler": "metro"
     },
     "plugins": [
-      "react-native-nfc-manager"
+      "react-native-nfc-manager",
+      "expo-sqlite"
     ]
   }
 }
