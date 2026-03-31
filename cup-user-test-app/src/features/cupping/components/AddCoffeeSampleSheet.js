@@ -7,11 +7,13 @@ import { CUP_NUMBER_OPTIONS } from "../constants/sessionDetails";
 
 export function AddCoffeeSampleSheet({
   visible,
+  cupUUID,
   coffeeNameOrigin,
   process,
   cupNumber,
   errors,
   loading,
+  statusMessage,
   onChangeCoffeeNameOrigin,
   onChangeProcess,
   onSelectCupNumber,
@@ -39,7 +41,16 @@ export function AddCoffeeSampleSheet({
             </Pressable>
           </View>
 
-          <Text style={styles.sheetSubtitle}>Add details before scanning the cup.</Text>
+          <Text style={styles.sheetSubtitle}>
+            {loading
+              ? statusMessage || "Writing session data to the selected cup..."
+              : "Add details for the scanned cup, then scan it again to write the session data."}
+          </Text>
+
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Cup UUID</Text>
+            <Text style={styles.readOnlyValue}>{cupUUID || "-"}</Text>
+          </View>
 
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>Coffee Name / Origin</Text>
@@ -92,6 +103,7 @@ export function AddCoffeeSampleSheet({
           </View>
 
           <View style={styles.sheetActions}>
+            {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
             <FullPageButton
               label="Scan Cup"
               onPress={onScanCup}
@@ -168,10 +180,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.text,
   },
+  readOnlyValue: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    backgroundColor: "#f8f8f8",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: colors.text,
+  },
   errorText: {
     fontSize: 12,
     color: "#d73a49",
     fontWeight: "600",
+  },
+  statusText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    lineHeight: 18,
   },
   sheetActions: {
     marginTop: spacing.md,

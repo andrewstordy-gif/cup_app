@@ -6,7 +6,8 @@ import { full_page_button as FullPageButton } from "../../../components/ui/full_
 import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
-import { readNdef, writeNdef } from "../../../services/nfcService";
+import { readNdefMinimal, writeNdefMinimal } from "../../../services/nfcServiceMinimal";
+import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
@@ -44,6 +45,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [sheetCoffeeNameOrigin, setSheetCoffeeNameOrigin] = useState("");
   const [sheetProcess, setSheetProcess] = useState("");
   const [sheetCupNumber, setSheetCupNumber] = useState(3);
+  const [pendingCupUUID, setPendingCupUUID] = useState("");
   const [sheetErrors, setSheetErrors] = useState({});
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [isNfcWriting, setIsNfcWriting] = useState(false);
@@ -203,13 +205,91 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
     setSheetCoffeeNameOrigin("");
     setSheetProcess("");
     setSheetCupNumber(3);
+    setPendingCupUUID("");
     setSheetErrors({});
-    setIsAddSheetVisible(true);
+    setScanStatusMessage("");
+    void handleIdentifyCupForSample();
   };
 
   const handleCloseAddSheet = () => {
     setIsAddSheetVisible(false);
+    setPendingCupUUID("");
     setSheetErrors({});
+    setScanStatusMessage("");
+  };
+
+  const handleIdentifyCupForSample = async () => {
+    if (!sessionName.trim()) {
+      setScanStatusMessage("Please enter Session Name before scanning cup.");
+      return;
+    }
+
+    setIsNfcWriting(true);
+
+    try {
+      setScanStatusMessage("Scan cup to identify it for this sample...");
+      const result = await readNdefMinimal();
+      const parsed = result?.parsed || {};
+      const tag = result?.tag;
+      const detectedCupUUID = resolveCupUUIDFromReadResult({ parsed, tag });
+      if (!detectedCupUUID) {
+        throw new Error("Could not read cup UUID from tag. Please try scanning again.");
+      }
+
+      const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
+      const conflictingSession = await findPendingSessionByCupUUID({
+        cupUUID: normalizedDetectedCupUUID,
+        excludeSessionId: sessionUUID,
+      });
+
+      if (conflictingSession) {
+        const conflictName =
+          conflictingSession.sessionName || conflictingSession.sessionDisplayId || "another session";
+        const conflictType = conflictingSession.sessionType || "Pending";
+        throw createPendingConflictError(
+          `Cup UUID ${normalizedDetectedCupUUID} is already assigned to ${conflictName} (${conflictType}).`
+        );
+      }
+
+      setPendingCupUUID(normalizedDetectedCupUUID);
+      setScanStatusMessage(`Cup ${normalizedDetectedCupUUID} identified. Add details, then scan again to write.`);
+      setIsAddSheetVisible(true);
+    } catch (error) {
+      const message = error?.message || "Unable to scan cup.";
+      const normalizedMessage = String(message).toLowerCase();
+      const isUserCancelled =
+        normalizedMessage.includes("scan cancelled") ||
+        normalizedMessage.includes("session was cancelled");
+
+      await playNfcFailureFeedback(error);
+      void logAppError({
+        screen: "CuppingSessionDetails",
+        route: "Cupping Session Details",
+        flow: "identify_cup_for_sample",
+        friendlyMessage: message,
+        error,
+        context: {
+          sessionUUID,
+          sessionName,
+          sessionType,
+          sessionDate,
+        },
+      });
+
+      if (isUserCancelled) {
+        setScanStatusMessage("");
+      } else if (error?.code === PENDING_CONFLICT_ERROR) {
+        setCupBlockedMessage(message);
+        setScanStatusMessage(message);
+        setTimeout(() => {
+          setIsCupBlockedDialogVisible(true);
+        }, 0);
+      } else {
+        setScanStatusMessage(message);
+      }
+    } finally {
+      setIsNfcWriting(false);
+    }
   };
 
   const validateAddSheet = () => {
@@ -241,38 +321,23 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       return;
     }
 
+    if (!pendingCupUUID) {
+      setScanStatusMessage("Please identify a cup before writing sample details.");
+      return;
+    }
+
     setIsNfcWriting(true);
 
     try {
-      setScanStatusMessage("Scan cup to link sample and write session data...");
-      const result = await readNdef();
-      const parsed = result?.parsed || {};
-      const tag = result?.tag;
-      const detectedCupUUID = resolveCupUUIDFromReadResult({ parsed, tag });
-      if (!detectedCupUUID) {
-        throw new Error("Could not read cup UUID from tag. Please try scanning again.");
-      }
+      const normalizedDetectedCupUUID = pendingCupUUID;
+      setScanStatusMessage(`Scan cup ${normalizedDetectedCupUUID} to write session data...`);
 
-      const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
-      const conflictingSession = await findPendingSessionByCupUUID({
-        cupUUID: normalizedDetectedCupUUID,
-        excludeSessionId: sessionUUID,
-      });
-
-      if (conflictingSession) {
-        const conflictName = conflictingSession.sessionName || conflictingSession.sessionDisplayId || "another session";
-        const conflictType = conflictingSession.sessionType || "Pending";
-        throw createPendingConflictError(
-          `Cup UUID ${normalizedDetectedCupUUID} is already assigned to ${conflictName} (${conflictType}).`
-        );
-      }
-
-      await writeNdef({
+      await writeNdefMinimal({
         text1: {
           state: 1,
         },
-        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-        text3: parsed?.text3 ?? parsed?.raw?.text3 ?? {},
+        text2: {},
+        text3: {},
         text4: {
           coffeeName: sheetCoffeeNameOrigin.trim(),
           coffeeProcess: sheetProcess.trim(),
@@ -315,15 +380,22 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       }
 
       setIsAddSheetVisible(false);
+      setPendingCupUUID("");
       if (duplicateIndex !== -1) {
         setOverwriteDialogMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten.`);
         setIsOverwriteDialogVisible(true);
         setScanStatusMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten.`);
       } else {
-        setScanStatusMessage("Cup linked successfully and sample added.");
+        setScanStatusMessage(`Cup ${normalizedDetectedCupUUID} linked successfully and sample added.`);
       }
     } catch (error) {
       const message = error?.message || "NFC write failed.";
+      const normalizedMessage = String(message).toLowerCase();
+      const isUserCancelled =
+        normalizedMessage.includes("scan cancelled") ||
+        normalizedMessage.includes("session was cancelled");
+
+      await playNfcFailureFeedback(error);
       void logAppError({
         screen: "CuppingSessionDetails",
         route: "Cupping Session Details",
@@ -335,12 +407,15 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
           sessionName,
           sessionType,
           sessionDate,
+          pendingCupUUID,
           sheetCoffeeNameOrigin,
           sheetProcess,
           sheetCupNumber,
         },
       });
-      if (error?.code === PENDING_CONFLICT_ERROR) {
+      if (isUserCancelled) {
+        setScanStatusMessage("");
+      } else if (error?.code === PENDING_CONFLICT_ERROR) {
         const userMessage = message;
         // Close the bottom sheet first to avoid iOS modal stacking issues.
         setIsAddSheetVisible(false);
@@ -520,11 +595,13 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
       <AddCoffeeSampleSheet
         visible={isAddSheetVisible}
+        cupUUID={pendingCupUUID}
         coffeeNameOrigin={sheetCoffeeNameOrigin}
         process={sheetProcess}
         cupNumber={sheetCupNumber}
         errors={sheetErrors}
         loading={isNfcWriting}
+        statusMessage={scanStatusMessage}
         onChangeCoffeeNameOrigin={setSheetCoffeeNameOrigin}
         onChangeProcess={setSheetProcess}
         onSelectCupNumber={setSheetCupNumber}

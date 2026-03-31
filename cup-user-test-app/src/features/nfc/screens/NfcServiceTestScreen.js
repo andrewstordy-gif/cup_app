@@ -1,22 +1,40 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { StyleSheet, Text, TextInput, View } from "react-native";
-import { Audio } from "expo-av";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import {
-  sampleNdefPayload,
-} from "../../../services/nfcService";
-import {
   readNdefMinimal,
   writeNdefMinimal,
 } from "../../../services/nfcServiceMinimal";
+import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 
 const FAILURE_LOCKOUT_MS = 2000;
-const FAILURE_CLANG = require("../../../../assets/sounds/nfc-failure-clang.wav");
+const SAMPLE_NDEF_PAYLOAD = {
+  text1: {
+    state: 1,
+  },
+  text3: {
+    triggerTemp: 40,
+    maxStartTemp: 93,
+    brewTime: 240,
+    maxCupTemp: 70,
+    maxTime: 1200,
+    ledBrightness: 128,
+  },
+  text4: {
+    coffeeName: "Ethiopia Yirgacheffe G1",
+    coffeeProcess: "Natural",
+    cupNumber: 3,
+    sessionType: "Sourcing Decision",
+    sessionName: "Morning Cupping",
+    sessionDate: new Date().toISOString(),
+    sessionUUID: "CUP-8291-XJ2",
+  },
+};
 
 function JsonCard({ title, data }) {
   return (
@@ -117,24 +135,24 @@ function FieldRow({
 function createInitialDraft() {
   return {
     text1: {
-      state: String(sampleNdefPayload.text1?.state ?? ""),
+      state: String(SAMPLE_NDEF_PAYLOAD.text1?.state ?? ""),
     },
     text3: {
-      triggerTemp: String(sampleNdefPayload.text3?.triggerTemp ?? ""),
-      maxStartTemp: String(sampleNdefPayload.text3?.maxStartTemp ?? ""),
-      brewTime: String(sampleNdefPayload.text3?.brewTime ?? ""),
-      maxCupTemp: String(sampleNdefPayload.text3?.maxCupTemp ?? ""),
-      maxTime: String(sampleNdefPayload.text3?.maxTime ?? ""),
-      ledBrightness: String(sampleNdefPayload.text3?.ledBrightness ?? ""),
+      triggerTemp: String(SAMPLE_NDEF_PAYLOAD.text3?.triggerTemp ?? ""),
+      maxStartTemp: String(SAMPLE_NDEF_PAYLOAD.text3?.maxStartTemp ?? ""),
+      brewTime: String(SAMPLE_NDEF_PAYLOAD.text3?.brewTime ?? ""),
+      maxCupTemp: String(SAMPLE_NDEF_PAYLOAD.text3?.maxCupTemp ?? ""),
+      maxTime: String(SAMPLE_NDEF_PAYLOAD.text3?.maxTime ?? ""),
+      ledBrightness: String(SAMPLE_NDEF_PAYLOAD.text3?.ledBrightness ?? ""),
     },
     text4: {
-      coffeeName: String(sampleNdefPayload.text4?.coffeeName ?? ""),
-      coffeeProcess: String(sampleNdefPayload.text4?.coffeeProcess ?? ""),
-      cupNumber: String(sampleNdefPayload.text4?.cupNumber ?? ""),
-      sessionName: String(sampleNdefPayload.text4?.sessionName ?? ""),
-      sessionType: String(sampleNdefPayload.text4?.sessionType ?? ""),
-      sessionDate: String(sampleNdefPayload.text4?.sessionDate ?? ""),
-      sessionUUID: String(sampleNdefPayload.text4?.sessionUUID ?? ""),
+      coffeeName: String(SAMPLE_NDEF_PAYLOAD.text4?.coffeeName ?? ""),
+      coffeeProcess: String(SAMPLE_NDEF_PAYLOAD.text4?.coffeeProcess ?? ""),
+      cupNumber: String(SAMPLE_NDEF_PAYLOAD.text4?.cupNumber ?? ""),
+      sessionName: String(SAMPLE_NDEF_PAYLOAD.text4?.sessionName ?? ""),
+      sessionType: String(SAMPLE_NDEF_PAYLOAD.text4?.sessionType ?? ""),
+      sessionDate: String(SAMPLE_NDEF_PAYLOAD.text4?.sessionDate ?? ""),
+      sessionUUID: String(SAMPLE_NDEF_PAYLOAD.text4?.sessionUUID ?? ""),
     },
   };
 }
@@ -301,7 +319,6 @@ function buildSparseFrame({ text1 = {}, text3 = {}, text4 = {} } = {}) {
 }
 
 export function NfcServiceTestScreen({ onBackPress }) {
-  const failureSoundRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -341,39 +358,6 @@ export function NfcServiceTestScreen({ onBackPress }) {
     };
   }, [cooldownUntil, now]);
 
-  useEffect(() => {
-    let active = true;
-
-    const loadFailureSound = async () => {
-      try {
-        await Audio.setAudioModeAsync({
-          playsInSilentModeIOS: true,
-        });
-
-        const { sound } = await Audio.Sound.createAsync(FAILURE_CLANG);
-        if (!active) {
-          await sound.unloadAsync();
-          return;
-        }
-
-        failureSoundRef.current = sound;
-      } catch {
-        failureSoundRef.current = null;
-      }
-    };
-
-    void loadFailureSound();
-
-    return () => {
-      active = false;
-      const sound = failureSoundRef.current;
-      failureSoundRef.current = null;
-      if (sound) {
-        void sound.unloadAsync();
-      }
-    };
-  }, []);
-
   const cooldownRemainingMs = Math.max(0, cooldownUntil - now);
   const actionDisabled = busy || cooldownRemainingMs > 0;
 
@@ -391,32 +375,6 @@ export function NfcServiceTestScreen({ onBackPress }) {
     const nextNow = Date.now();
     setNow(nextNow);
     setCooldownUntil(nextNow + FAILURE_LOCKOUT_MS);
-
-    const sound = failureSoundRef.current;
-    if (!sound) {
-      return;
-    }
-
-    try {
-      await sound.replayAsync();
-    } catch {
-      try {
-        await sound.unloadAsync();
-      } catch {
-        // no-op
-      }
-
-      failureSoundRef.current = null;
-      try {
-        const { sound: reloadedSound } = await Audio.Sound.createAsync(
-          FAILURE_CLANG,
-          { shouldPlay: true },
-        );
-        failureSoundRef.current = reloadedSound;
-      } catch {
-        failureSoundRef.current = null;
-      }
-    }
   };
 
   const handleRead = async () => {
@@ -459,6 +417,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
       setRecordCount(nextRecordCount);
       if (nextRecordCount === 0) {
         await triggerFailureFeedback();
+        await playNfcFailureFeedback(new Error("No NDEF records found."));
         setStatus("Read complete (0 record(s); no NDEF payload returned)");
       } else {
         setStatus(`Read complete (${nextRecordCount} record(s))`);
@@ -466,6 +425,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
+      await playNfcFailureFeedback(error);
       void logAppError({
         screen: "NFCTest",
         route: "NFC Test",
@@ -500,6 +460,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
+      await playNfcFailureFeedback(error);
       void logAppError({
         screen: "NFCTest",
         route: "NFC Test",
@@ -534,6 +495,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
+      await playNfcFailureFeedback(error);
       void logAppError({
         screen: "NFCTest",
         route: "NFC Test",
@@ -568,6 +530,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
+      await playNfcFailureFeedback(error);
       void logAppError({
         screen: "NFCTest",
         route: "NFC Test",
@@ -601,6 +564,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
+      await playNfcFailureFeedback(error);
       void logAppError({
         screen: "NFCTest",
         route: "NFC Test",

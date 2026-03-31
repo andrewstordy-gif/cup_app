@@ -5,6 +5,7 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
+    "icon": "./src/assets/images/cup_image_transparrent.png",
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -19,6 +20,7 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./src/assets/images/cup_image_transparrent.png",
         "backgroundColor": "#f5f5f5"
       },
       "permissions": [

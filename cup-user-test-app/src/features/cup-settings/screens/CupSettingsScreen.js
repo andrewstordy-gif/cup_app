@@ -4,12 +4,22 @@ import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
-import { readNdef, writeNdef } from "../../../services/nfcService";
+import { readNdefMinimal, writeNdefMinimal } from "../../../services/nfcServiceMinimal";
+import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 
 const DEFAULT_FIELDS = {
+  triggerTemp: "-",
+  maxWaterTemp: "-",
+  brewMinutes: "-",
+  brewSeconds: "-",
+  maxCupTemp: "-",
+  ledBrightnessPercent: "-",
+};
+
+const FALLBACK_SETTINGS_FIELDS = {
   triggerTemp: "40",
   maxWaterTemp: "96",
   brewMinutes: "4",
@@ -30,6 +40,28 @@ function toNumber(value) {
   if (!trimmed) return null;
   if (!/^\d+$/.test(trimmed)) return null;
   return Number(trimmed);
+}
+
+function pad2(value) {
+  return String(value).padStart(2, "0");
+}
+
+function buildFieldsFromParsed(parsed) {
+  const text3 = parsed?.text3 || {};
+  const brewSecondsTotal = Number(text3.brewTime ?? text3.w ?? Number(FALLBACK_SETTINGS_FIELDS.brewMinutes) * 60);
+  const brewMinutes = Number.isFinite(brewSecondsTotal) ? Math.floor(brewSecondsTotal / 60) : 4;
+  const brewSeconds = Number.isFinite(brewSecondsTotal) ? brewSecondsTotal % 60 : 0;
+  const ledRaw = Number(text3.ledBrightness ?? text3.l ?? 100);
+  const ledPercent = Number.isFinite(ledRaw) ? Math.round(ledRaw / 2) : 50;
+
+  return {
+    triggerTemp: String(text3.triggerTemp ?? text3.r ?? FALLBACK_SETTINGS_FIELDS.triggerTemp),
+    maxWaterTemp: String(text3.maxStartTemp ?? text3.a ?? FALLBACK_SETTINGS_FIELDS.maxWaterTemp),
+    brewMinutes: String(brewMinutes),
+    brewSeconds: pad2(brewSeconds),
+    maxCupTemp: String(text3.maxCupTemp ?? text3.c ?? FALLBACK_SETTINGS_FIELDS.maxCupTemp),
+    ledBrightnessPercent: String(ledPercent),
+  };
 }
 
 function validateFields(fields) {
@@ -93,6 +125,7 @@ function SettingsField({
   onChangeText,
   accessibilityLabel,
   error,
+  disabled = false,
 }) {
   return (
     <View style={styles.fieldBlock}>
@@ -102,7 +135,8 @@ function SettingsField({
         value={value}
         onChangeText={onChangeText}
         keyboardType="number-pad"
-        style={[styles.input, error ? styles.inputError : null]}
+        editable={!disabled}
+        style={[styles.input, disabled ? styles.inputDisabled : null, error ? styles.inputError : null]}
         accessibilityLabel={accessibilityLabel}
       />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -116,6 +150,7 @@ function BrewTimeField({
   onChangeMinutes,
   onChangeSeconds,
   error,
+  disabled = false,
 }) {
   return (
     <View style={styles.fieldBlock}>
@@ -128,7 +163,8 @@ function BrewTimeField({
           value={minutesValue}
           onChangeText={onChangeMinutes}
           keyboardType="number-pad"
-          style={[styles.timeInput, error ? styles.inputError : null]}
+          editable={!disabled}
+          style={[styles.timeInput, disabled ? styles.inputDisabled : null, error ? styles.inputError : null]}
           accessibilityLabel="Brew Time minutes input"
           maxLength={2}
         />
@@ -137,7 +173,8 @@ function BrewTimeField({
           value={secondsValue}
           onChangeText={onChangeSeconds}
           keyboardType="number-pad"
-          style={[styles.timeInput, error ? styles.inputError : null]}
+          editable={!disabled}
+          style={[styles.timeInput, disabled ? styles.inputDisabled : null, error ? styles.inputError : null]}
           accessibilityLabel="Brew Time seconds input"
           maxLength={2}
         />
@@ -150,9 +187,11 @@ function BrewTimeField({
 export function CupSettingsScreen({ onBackPress }) {
   const [fields, setFields] = useState(DEFAULT_FIELDS);
   const [fieldErrors, setFieldErrors] = useState({});
-  const [statusMessage, setStatusMessage] = useState("Scan a cup to read and sync settings.");
+  const [statusMessage, setStatusMessage] = useState("Scan a cup to read settings.");
   const [isSyncing, setIsSyncing] = useState(false);
   const [warning, setWarning] = useState({ visible: false, title: "", message: "" });
+  const [mode, setMode] = useState("read");
+  const [lastReadCupState, setLastReadCupState] = useState(null);
 
   const settingsPayload = useMemo(
     () => ({
@@ -183,61 +222,95 @@ export function CupSettingsScreen({ onBackPress }) {
     setWarning((prev) => ({ ...prev, visible: false }));
   };
 
-  const handleReadWriteSettings = async () => {
+  const handleReadSettings = async () => {
+    setIsSyncing(true);
+    setStatusMessage("Hold your phone near the cup to read settings.");
+
+    try {
+      const result = await readNdefMinimal();
+      const parsed = result?.parsed || {};
+      const state = Number(parsed?.text1?.s ?? parsed?.text1?.state);
+
+      setFields(buildFieldsFromParsed(parsed));
+      setFieldErrors({});
+      setLastReadCupState(Number.isFinite(state) ? state : null);
+      setMode("write");
+      setStatusMessage("Settings loaded. You can now edit and write them back.");
+    } catch (error) {
+      await playNfcFailureFeedback(error);
+      void logAppError({
+        screen: "CupSettings",
+        route: "Cup Settings",
+        flow: "read_settings",
+        friendlyMessage: error?.message || "Could not read settings.",
+        error,
+      });
+      setStatusMessage("Could not read settings.");
+      openWarning("Read Failed", error?.message || "Could not read settings.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleWriteSettings = async () => {
     const errors = validateFields(fields);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
-      setStatusMessage("Please fix validation errors before scanning.");
+      setStatusMessage("Please fix validation errors before writing.");
+      return;
+    }
+
+    if (![0, 1].includes(Number(lastReadCupState))) {
+      setStatusMessage("Settings update blocked by cup state.");
+      openWarning(
+        "Update Blocked",
+        "Settings can only be changed when the last-read cup state is OFF or READY.",
+      );
       return;
     }
 
     setIsSyncing(true);
-    setStatusMessage("Hold your phone near the cup to read and sync settings.");
+    setStatusMessage("Hold your phone near the cup to write settings.");
 
     try {
-      const result = await readNdef();
-      const parsed = result?.parsed || {};
-      const state = parsed?.text1?.s ?? parsed?.text1?.state;
-      if (![0, 1, 4].includes(Number(state))) {
-        throw new Error("STATE_BLOCKED");
-      }
-
-      await writeNdef({
-        text1: parsed?.text1 || {},
-        text2: parsed?.text2 ?? parsed?.raw?.text2 ?? {},
-        text3: {
-          ...(parsed?.text3 || {}),
-          ...settingsPayload,
-        },
-        text4: parsed?.text4 ?? parsed?.raw?.text4 ?? {},
+      await writeNdefMinimal({
+        text1: {},
+        text2: {},
+        text3: settingsPayload,
+        text4: {},
       });
 
-      setStatusMessage("Settings synced successfully.");
+      setMode("read");
+      setLastReadCupState(null);
+      setStatusMessage("Settings written. Scan another cup to read settings.");
     } catch (error) {
+      await playNfcFailureFeedback(error);
       void logAppError({
         screen: "CupSettings",
         route: "Cup Settings",
-        flow: "read_then_write_settings",
-        friendlyMessage: error?.message || "Could not sync settings.",
+        flow: "write_settings",
+        friendlyMessage: error?.message || "Could not write settings.",
         error,
         context: {
           fields,
           settingsPayload,
+          lastReadCupState,
         },
       });
-      if (error?.message === "STATE_BLOCKED") {
-        setStatusMessage("Settings update blocked by cup state.");
-        openWarning(
-          "Update Blocked",
-          "Settings can only be changed when cup is OFF, READY, or LOW_BATTERY.",
-        );
-      } else {
-        setStatusMessage("Could not sync settings.");
-        openWarning("Sync Failed", error?.message || "Could not sync settings.");
-      }
+      setStatusMessage("Could not write settings.");
+      openWarning("Sync Failed", error?.message || "Could not write settings.");
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  const handlePrimaryAction = async () => {
+    if (mode === "read") {
+      await handleReadSettings();
+      return;
+    }
+
+    await handleWriteSettings();
   };
 
   return (
@@ -251,6 +324,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("triggerTemp", value)}
           accessibilityLabel="Trigger Temp input"
           error={fieldErrors.triggerTemp}
+          disabled={mode !== "write"}
         />
         <SettingsField
           label="Max Water Temp"
@@ -259,6 +333,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("maxWaterTemp", value)}
           accessibilityLabel="Max Water Temp input"
           error={fieldErrors.maxWaterTemp}
+          disabled={mode !== "write"}
         />
         <BrewTimeField
           minutesValue={fields.brewMinutes}
@@ -266,6 +341,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeMinutes={(value) => handleFieldChange("brewMinutes", value)}
           onChangeSeconds={(value) => handleFieldChange("brewSeconds", value)}
           error={fieldErrors.brewTime}
+          disabled={mode !== "write"}
         />
         <SettingsField
           label="Max Cup Temp"
@@ -274,6 +350,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("maxCupTemp", value)}
           accessibilityLabel="Max Cup Temp input"
           error={fieldErrors.maxCupTemp}
+          disabled={mode !== "write"}
         />
         <SettingsField
           label="LED Brightness"
@@ -282,19 +359,23 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("ledBrightnessPercent", value)}
           accessibilityLabel="LED Brightness percent input"
           error={fieldErrors.ledBrightnessPercent}
+          disabled={mode !== "write"}
         />
+        <View style={styles.scrollSpacer} />
+      </ScreenContainer>
 
-        <FullPageButton
-          label="Read / Write Settings"
-          onPress={handleReadWriteSettings}
-          loading={isSyncing}
-          accessibilityLabel="Read and write cup settings"
-          style={styles.syncButton}
-        />
+      <View style={styles.bottomActionArea}>
         <Text style={styles.statusText} accessibilityLabel={`Cup settings status: ${statusMessage}`}>
           {statusMessage}
         </Text>
-      </ScreenContainer>
+        <FullPageButton
+          label={mode === "write" ? "Write Settings" : "Read Settings"}
+          onPress={handlePrimaryAction}
+          loading={isSyncing}
+          accessibilityLabel={mode === "write" ? "Write cup settings" : "Read cup settings"}
+          style={styles.syncButton}
+        />
+      </View>
 
       <WarningDialog
         visible={warning.visible}
@@ -340,6 +421,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 10,
   },
+  inputDisabled: {
+    backgroundColor: colors.background,
+    color: colors.textMuted,
+  },
   timeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -371,12 +456,23 @@ const styles = StyleSheet.create({
     color: "#b91c1c",
   },
   syncButton: {
-    marginTop: spacing.sm,
+    marginTop: spacing.xs,
   },
   statusText: {
     textAlign: "center",
     fontSize: 14,
     color: colors.textMuted,
-    marginBottom: spacing.md,
+  },
+  bottomActionArea: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  scrollSpacer: {
+    height: spacing.xl,
   },
 });

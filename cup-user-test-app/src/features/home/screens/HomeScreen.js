@@ -23,12 +23,6 @@ export function HomeScreen({
         menuAccessibilityLabel="Open menu"
       />
 
-      {scanStatusMessage ? (
-        <View style={styles.topStatusWrap}>
-          <Text style={styles.topStatusText}>{scanStatusMessage}</Text>
-        </View>
-      ) : null}
-
       <View style={styles.content}>
         <View style={styles.heroGroup}>
           <View style={styles.cupImageContainer}>
@@ -50,11 +44,11 @@ export function HomeScreen({
           </View>
 
           <View style={styles.instructionsGroup}>
-            <HomeStatusElement
-              temperatureC={temperatureC}
-              stateLabel={stateLabel}
-              timeLabel={timeLabel}
-            />
+            <HomeStatusElement temperatureC={temperatureC} stateLabel={stateLabel} timeLabel={timeLabel} />
+
+            {scanStatusMessage ? (
+              <Text style={styles.scanStatusText}>{scanStatusMessage}</Text>
+            ) : null}
           </View>
         </View>
       </View>
@@ -74,16 +68,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.lg,
     gap: spacing.sm,
-  },
-  topStatusWrap: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
-  },
-  topStatusText: {
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: "center",
   },
   heroGroup: {
     alignItems: "center",
@@ -119,5 +103,11 @@ const styles = StyleSheet.create({
   },
   scanOverlayButtonPressed: {
     transform: [{ scale: 0.97 }],
+  },
+  scanStatusText: {
+    marginTop: spacing.sm,
+    fontSize: 13,
+    color: colors.textMuted,
+    textAlign: "center",
   },
 });

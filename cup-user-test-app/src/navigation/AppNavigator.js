@@ -10,21 +10,22 @@ import { CupSettingsScreen } from "../features/cup-settings/screens/CupSettingsS
 import { AccountScreen } from "../features/account/screens/AccountScreen";
 import { WarningDialog } from "../components/ui/WarningDialog";
 import { colors } from "../theme/colors";
-import { readNdef } from "../services/nfcService";
-import { logAppError, shareLatestErrorLog } from "../services/errorLogger";
+import { readNdefMinimal, writeNdefMinimal } from "../services/nfcServiceMinimal";
+import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
+import { logAppError } from "../services/errorLogger";
 import { findActiveSampleByCupUUID, hasFinalFeedbackForSample } from "../data/sessionRepository";
 
 const DRAWER_WIDTH = 300;
 const DRAWER_ANIMATION_MS = 220;
 const BREWING_STATE = 2;
 const SCAN_COOLDOWN_MS = 1200;
+const HOME_WRITE_HANDOFF_MS = 700;
 const WRITE_BLOCK_FLAG = "__CUPPING_READ_ONLY_NFC_WRITE_BLOCK__";
 
 const MENU_ITEMS = [
   { key: "cupping-sessions", label: "Cupping Sessions", route: "Cupping Session" },
   { key: "cup-settings", label: "Cup Settings", route: "Cup Settings" },
   { key: "reset-cup-off", label: "Reset Cup to OFF", action: "reset-cup-off" },
-  { key: "share-error-log", label: "Share Latest Error Log", action: "share-error-log" },
   { key: "nfc-test", label: "NFC Test", route: "NFC Test" },
 ];
 
@@ -67,6 +68,11 @@ export function AppNavigator() {
     events.push(`${new Date().toISOString()} ${message}`);
   };
 
+  const delay = (ms) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
   const logHomeError = ({ flow, friendlyMessage, error, events = [], context = {} }) => {
     const enrichedContext = {
       ...context,
@@ -93,7 +99,7 @@ export function AppNavigator() {
     if (!raw || lower === "error") {
       return fallback;
     }
-    if (lower.includes("scan cancelled")) {
+    if (lower.includes("scan cancelled") || lower.includes("session was cancelled")) {
       return "Scan cancelled.";
     }
     if (
@@ -117,6 +123,7 @@ export function AppNavigator() {
       text.includes("busy") ||
       text.includes("moved out of range") ||
       text.includes("scan cancelled") ||
+      text.includes("session was cancelled") ||
       text.includes("no ndef records found")
     );
   };
@@ -238,7 +245,7 @@ export function AppNavigator() {
     const actionToken = beginNfcAction(statusPrefix || "Scan cup to start assessment...");
 
     try {
-      const readResult = await readNdef();
+      const readResult = await readNdefMinimal();
       addFlowEvent(flowEvents, `READ_OK records=${Number(readResult?.recordCount) || 0}`);
       if (!isCurrentNfcAction(actionToken)) {
         addFlowEvent(flowEvents, "SCAN_ABORT_STALE_ACTION");
@@ -331,6 +338,7 @@ export function AppNavigator() {
         addFlowEvent(flowEvents, "SCAN_ABORT_STALE_ERROR");
         return;
       }
+      await playNfcFailureFeedback(error);
       const message = mapScanErrorMessage(error, "Unable to scan cup.");
       addFlowEvent(flowEvents, `ERROR ${message}`);
       setScanStatusMessage(message);
@@ -370,43 +378,102 @@ export function AppNavigator() {
     notInSessionDialogVisibleRef.current = false;
     setSleepDialogVisible(false);
     setNotInSessionDialogVisible(false);
-    setScanStatusMessage("Home screen writes are temporarily disabled. Use NFC Test or NFC Tools to change cup state.");
-    showWarning(
-      "Home Writes Disabled",
-      "Home screen NFC writes are temporarily disabled while we stabilise the tag write path. Use NFC Test or NFC Tools to change cup state."
-    );
+    setIsScanInProgress(true);
+    scanInProgressRef.current = true;
+    setScanStatusMessage("Scan cup to wake it and set no-session mode...");
+    try {
+      await delay(HOME_WRITE_HANDOFF_MS);
+      await writeNdefMinimal({
+        text1: { state: 1 },
+        text2: {},
+        text3: {},
+        text4: { sessionUUID: "NO-SESSION" },
+      });
+      setHomeStateLabel("Ready");
+      setSelectedCupContext(null);
+      setRoute("Home");
+      setScanStatusMessage("Cup set to READY in no-session mode.");
+    } catch (error) {
+      const message = error?.message || "Could not wake cup.";
+      await playNfcFailureFeedback(error);
+      setScanStatusMessage(message);
+      logHomeError({
+        flow: "home_use_without_session_sleep",
+        friendlyMessage: message,
+        error,
+      });
+      showWarning("Wake Failed", message);
+    } finally {
+      scanInProgressRef.current = false;
+      setIsScanInProgress(false);
+    }
   };
 
   const handleUseWithoutSessionFromNotInSessionDialog = async () => {
     notInSessionDialogVisibleRef.current = false;
     setNotInSessionDialogVisible(false);
-    setScanStatusMessage("Home screen writes are temporarily disabled. Use NFC Test or NFC Tools to change cup state.");
-    showWarning(
-      "Home Writes Disabled",
-      "Home screen NFC writes are temporarily disabled while we stabilise the tag write path. Use NFC Test or NFC Tools to change cup state."
-    );
+    setIsScanInProgress(true);
+    scanInProgressRef.current = true;
+    setScanStatusMessage("Scan cup to set no-session mode...");
+    try {
+      await delay(HOME_WRITE_HANDOFF_MS);
+      await writeNdefMinimal({
+        text1: { state: 1 },
+        text2: {},
+        text3: {},
+        text4: { sessionUUID: "NO-SESSION" },
+      });
+      setHomeStateLabel("Ready");
+      setSelectedCupContext(null);
+      setRoute("Home");
+      setScanStatusMessage("Cup set to READY in no-session mode.");
+    } catch (error) {
+      const message = error?.message || "Could not update cup.";
+      await playNfcFailureFeedback(error);
+      setScanStatusMessage(message);
+      logHomeError({
+        flow: "home_use_without_session_not_in_session",
+        friendlyMessage: message,
+        error,
+      });
+      showWarning("Update Failed", message);
+    } finally {
+      scanInProgressRef.current = false;
+      setIsScanInProgress(false);
+    }
   };
 
   const handleResetCupToOffFromMenu = async () => {
     closeDrawer();
     setRoute("Home");
     setSelectedCupContext(null);
-    setScanStatusMessage("Home screen writes are temporarily disabled. Use NFC Test or NFC Tools to reset the cup state.");
-    showWarning(
-      "Home Writes Disabled",
-      "Home screen NFC writes are temporarily disabled while we stabilise the tag write path. Use NFC Test or NFC Tools to reset the cup state."
-    );
-  };
-
-  const handleShareLatestErrorLog = async () => {
-    closeDrawer();
+    setIsScanInProgress(true);
+    scanInProgressRef.current = true;
+    setScanStatusMessage("Scan cup to reset it to OFF...");
     try {
-      const uri = await shareLatestErrorLog();
-      setScanStatusMessage(`Shared error log: ${uri.split("/").pop()}`);
+      await delay(HOME_WRITE_HANDOFF_MS);
+      await writeNdefMinimal({
+        text1: { state: 0 },
+        text2: {},
+        text3: {},
+        text4: {},
+      });
+      setHomeStateLabel("Off");
+      setHomeTimeLabel("00:00");
+      setScanStatusMessage("Cup reset to OFF.");
     } catch (error) {
-      const message = error?.message || "Could not share error log.";
+      const message = error?.message || "Could not reset cup.";
+      await playNfcFailureFeedback(error);
       setScanStatusMessage(message);
-      showWarning("Share Log Failed", message);
+      logHomeError({
+        flow: "home_reset_cup_off",
+        friendlyMessage: message,
+        error,
+      });
+      showWarning("Reset Failed", message);
+    } finally {
+      scanInProgressRef.current = false;
+      setIsScanInProgress(false);
     }
   };
 
@@ -556,10 +623,6 @@ export function AppNavigator() {
                   onPress={() => {
                     if (item.action === "reset-cup-off") {
                       handleResetCupToOffFromMenu();
-                      return;
-                    }
-                    if (item.action === "share-error-log") {
-                      handleShareLatestErrorLog();
                       return;
                     }
                     navigate(item.route);
