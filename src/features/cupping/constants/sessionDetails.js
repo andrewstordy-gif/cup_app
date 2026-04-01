@@ -58,7 +58,44 @@ export function createSample(data = {}) {
     process: data.process || "",
     cupUUID: data.cupUUID || "",
     cupNumber,
+    verificationStatus: data.verificationStatus || "unverified",
   };
+}
+
+export function buildCompactSessionMetadata({
+  coffeeNameOrigin,
+  process,
+  cupNumber,
+  sessionName,
+  sessionType,
+  sessionDate,
+  sessionUUID,
+}) {
+  return {
+    n: String(coffeeNameOrigin || "").trim(),
+    p: String(process || "").trim(),
+    y: Number.isInteger(Number(cupNumber)) ? Number(cupNumber) : 3,
+    e: String(sessionName || "").trim(),
+    t: String(sessionType || "").trim(),
+    d: String(sessionDate || "").trim(),
+    u: String(sessionUUID || "").trim(),
+  };
+}
+
+export function doesMetadataMatchExpected(actual, expected) {
+  if (!actual || typeof actual !== "object") {
+    return false;
+  }
+
+  return (
+    String(actual.n || actual.coffeeName || "") === String(expected.n || "") &&
+    String(actual.p || actual.coffeeProcess || "") === String(expected.p || "") &&
+    Number(actual.y ?? actual.cupNumber ?? 0) === Number(expected.y || 0) &&
+    String(actual.e || actual.sessionName || "") === String(expected.e || "") &&
+    String(actual.t || actual.sessionType || "") === String(expected.t || "") &&
+    String(actual.d || actual.sessionDate || "") === String(expected.d || "") &&
+    String(actual.u || actual.sessionUUID || "") === String(expected.u || "")
+  );
 }
 
 export function resolveCupUUIDFromReadResult(result) {

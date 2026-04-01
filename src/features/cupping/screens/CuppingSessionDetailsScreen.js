@@ -12,9 +12,11 @@ import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
 import {
+  buildCompactSessionMetadata,
   CUP_NUMBER_OPTIONS,
   createPendingConflictError,
   createSample,
+  doesMetadataMatchExpected,
   formatSessionDate,
   formatSessionDisplayId,
   generateSessionUUID,
@@ -49,6 +51,8 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [sheetErrors, setSheetErrors] = useState({});
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [isNfcWriting, setIsNfcWriting] = useState(false);
+  const [verifyingSampleId, setVerifyingSampleId] = useState(null);
+  const [rewritingSampleId, setRewritingSampleId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [overwriteDialogMessage, setOverwriteDialogMessage] = useState("");
   const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
@@ -106,6 +110,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
               process: sample.process,
               cupUUID: sample.cupUUID,
               cupNumber: sample.cupNumber,
+              verificationStatus: sample.verificationStatus,
             })
           )
         );
@@ -199,6 +204,19 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
   const handleRemoveSample = (sampleId) => {
     setSamples((prev) => prev.filter((sample) => sample.id !== sampleId));
+  };
+
+  const setSampleVerificationStatus = (sampleId, verificationStatus) => {
+    setSamples((prev) =>
+      prev.map((sample) =>
+        sample.id === sampleId
+          ? {
+              ...sample,
+              verificationStatus,
+            }
+          : sample
+      )
+    );
   };
 
   const handleOpenAddSheet = () => {
@@ -361,6 +379,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
             process: sheetProcess.trim(),
             cupUUID: normalizedDetectedCupUUID,
             cupNumber: sheetCupNumber,
+            verificationStatus: "pending",
           }),
         ]);
       } else {
@@ -373,6 +392,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
                   process: sheetProcess.trim(),
                   cupUUID: normalizedDetectedCupUUID,
                   cupNumber: sheetCupNumber,
+                  verificationStatus: "pending",
                 }
               : sample
           )
@@ -429,6 +449,143 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       }
     } finally {
       setIsNfcWriting(false);
+    }
+  };
+
+  const handleVerifySample = async (sampleId) => {
+    const sample = samples.find((entry) => entry.id === sampleId);
+    if (!sample) {
+      return;
+    }
+
+    setVerifyingSampleId(sampleId);
+
+    try {
+      setScanStatusMessage(`Scan cup ${sample.cupUUID} to verify its session data...`);
+      const result = await readNdefMinimal();
+      const parsed = result?.parsed || {};
+      const tag = result?.tag;
+      const detectedCupUUID = normalizeCupUuid(resolveCupUUIDFromReadResult({ parsed, tag }));
+      const expectedCupUUID = normalizeCupUuid(sample.cupUUID);
+
+      if (!detectedCupUUID || detectedCupUUID !== expectedCupUUID) {
+        setSampleVerificationStatus(sampleId, "pending");
+        setScanStatusMessage(
+          `Scanned cup ${detectedCupUUID || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`
+        );
+        return;
+      }
+
+      const expectedMetadata = buildCompactSessionMetadata({
+        coffeeNameOrigin: sample.coffeeNameOrigin,
+        process: sample.process,
+        cupNumber: sample.cupNumber,
+        sessionName,
+        sessionType,
+        sessionDate,
+        sessionUUID,
+      });
+      const actualMetadata = parsed?.raw?.text4 ? JSON.parse(parsed.raw.text4) : parsed?.text4;
+
+      if (doesMetadataMatchExpected(actualMetadata, expectedMetadata)) {
+        setSampleVerificationStatus(sampleId, "verified");
+        setScanStatusMessage(`Cup ${expectedCupUUID} verified successfully.`);
+      } else {
+        setSampleVerificationStatus(sampleId, "pending");
+        setScanStatusMessage(`Cup ${expectedCupUUID} does not match the expected session data. Please write again.`);
+      }
+    } catch (error) {
+      const message = error?.message || "Unable to verify cup.";
+      const normalizedMessage = String(message).toLowerCase();
+      const isUserCancelled =
+        normalizedMessage.includes("scan cancelled") ||
+        normalizedMessage.includes("session was cancelled");
+
+      await playNfcFailureFeedback(error);
+      void logAppError({
+        screen: "CuppingSessionDetails",
+        route: "Cupping Session Details",
+        flow: "verify_sample_cup",
+        friendlyMessage: message,
+        error,
+        context: {
+          sessionUUID,
+          sampleId,
+          sampleCupUUID: sample.cupUUID,
+        },
+      });
+
+      if (isUserCancelled) {
+        setScanStatusMessage("");
+      } else {
+        setScanStatusMessage(message);
+      }
+    } finally {
+      setVerifyingSampleId(null);
+    }
+  };
+
+  const handleRewriteSample = async (sampleId) => {
+    const sample = samples.find((entry) => entry.id === sampleId);
+    if (!sample) {
+      return;
+    }
+
+    const expectedCupUUID = normalizeCupUuid(sample.cupUUID);
+    const expectedMetadata = buildCompactSessionMetadata({
+      coffeeNameOrigin: sample.coffeeNameOrigin,
+      process: sample.process,
+      cupNumber: sample.cupNumber,
+      sessionName,
+      sessionType,
+      sessionDate,
+      sessionUUID,
+    });
+
+    setRewritingSampleId(sampleId);
+
+    try {
+      setScanStatusMessage(`Scan cup ${expectedCupUUID} to rewrite its session data...`);
+      await writeNdefMinimal({
+        text1: {
+          state: 1,
+        },
+        text2: {},
+        text3: {},
+        text4: expectedMetadata,
+      });
+
+      setSampleVerificationStatus(sampleId, "pending");
+      setScanStatusMessage(`Cup ${expectedCupUUID} rewritten. Please run Check Cup to verify it.`);
+    } catch (error) {
+      const message = error?.message || "Unable to rewrite cup.";
+      const normalizedMessage = String(message).toLowerCase();
+      const isUserCancelled =
+        normalizedMessage.includes("scan cancelled") ||
+        normalizedMessage.includes("session was cancelled");
+
+      await playNfcFailureFeedback(error);
+      void logAppError({
+        screen: "CuppingSessionDetails",
+        route: "Cupping Session Details",
+        flow: "rewrite_sample_cup",
+        friendlyMessage: message,
+        error,
+        context: {
+          sessionUUID,
+          sampleId,
+          sampleCupUUID: sample.cupUUID,
+          expectedMetadata,
+        },
+      });
+
+      if (isUserCancelled) {
+        setScanStatusMessage("");
+      } else {
+        setScanStatusMessage(message);
+      }
+    } finally {
+      setRewritingSampleId(null);
     }
   };
 
@@ -563,6 +720,10 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
               index={index}
               onUpdate={handleUpdateSample}
               onRemove={handleRemoveSample}
+              onVerify={handleVerifySample}
+              onRewrite={handleRewriteSample}
+              isVerifying={verifyingSampleId === sample.id}
+              isRewriting={rewritingSampleId === sample.id}
               canRemove={samples.length > 0}
               status={sampleStatusById?.[sample.id]}
             />

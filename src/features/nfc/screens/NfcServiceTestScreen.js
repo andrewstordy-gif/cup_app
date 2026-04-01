@@ -7,6 +7,7 @@ import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import {
   readNdefMinimal,
+  writeSingleRecordMetadataDiagnosticMinimal,
   writeNdefMinimal,
 } from "../../../services/nfcServiceMinimal";
 import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
@@ -26,13 +27,13 @@ const SAMPLE_NDEF_PAYLOAD = {
     ledBrightness: 128,
   },
   text4: {
-    coffeeName: "Ethiopia Yirgacheffe G1",
-    coffeeProcess: "Natural",
+    coffeeName: "AAAAAAA",
+    coffeeProcess: "Washed",
     cupNumber: 3,
     sessionType: "Sourcing Decision",
-    sessionName: "Morning Cupping",
-    sessionDate: new Date().toISOString(),
-    sessionUUID: "CUP-8291-XJ2",
+    sessionName: "Test 2",
+    sessionDate: "31 Mar 2026",
+    sessionUUID: "19d442587b8f66b5ce2f2b298",
   },
 };
 
@@ -189,10 +190,10 @@ function buildDraftFromParsed(parsed) {
   };
 }
 
-function mergeDraftWithFallback(nextDraft) {
-  const fallback = createInitialDraft();
+function mergeDraftWithFallback(nextDraft, fallbackDraft = createInitialDraft()) {
+  const fallback = mergeDraftWithFallback.normalizeFallback(fallbackDraft);
   const pickValue = (value, fallbackValue) =>
-    value === undefined || value === null ? fallbackValue : value;
+    value === undefined || value === null || value === "" ? fallbackValue : value;
 
   return {
     text1: {
@@ -217,6 +218,10 @@ function mergeDraftWithFallback(nextDraft) {
     },
   };
 }
+
+mergeDraftWithFallback.normalizeFallback = function normalizeFallback(draft) {
+  return draft && typeof draft === "object" ? draft : createInitialDraft();
+};
 
 function requireInteger(label, value) {
   const trimmed = String(value ?? "").trim();
@@ -297,6 +302,19 @@ function buildMetadataUpdatePayload(draft) {
       sessionDate: requireString("NDEF4 sessionDate", draft.text4.sessionDate),
       sessionUUID: requireString("NDEF4 sessionUUID", draft.text4.sessionUUID),
     },
+  };
+}
+
+function buildMetadataFullFramePayload(draft, preservedText2) {
+  const compactText2 = toCupText2(preservedText2);
+  if (!compactText2 || Object.keys(compactText2).length === 0) {
+    throw new Error("Read the tag first so NDEF2 can be preserved.");
+  }
+
+  const nextPayload = buildWritablePayload(draft);
+  return {
+    ...nextPayload,
+    text2: compactText2,
   };
 }
 
@@ -411,7 +429,9 @@ export function NfcServiceTestScreen({ onBackPress }) {
         text3: nextRaw.text3 ?? null,
         text4: nextRaw.text4 ?? null,
       });
-      setDraft(mergeDraftWithFallback(buildDraftFromParsed(nextParsed)));
+      setDraft((current) =>
+        mergeDraftWithFallback(buildDraftFromParsed(nextParsed), current),
+      );
 
       const nextRecordCount = Number(result?.recordCount) || 0;
       setRecordCount(nextRecordCount);
@@ -514,18 +534,17 @@ export function NfcServiceTestScreen({ onBackPress }) {
     setStatus("Writing metadata update...");
 
     try {
-      const nextPayload = buildMetadataUpdatePayload(draft);
-      const outgoingPayload = buildSparseFrame({
-        text4: nextPayload.text4,
-      });
+      const outgoingPayload = buildMetadataFullFramePayload(draft, parsed.text2);
       setWritePreview(buildCompactWritePreview(outgoingPayload));
 
       await writeNdefMinimal(outgoingPayload);
 
-      setParsed((current) => ({
-        ...current,
-        text4: nextPayload.text4,
-      }));
+      setParsed({
+        text1: outgoingPayload.text1,
+        text2: outgoingPayload.text2,
+        text3: outgoingPayload.text3,
+        text4: outgoingPayload.text4,
+      });
       setStatus("Metadata update write complete");
     } catch (error) {
       const message = error?.message || "Unknown NFC error";
@@ -535,6 +554,37 @@ export function NfcServiceTestScreen({ onBackPress }) {
         screen: "NFCTest",
         route: "NFC Test",
         flow: "nfc_test_write_metadata_update",
+        friendlyMessage: message,
+        error,
+      });
+      setStatus(message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleWriteMetadataSingleRecordDiagnostic = async () => {
+    setBusy(true);
+    setStatus("Writing single-record metadata diagnostic...");
+
+    try {
+      const nextPayload = buildMetadataUpdatePayload(draft);
+      const outgoingPayload = buildSparseFrame({
+        text4: nextPayload.text4,
+      });
+      setWritePreview(buildCompactWritePreview(outgoingPayload));
+
+      await writeSingleRecordMetadataDiagnosticMinimal(outgoingPayload);
+
+      setStatus("Single-record metadata diagnostic write complete");
+    } catch (error) {
+      const message = error?.message || "Unknown NFC error";
+      await triggerFailureFeedback();
+      await playNfcFailureFeedback(error);
+      void logAppError({
+        screen: "NFCTest",
+        route: "NFC Test",
+        flow: "nfc_test_write_metadata_single_record_diagnostic",
         friendlyMessage: message,
         error,
       });
@@ -629,6 +679,13 @@ export function NfcServiceTestScreen({ onBackPress }) {
             loading={busy}
             disabled={actionDisabled}
             accessibilityLabel="Write metadata update to NFC tag"
+          />
+          <FullPageButton
+            label="Write Metadata Single Record"
+            onPress={handleWriteMetadataSingleRecordDiagnostic}
+            loading={busy}
+            disabled={actionDisabled}
+            accessibilityLabel="Write metadata single-record diagnostic NFC tag"
           />
           <FullPageButton
             label="Write No Session"

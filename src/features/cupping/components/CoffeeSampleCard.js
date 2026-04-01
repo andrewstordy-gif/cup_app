@@ -8,6 +8,10 @@ export function CoffeeSampleCard({
   index,
   onUpdate,
   onRemove,
+  onVerify,
+  onRewrite,
+  isVerifying,
+  isRewriting,
   canRemove,
   status,
 }) {
@@ -15,6 +19,9 @@ export function CoffeeSampleCard({
   const isComplete = Boolean(status?.isComplete);
   const finalScore = Number.isFinite(Number(status?.finalScore)) ? Number(status.finalScore) : null;
   const isLocked = isComplete;
+  const verificationStatus = sample.verificationStatus || "unverified";
+  const isVerified = verificationStatus === "verified";
+  const isPendingVerification = verificationStatus === "pending";
 
   return (
     <View style={[styles.sampleCard, isLocked && styles.sampleCardLocked]}>
@@ -52,6 +59,32 @@ export function CoffeeSampleCard({
         </View>
       ) : null}
 
+      {!isComplete ? (
+        <View
+          style={[
+            styles.verificationBadge,
+            isVerified
+              ? styles.verificationBadgeVerified
+              : isPendingVerification
+                ? styles.verificationBadgePending
+                : styles.verificationBadgeUnverified,
+          ]}
+        >
+          <Text
+            style={[
+              styles.verificationBadgeText,
+              isVerified
+                ? styles.verificationBadgeTextVerified
+                : isPendingVerification
+                  ? styles.verificationBadgeTextPending
+                  : styles.verificationBadgeTextUnverified,
+            ]}
+          >
+            {isVerified ? "Verified" : isPendingVerification ? "Pending Verification" : "Unverified"}
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.fieldBlock}>
         <Text style={styles.fieldLabel}>Coffee Name / Origin</Text>
         <TextInput
@@ -81,6 +114,38 @@ export function CoffeeSampleCard({
       {isComplete && finalScore != null ? (
         <View style={styles.finalScoreWrap}>
           <Text style={styles.finalScoreText}>{finalScore.toFixed(2)}</Text>
+        </View>
+      ) : null}
+
+      {!isComplete ? (
+        <View style={styles.actionsRow}>
+          <Pressable
+            onPress={() => onVerify(sample.id)}
+            disabled={isVerifying || isRewriting}
+            style={[styles.verifyButton, (isVerifying || isRewriting) && styles.verifyButtonDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel={`Check cup ${index + 1}`}
+          >
+            <Text
+              style={[styles.verifyButtonText, (isVerifying || isRewriting) && styles.verifyButtonTextDisabled]}
+            >
+              {isVerifying ? "Checking..." : "Check Cup"}
+            </Text>
+          </Pressable>
+
+          <Pressable
+            onPress={() => onRewrite(sample.id)}
+            disabled={isRewriting || isVerifying}
+            style={[styles.rewriteButton, (isRewriting || isVerifying) && styles.rewriteButtonDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel={`Rewrite cup ${index + 1}`}
+          >
+            <Text
+              style={[styles.rewriteButtonText, (isRewriting || isVerifying) && styles.rewriteButtonTextDisabled]}
+            >
+              {isRewriting ? "Rewriting..." : "Rewrite Cup"}
+            </Text>
+          </Pressable>
         </View>
       ) : null}
     </View>
@@ -115,6 +180,40 @@ const styles = StyleSheet.create({
     color: "#047857",
     textTransform: "uppercase",
     letterSpacing: 0.4,
+  },
+  verificationBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  verificationBadgeVerified: {
+    backgroundColor: "#ecfdf3",
+    borderColor: "#a7f3d0",
+  },
+  verificationBadgePending: {
+    backgroundColor: "#fff7ed",
+    borderColor: "#fdba74",
+  },
+  verificationBadgeUnverified: {
+    backgroundColor: "#f3f4f6",
+    borderColor: "#d1d5db",
+  },
+  verificationBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  verificationBadgeTextVerified: {
+    color: "#047857",
+  },
+  verificationBadgeTextPending: {
+    color: "#c2410c",
+  },
+  verificationBadgeTextUnverified: {
+    color: "#6b7280",
   },
   sampleHeader: {
     flexDirection: "row",
@@ -200,5 +299,51 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#111111",
     letterSpacing: 0.2,
+  },
+  actionsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  verifyButton: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "#111111",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#ffffff",
+  },
+  verifyButtonDisabled: {
+    borderColor: colors.border,
+  },
+  verifyButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#111111",
+  },
+  verifyButtonTextDisabled: {
+    color: colors.textMuted,
+  },
+  rewriteButton: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: "#c2410c",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#fff7ed",
+  },
+  rewriteButtonDisabled: {
+    borderColor: colors.border,
+    backgroundColor: "#f3f4f6",
+  },
+  rewriteButtonText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#c2410c",
+  },
+  rewriteButtonTextDisabled: {
+    color: colors.textMuted,
   },
 });
