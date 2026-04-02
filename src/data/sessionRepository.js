@@ -26,6 +26,18 @@ function cleanString(value) {
   return String(value || "").trim();
 }
 
+function normalizeSessionUuid(value) {
+  return cleanString(value);
+}
+
+function formatSessionDateFallback(date) {
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
 function normalizeCupSlotList(value, maxCups = 5) {
   const limit = Math.max(1, Number.parseInt(maxCups, 10) || 1);
   const list = Array.isArray(value) ? value : [];
@@ -333,6 +345,35 @@ export async function findPendingSessionByCupUUID({ cupUUID, excludeSessionId } 
   return row || null;
 }
 
+export async function findSessionBySessionUUID(sessionUUID) {
+  const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
+  if (!normalizedSessionUUID) {
+    return null;
+  }
+
+  const db = await getLocalDatabase();
+  const row = await db.getFirstAsync(
+    `
+      SELECT
+        id,
+        session_uuid AS sessionUUID,
+        session_display_id AS sessionDisplayId,
+        session_name AS sessionName,
+        session_type AS sessionType,
+        status,
+        session_date AS sessionDate,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+      FROM sessions
+      WHERE session_uuid = ?
+      LIMIT 1
+    `,
+    [normalizedSessionUUID]
+  );
+
+  return row || null;
+}
+
 export async function getSessionById(sessionId) {
   const db = await getLocalDatabase();
   await reconcileCompletedSessions(db);
@@ -380,6 +421,267 @@ export async function getSessionById(sessionId) {
     ...session,
     samples: samples || [],
   };
+}
+
+export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) {
+  const normalizedSessionId = cleanString(sessionId);
+  const normalizedCupUUID = normalizeCupUuid(cupUUID);
+  if (!normalizedSessionId || !normalizedCupUUID) {
+    return null;
+  }
+
+  const db = await getLocalDatabase();
+  const row = await db.getFirstAsync(
+    `
+      SELECT
+        id,
+        session_id AS sessionId,
+        cup_uuid AS cupUUID,
+        cup_number AS cupNumber,
+        coffee_name_origin AS coffeeNameOrigin,
+        process,
+        position_index AS cupIndex,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+      FROM samples
+      WHERE session_id = ? AND cup_uuid = ?
+      LIMIT 1
+    `,
+    [normalizedSessionId, normalizedCupUUID]
+  );
+
+  return row || null;
+}
+
+export async function upsertSessionFromCupMetadata({
+  sessionUUID,
+  sessionName,
+  sessionType,
+  sessionDate,
+  status = "pending",
+} = {}) {
+  const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
+  if (!normalizedSessionUUID) {
+    throw new Error("sessionUUID is required to upsert a session.");
+  }
+
+  const db = await getLocalDatabase();
+  const nowIso = new Date().toISOString();
+  const existing = await findSessionBySessionUUID(normalizedSessionUUID);
+  const sessionId = cleanString(existing?.id) || normalizedSessionUUID;
+  const createdAt = cleanString(existing?.createdAt) || nowIso;
+  const nextStatus = cleanString(existing?.status || status).toLowerCase() || "pending";
+  const nextSessionName = cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
+  const nextSessionType = cleanString(sessionType) || cleanString(existing?.sessionType) || "Other";
+  const nextSessionDate =
+    cleanString(sessionDate) || cleanString(existing?.sessionDate) || formatSessionDateFallback(new Date());
+  const nextDisplayId = cleanString(existing?.sessionDisplayId) || `SESSION-${normalizedSessionUUID.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+
+  await db.runAsync(
+    `
+      INSERT INTO sessions (
+        id, session_uuid, session_display_id, session_name, session_type, status, session_date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        session_uuid = excluded.session_uuid,
+        session_display_id = excluded.session_display_id,
+        session_name = excluded.session_name,
+        session_type = excluded.session_type,
+        status = excluded.status,
+        session_date = excluded.session_date,
+        updated_at = excluded.updated_at
+    `,
+    [
+      sessionId,
+      normalizedSessionUUID,
+      nextDisplayId,
+      nextSessionName,
+      nextSessionType,
+      nextStatus,
+      nextSessionDate,
+      createdAt,
+      nowIso,
+    ]
+  );
+
+  return {
+    id: sessionId,
+    sessionUUID: normalizedSessionUUID,
+    sessionDisplayId: nextDisplayId,
+    sessionName: nextSessionName,
+    sessionType: nextSessionType,
+    status: nextStatus,
+    sessionDate: nextSessionDate,
+    createdAt,
+    updatedAt: nowIso,
+  };
+}
+
+export async function upsertSessionSampleFromCupMetadata({
+  sessionId,
+  cupUUID,
+  coffeeNameOrigin,
+  process,
+  cupNumber,
+} = {}) {
+  const normalizedSessionId = cleanString(sessionId);
+  const normalizedCupUUID = normalizeCupUuid(cupUUID);
+  if (!normalizedSessionId || !normalizedCupUUID) {
+    throw new Error("sessionId and cupUUID are required to upsert a sample.");
+  }
+
+  const db = await getLocalDatabase();
+  const nowIso = new Date().toISOString();
+  const existing = await findSampleInSessionByCupUUID({
+    sessionId: normalizedSessionId,
+    cupUUID: normalizedCupUUID,
+  });
+
+  const sampleCountRow = await db.getFirstAsync(
+    `
+      SELECT COUNT(*) AS count
+      FROM samples
+      WHERE session_id = ?
+    `,
+    [normalizedSessionId]
+  );
+  const sampleCount = Number(sampleCountRow?.count) || 0;
+  const nextCupIndex =
+    existing && Number.isInteger(Number(existing.cupIndex))
+      ? Number(existing.cupIndex)
+      : sampleCount;
+
+  const sampleId = cleanString(existing?.id) || generateId();
+  const createdAt = cleanString(existing?.createdAt) || nowIso;
+  const nextCupNumber = coerceCupNumber(cupNumber ?? existing?.cupNumber);
+  const nextCoffeeNameOrigin =
+    cleanString(coffeeNameOrigin) || cleanString(existing?.coffeeNameOrigin);
+  const nextProcess = cleanString(process) || cleanString(existing?.process);
+
+  await db.runAsync(
+    `
+      INSERT INTO samples (
+        id, session_id, cup_uuid, cup_number, coffee_name_origin, process, position_index, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id, cup_uuid) DO UPDATE SET
+        cup_number = excluded.cup_number,
+        coffee_name_origin = excluded.coffee_name_origin,
+        process = excluded.process,
+        position_index = excluded.position_index,
+        updated_at = excluded.updated_at
+    `,
+    [
+      sampleId,
+      normalizedSessionId,
+      normalizedCupUUID,
+      nextCupNumber,
+      nextCoffeeNameOrigin,
+      nextProcess,
+      nextCupIndex,
+      createdAt,
+      nowIso,
+    ]
+  );
+
+  return {
+    id: sampleId,
+    sessionId: normalizedSessionId,
+    cupUUID: normalizedCupUUID,
+    cupNumber: nextCupNumber,
+    coffeeNameOrigin: nextCoffeeNameOrigin,
+    process: nextProcess,
+    cupIndex: nextCupIndex,
+    createdAt,
+    updatedAt: nowIso,
+  };
+}
+
+export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } = {}) {
+  const normalizedCupUUID = normalizeCupUuid(cupUUID);
+  const sessionUUID = normalizeSessionUuid(
+    metadata?.sessionUUID ?? metadata?.u
+  );
+
+  if (!normalizedCupUUID || !sessionUUID || sessionUUID.toUpperCase() === "NO-SESSION") {
+    return null;
+  }
+
+  const session = await upsertSessionFromCupMetadata({
+    sessionUUID,
+    sessionName: metadata?.sessionName ?? metadata?.e,
+    sessionType: metadata?.sessionType ?? metadata?.t,
+    sessionDate: metadata?.sessionDate ?? metadata?.d,
+    status: "pending",
+  });
+
+  const sample = await upsertSessionSampleFromCupMetadata({
+    sessionId: session.id,
+    cupUUID: normalizedCupUUID,
+    coffeeNameOrigin: metadata?.coffeeName ?? metadata?.n,
+    process: metadata?.coffeeProcess ?? metadata?.p,
+    cupNumber: metadata?.cupNumber ?? metadata?.y,
+  });
+
+  const db = await getLocalDatabase();
+  await db.runAsync(
+    `
+      UPDATE sessions
+      SET updated_at = ?
+      WHERE id = ?
+    `,
+    [new Date().toISOString(), session.id]
+  );
+
+  const cupTotalRow = await db.getFirstAsync(
+    `
+      SELECT COUNT(*) AS count
+      FROM samples
+      WHERE session_id = ?
+    `,
+    [session.id]
+  );
+
+  return {
+    sessionId: session.id,
+    sessionUUID: session.sessionUUID,
+    sessionDisplayId: session.sessionDisplayId,
+    sessionName: session.sessionName,
+    sessionType: session.sessionType,
+    sessionStatus: session.status,
+    sessionDate: session.sessionDate,
+    sampleId: sample.id,
+    cupUUID: sample.cupUUID,
+    cupNumber: sample.cupNumber,
+    coffeeNameOrigin: sample.coffeeNameOrigin,
+    coffeeProcess: sample.process,
+    cupIndex: Number(sample.cupIndex) || 0,
+    cupTotal: Number(cupTotalRow?.count) || 1,
+  };
+}
+
+export async function deleteSessionById(sessionId) {
+  const normalizedSessionId = cleanString(sessionId);
+  if (!normalizedSessionId) {
+    throw new Error("sessionId is required to delete a session.");
+  }
+
+  const db = await getLocalDatabase();
+  const existing = await db.getFirstAsync(
+    `
+      SELECT id
+      FROM sessions
+      WHERE id = ?
+      LIMIT 1
+    `,
+    [normalizedSessionId]
+  );
+
+  if (!existing) {
+    return { deleted: false };
+  }
+
+  await db.runAsync("DELETE FROM sessions WHERE id = ?", [normalizedSessionId]);
+  return { deleted: true };
 }
 
 export async function getSessionSampleFinalStatus(sessionId) {

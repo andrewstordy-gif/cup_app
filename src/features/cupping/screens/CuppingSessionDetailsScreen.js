@@ -26,6 +26,7 @@ import {
   SESSION_TYPE_OPTIONS,
 } from "../constants/sessionDetails";
 import {
+  deleteSessionById,
   findPendingSessionByCupUUID,
   getSessionById,
   getSessionSampleFinalStatus,
@@ -54,10 +55,12 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [verifyingSampleId, setVerifyingSampleId] = useState(null);
   const [rewritingSampleId, setRewritingSampleId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [overwriteDialogMessage, setOverwriteDialogMessage] = useState("");
   const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
   const [isCupBlockedDialogVisible, setIsCupBlockedDialogVisible] = useState(false);
   const [cupBlockedMessage, setCupBlockedMessage] = useState("");
+  const [isDeleteDialogVisible, setIsDeleteDialogVisible] = useState(false);
   const [sampleStatusById, setSampleStatusById] = useState({});
   const sampleIdsKey = useMemo(
     () => samples.map((sample) => sample.id).join("|"),
@@ -66,6 +69,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const isSessionComplete =
     sessionStatus === "complete" ||
     (samples.length > 0 && samples.every((sample) => Boolean(sampleStatusById?.[sample.id]?.isComplete)));
+  const canDeleteSession = Boolean(sessionId);
 
   useEffect(() => {
     let isCancelled = false;
@@ -618,6 +622,47 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
     }
   };
 
+  const handleConfirmDelete = async () => {
+    if (!sessionId) {
+      setIsDeleteDialogVisible(false);
+      return;
+    }
+
+    setIsDeleting(true);
+
+    try {
+      const result = await deleteSessionById(sessionId);
+      if (!result?.deleted) {
+        setScanStatusMessage("Session was already removed.");
+      } else {
+        setScanStatusMessage("Session deleted.");
+      }
+
+      setIsDeleteDialogVisible(false);
+      if (onBackPress) {
+        onBackPress();
+      }
+    } catch (error) {
+      void logAppError({
+        screen: "CuppingSessionDetails",
+        route: "Cupping Session Details",
+        flow: "delete_session",
+        friendlyMessage: error?.message || "Delete failed.",
+        error,
+        context: {
+          sessionId,
+          sessionUUID,
+          sessionName,
+          sampleCount: samples.length,
+        },
+      });
+      setScanStatusMessage(error?.message || "Delete failed.");
+      setIsDeleteDialogVisible(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <Header
@@ -748,10 +793,22 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
           label="Save"
           onPress={handleSave}
           loading={isSaving}
-          disabled={isSaving || isNfcWriting}
+          disabled={isSaving || isDeleting || isNfcWriting}
           accessibilityLabel="Save cupping session details"
           style={styles.saveButton}
         />
+
+        {canDeleteSession ? (
+          <FullPageButton
+            label="Delete Session"
+            onPress={() => setIsDeleteDialogVisible(true)}
+            disabled={isSaving || isDeleting || isNfcWriting}
+            loading={isDeleting}
+            accessibilityLabel="Delete cupping session"
+            style={styles.deleteButton}
+            textStyle={styles.deleteButtonText}
+          />
+        ) : null}
       </ScreenContainer>
 
       <AddCoffeeSampleSheet
@@ -784,6 +841,16 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         message={cupBlockedMessage}
         okLabel="OK"
         onOk={() => setIsCupBlockedDialogVisible(false)}
+      />
+
+      <WarningDialog
+        visible={isDeleteDialogVisible}
+        title="Delete Session?"
+        message="This will permanently delete the session and all saved sample feedback stored on this device."
+        okLabel="Delete Session"
+        onOk={handleConfirmDelete}
+        secondaryLabel="Cancel"
+        onSecondary={() => setIsDeleteDialogVisible(false)}
       />
     </View>
   );
@@ -933,5 +1000,12 @@ const styles = StyleSheet.create({
   },
   saveButton: {
     marginBottom: 12,
+  },
+  deleteButton: {
+    marginBottom: 12,
+    backgroundColor: "#b42318",
+  },
+  deleteButtonText: {
+    color: "#ffffff",
   },
 });

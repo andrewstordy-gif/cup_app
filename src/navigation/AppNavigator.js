@@ -13,7 +13,11 @@ import { colors } from "../theme/colors";
 import { readNdefMinimal, writeNdefMinimal } from "../services/nfcServiceMinimal";
 import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
 import { logAppError } from "../services/errorLogger";
-import { findActiveSampleByCupUUID, hasFinalFeedbackForSample } from "../data/sessionRepository";
+import {
+  findActiveSampleByCupUUID,
+  hasFinalFeedbackForSample,
+  resolveActiveSampleFromCupMetadata,
+} from "../data/sessionRepository";
 
 const DRAWER_WIDTH = 300;
 const DRAWER_ANIMATION_MS = 220;
@@ -296,7 +300,11 @@ export function AppNavigator() {
         return;
       }
 
-      const activeSample = await findActiveSampleByCupUUID(cupUUID);
+      const importedSample = await resolveActiveSampleFromCupMetadata({
+        cupUUID,
+        metadata: parsed?.text4,
+      });
+      const activeSample = importedSample || (await findActiveSampleByCupUUID(cupUUID));
       if (!activeSample) {
         addFlowEvent(flowEvents, `NO_ACTIVE_SAMPLE uuid=${cupUUID}`);
         setScanStatusMessage("Cup is not associated with a cupping session.");
