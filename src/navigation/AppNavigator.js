@@ -522,7 +522,6 @@ export function AppNavigator() {
           sampleId={selectedCupContext?.sampleId}
           startInFinalMode={selectedCupContext?.startInFinalMode}
           startInFinalSaved={selectedCupContext?.startInFinalSaved}
-          onScanNextSample={handleScanNextCupFromCupping}
           isScanInProgress={isScanInProgress}
         />
       );

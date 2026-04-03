@@ -261,7 +261,6 @@ export function CuppingScreen({
   sampleId = null,
   startInFinalMode = false,
   startInFinalSaved = false,
-  onScanNextSample,
   isScanInProgress = false,
 }) {
   const [feedback, setFeedback] = useState(() => buildInitialFeedbackState());
@@ -313,7 +312,7 @@ export function CuppingScreen({
   const isCupping = cupStateNumber === 3;
   const canCaptureFeedback = cupStateNumber === 1 || cupStateNumber === 3;
   const isFeedbackLocked = cupStateNumber === 2 && !isFinalMode;
-  const showBrewingScanNext = isBrewing && !isFinalMode;
+  const showBrewingDone = isBrewing && !isFinalMode;
   const finalScoreSummary = useMemo(() => {
     if (!isFinalMode || !isFinalSaved) {
       return null;
@@ -489,7 +488,7 @@ export function CuppingScreen({
     }));
   };
 
-  const handleSaveNextSample = async () => {
+  const handleSave = async () => {
     if (!canCaptureFeedback) {
       return;
     }
@@ -554,8 +553,8 @@ export function CuppingScreen({
       setStatusMessage("Feedback saved.");
       setFeedback((prev) => clearFeedbackFields(prev, visibleFields));
 
-      if (typeof onScanNextSample === "function") {
-        await onScanNextSample();
+      if (typeof onBackPress === "function") {
+        onBackPress();
       }
     } catch (error) {
       setStatusMessage(error?.message || "Could not save feedback.");
@@ -632,6 +631,7 @@ export function CuppingScreen({
       setFeedback((prev) => clearFeedbackFields(prev, FEEDBACK_FIELDS));
       setIsFinalSaved(true);
       setStatusMessage("Final score saved.");
+      handleReturnHome();
     } catch (error) {
       setStatusMessage(error?.message || "Could not save final score.");
     }
@@ -654,9 +654,9 @@ export function CuppingScreen({
     setStatusMessage("Editing final score.");
   };
 
-  const handleScanNextSampleFromFinal = async () => {
-    if (typeof onScanNextSample === "function") {
-      await onScanNextSample();
+  const handleReturnHome = () => {
+    if (typeof onBackPress === "function") {
+      onBackPress();
     }
   };
 
@@ -736,11 +736,11 @@ export function CuppingScreen({
       {canCaptureFeedback && !isFinalMode ? (
         <View style={styles.footer}>
           <FullPageButton
-            label="Save > Next Sample"
-            onPress={handleSaveNextSample}
+            label="Save"
+            onPress={handleSave}
             loading={isScanInProgress}
             disabled={isScanInProgress}
-            accessibilityLabel="Save and go to next sample"
+            accessibilityLabel="Save"
           />
           {isCupping ? (
             <FullPageButton
@@ -755,14 +755,14 @@ export function CuppingScreen({
         </View>
       ) : null}
 
-      {showBrewingScanNext ? (
+      {showBrewingDone ? (
         <View style={styles.footer}>
           <FullPageButton
-            label="Scan Next Sample"
-            onPress={handleScanNextSampleFromFinal}
-            loading={isScanInProgress}
-            disabled={isScanInProgress}
-            accessibilityLabel="Scan next sample"
+            label="Done"
+            onPress={handleReturnHome}
+            loading={false}
+            disabled={false}
+            accessibilityLabel="Return to Home"
           />
         </View>
       ) : null}
@@ -782,11 +782,11 @@ export function CuppingScreen({
       {isFinalMode && isFinalSaved ? (
         <View style={styles.footer}>
           <FullPageButton
-            label="Scan Next Sample"
-            onPress={handleScanNextSampleFromFinal}
-            loading={isScanInProgress}
-            disabled={isScanInProgress}
-            accessibilityLabel="Scan next sample"
+            label="Done"
+            onPress={handleReturnHome}
+            loading={false}
+            disabled={false}
+            accessibilityLabel="Return to Home"
           />
         </View>
       ) : null}
