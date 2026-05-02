@@ -1069,7 +1069,7 @@ export default function App() {
             ]}
           >
             {currentDesignBPage.rows.map((label) => (
-              <View key={label} style={[styles.altScoreSection, { paddingBottom: (isDesignC ? 8 : 12) * scale }]}>
+              <View key={label} style={[styles.altScoreSection, { paddingBottom: (isDesignC ? 11 : 12) * scale }]}>
                 <Text style={[styles.altScoreLabel, { fontSize: (isDesignC ? 22 : 24) * scale, lineHeight: (isDesignC ? 28 : 31) * scale }]}>
                   {label}
                 </Text>
@@ -1100,10 +1100,10 @@ export default function App() {
                       style={[
                         styles.altScoreCircle,
                         {
-                          width: (isDesignC ? 36 : 40) * scale,
-                          height: (isDesignC ? 36 : 40) * scale,
-                          borderRadius: (isDesignC ? 18 : 20) * scale,
-                          borderWidth: (isDesignC ? 2.2 : 2.4) * scale,
+                          width: (isDesignC ? 38 : 40) * scale,
+                          height: (isDesignC ? 38 : 40) * scale,
+                          borderRadius: (isDesignC ? 19 : 20) * scale,
+                          borderWidth: (isDesignC ? 2.3 : 2.4) * scale,
                         },
                         selected ? styles.altScoreCircleSelected : null,
                       ]}
@@ -1112,8 +1112,8 @@ export default function App() {
                         style={[
                           styles.altScoreText,
                           {
-                            fontSize: (isDesignC ? 25 : 28) * scale,
-                            lineHeight: (isDesignC ? 29 : 31) * scale,
+                            fontSize: (isDesignC ? 27 : 28) * scale,
+                            lineHeight: (isDesignC ? 30 : 31) * scale,
                           },
                           selected ? styles.altScoreTextSelected : null,
                         ]}
@@ -1136,10 +1136,10 @@ export default function App() {
                     style={[
                       styles.altFinalPill,
                       {
-                        width: (isDesignC ? 80 : 88) * scale,
-                        height: (isDesignC ? 36 : 40) * scale,
-                        borderRadius: (isDesignC ? 18 : 20) * scale,
-                        marginLeft: (isDesignC ? 11 : 14) * scale,
+                        width: (isDesignC ? 84 : 88) * scale,
+                        height: (isDesignC ? 38 : 40) * scale,
+                        borderRadius: (isDesignC ? 19 : 20) * scale,
+                        marginLeft: (isDesignC ? 12 : 14) * scale,
                       },
                       designBSelections[label] && designBFinals[label] ? styles.altFinalPillSelected : null,
                     ]}
@@ -1148,8 +1148,8 @@ export default function App() {
                       style={[
                         styles.altFinalText,
                         {
-                          fontSize: (isDesignC ? 15 : 17) * scale,
-                          lineHeight: (isDesignC ? 18 : 20) * scale,
+                          fontSize: (isDesignC ? 16 : 17) * scale,
+                          lineHeight: (isDesignC ? 19 : 20) * scale,
                         },
                         designBSelections[label] && designBFinals[label] ? styles.altFinalTextSelected : null,
                       ]}
