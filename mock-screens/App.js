@@ -31,8 +31,9 @@ const designBPages = [
 ];
 const designCPage = {
   id: "design-c-main",
-  rows: ["Fragrance", "Aroma", "Flavour", "Aftertaste", "Acidity"],
+  rows: ["Fragrance", "Aroma", "Flavour", "Aftertaste", "Acidity", "Sweetness", "Mouthfeel", "Overall"],
 };
+const designCIndividualNoteRows = ["Acidity", "Sweetness", "Mouthfeel", "Overall"];
 const emptyCupFlags = [false, false, false, false, false];
 const defaultDesignBDefects = {
   nonUniform: emptyCupFlags,
@@ -80,10 +81,15 @@ export default function App() {
   const [designBEntriesByPage, setDesignBEntriesByPage] = useState({});
   const [designBLastSavedByPage, setDesignBLastSavedByPage] = useState({});
   const [designBDefectsByPage, setDesignBDefectsByPage] = useState({});
+  const [designCFragranceAromaNotes, setDesignCFragranceAromaNotes] = useState("");
+  const [designCFlavourAftertasteNotes, setDesignCFlavourAftertasteNotes] = useState("");
+  const [designCIndividualNotes, setDesignCIndividualNotes] = useState({});
   const [isDesignBDrawerOpen, setIsDesignBDrawerOpen] = useState(false);
   const [isDesignCNotesFocused, setIsDesignCNotesFocused] = useState(false);
+  const [focusedDesignCNote, setFocusedDesignCNote] = useState(null);
   const [currentCupIndex, setCurrentCupIndex] = useState(0);
   const designCNotesInputRef = useRef(null);
+  const designCScrollRef = useRef(null);
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const isDesignC = activeDesign === "design";
@@ -133,9 +139,15 @@ export default function App() {
         : Boolean(currentDesignBDefects.defects.potato),
     },
   ].filter((badge) => badge.isVisible);
+  const isAnyDesignCNoteFocused = isDesignCNotesFocused || Boolean(focusedDesignCNote);
   const designCKeyboardShift = isDesignC && isDesignCNotesFocused ? -230 * scale : 0;
   const emptyDesignBPageState = {
     notes: "",
+    fragranceAromaNotes: isDesignC ? "" : undefined,
+    flavourAftertasteNotes: isDesignC ? "" : undefined,
+    individualNotes: isDesignC
+      ? designCIndividualNoteRows.reduce((noteState, row) => ({ ...noteState, [row]: "" }), {})
+      : undefined,
     defects: defaultDesignBDefects,
     rows: currentDesignBPage.rows.map((row) => ({
       row,
@@ -145,6 +157,14 @@ export default function App() {
   };
   const currentDesignBPageState = {
     notes: designBNotes.trim(),
+    fragranceAromaNotes: isDesignC ? designCFragranceAromaNotes.trim() : undefined,
+    flavourAftertasteNotes: isDesignC ? designCFlavourAftertasteNotes.trim() : undefined,
+    individualNotes: isDesignC
+      ? designCIndividualNoteRows.reduce(
+          (noteState, row) => ({ ...noteState, [row]: (designCIndividualNotes[row] || "").trim() }),
+          {},
+        )
+      : undefined,
     defects: currentDesignBDefects,
     rows: currentDesignBPage.rows.map((row) => ({
       row,
@@ -159,6 +179,7 @@ export default function App() {
   const dismissKeyboardAndResetFocus = () => {
     Keyboard.dismiss();
     setIsDesignCNotesFocused(false);
+    setFocusedDesignCNote(null);
   };
   const focusDesignCNotes = () => {
     setIsDesignCNotesFocused(true);
@@ -171,6 +192,94 @@ export default function App() {
       ...currentNotes,
       [currentDesignBPage.id]: text,
     }));
+  };
+  const setDesignCIndividualNote = (label, text) => {
+    setDesignCIndividualNotes((currentNotes) => ({
+      ...currentNotes,
+      [label]: text,
+    }));
+  };
+  const focusDesignCInlineNote = (noteId, scrollY) => {
+    setFocusedDesignCNote(noteId);
+    requestAnimationFrame(() => {
+      designCScrollRef.current?.scrollTo({
+        y: scrollY,
+        animated: true,
+      });
+    });
+  };
+  const renderDesignCInlineNote = (noteId, value, onChangeText, scrollY) => {
+    const isFocused = focusedDesignCNote === noteId;
+    const noteStyle = [
+      styles.pairedNotesInput,
+      {
+        minHeight: 74 * scale,
+        borderRadius: 13 * scale,
+        paddingHorizontal: 15 * scale,
+        paddingTop: 12 * scale,
+        paddingBottom: 12 * scale,
+        fontSize: 18 * scale,
+        lineHeight: 23 * scale,
+      },
+    ];
+
+    if (isFocused) {
+      return (
+        <TextInput
+          autoFocus
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={() => focusDesignCInlineNote(noteId, scrollY)}
+          onBlur={() => setFocusedDesignCNote(null)}
+          placeholder="Add notes"
+          placeholderTextColor="#7E858B"
+          multiline
+          textAlignVertical="top"
+          style={noteStyle}
+        />
+      );
+    }
+
+    return (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Edit notes"
+        onPress={() => focusDesignCInlineNote(noteId, scrollY)}
+        style={noteStyle}
+      >
+        <View style={[styles.altMessageNotesLine, { rowGap: 5 * scale }]}>
+          {(value || "Add notes").split(/(apple)/gi).map((part, partIndex) =>
+            part.toLowerCase() === "apple" ? (
+              <View
+                key={`${noteId}-apple-${partIndex}`}
+                style={[
+                  styles.applePill,
+                  {
+                    borderRadius: 13 * scale,
+                    paddingHorizontal: 9 * scale,
+                    paddingVertical: 2 * scale,
+                  },
+                ]}
+              >
+                <Text style={[styles.applePillText, { fontSize: 18 * scale, lineHeight: 22 * scale }]}>
+                  {part}
+                </Text>
+              </View>
+            ) : (
+              <Text
+                key={`${noteId}-text-${partIndex}`}
+                style={[
+                  value ? styles.designCNotesPreviewText : styles.designCNotesPlaceholder,
+                  { fontSize: 18 * scale, lineHeight: 23 * scale },
+                ]}
+              >
+                {part}
+              </Text>
+            ),
+          )}
+        </View>
+      </Pressable>
+    );
   };
   const toggleDesignBCupFlag = (group, index) => {
     setDesignBDefectsByPage((currentDefectsByPage) => {
@@ -458,7 +567,6 @@ export default function App() {
       },
     }),
   ).current;
-
   if (activeDesign === "home") {
     return (
       <SafeAreaView style={styles.safeArea}>
@@ -1018,7 +1126,19 @@ export default function App() {
             </View>
           </View>
 
-          <View
+          <ScrollView
+            ref={designCScrollRef}
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets={isDesignC}
+            onScrollBeginDrag={Keyboard.dismiss}
+            canCancelContentTouches
+            directionalLockEnabled
+            scrollEnabled={isDesignC}
+            showsVerticalScrollIndicator={isDesignC}
+            contentContainerStyle={{
+              paddingBottom: isDesignC ? 190 * scale : 0,
+            }}
             style={[
               styles.designCContentLayer,
               isDesignC
@@ -1058,7 +1178,6 @@ export default function App() {
             </View>
           ) : null}
           <View
-            pointerEvents={isDesignC && isDesignCNotesFocused ? "none" : "auto"}
             style={[
               styles.altScoreTable,
               {
@@ -1069,7 +1188,8 @@ export default function App() {
             ]}
           >
             {currentDesignBPage.rows.map((label) => (
-              <View key={label} style={[styles.altScoreSection, { paddingBottom: (isDesignC ? 11 : 12) * scale }]}>
+              <React.Fragment key={label}>
+              <View style={[styles.altScoreSection, { paddingBottom: (isDesignC ? 11 : 12) * scale }]}>
                 <Text style={[styles.altScoreLabel, { fontSize: (isDesignC ? 22 : 24) * scale, lineHeight: (isDesignC ? 28 : 31) * scale }]}>
                   {label}
                 </Text>
@@ -1081,7 +1201,12 @@ export default function App() {
                       key={score}
                       accessibilityRole="button"
                       accessibilityLabel={`${label} score ${score}`}
-                      onPress={() =>
+                      onPress={() => {
+                        if (isDesignC && isAnyDesignCNoteFocused) {
+                          dismissKeyboardAndResetFocus();
+                          return;
+                        }
+
                         setDesignBSelections((currentSelections) => {
                           const isClearingScore = currentSelections[label] === score;
                           if (isClearingScore) {
@@ -1095,8 +1220,8 @@ export default function App() {
                             ...currentSelections,
                             [label]: isClearingScore ? null : score,
                           };
-                        })
-                      }
+                        });
+                      }}
                       style={[
                         styles.altScoreCircle,
                         {
@@ -1127,12 +1252,17 @@ export default function App() {
                     accessibilityRole="button"
                     accessibilityLabel={`${label} final score`}
                     disabled={!designBSelections[label]}
-                    onPress={() =>
+                    onPress={() => {
+                      if (isDesignC && isAnyDesignCNoteFocused) {
+                        dismissKeyboardAndResetFocus();
+                        return;
+                      }
+
                       setDesignBFinals((currentFinals) => ({
                         ...currentFinals,
                         [label]: !currentFinals[label],
-                      }))
-                    }
+                      }));
+                    }}
                     style={[
                       styles.altFinalPill,
                       {
@@ -1159,196 +1289,137 @@ export default function App() {
                   </Pressable>
                 </View>
               </View>
+              {isDesignC && label === "Aroma" ? (
+                <View
+                  style={[
+                    styles.pairedNotesBlock,
+                    {
+                      marginTop: 1 * scale,
+                      marginBottom: 14 * scale,
+                    },
+                  ]}
+                >
+                  {renderDesignCInlineNote(
+                    "fragrance-aroma",
+                    designCFragranceAromaNotes,
+                    setDesignCFragranceAromaNotes,
+                    95 * scale,
+                  )}
+                </View>
+              ) : null}
+              {isDesignC && label === "Aftertaste" ? (
+                <View
+                  style={[
+                    styles.pairedNotesBlock,
+                    {
+                      marginTop: 1 * scale,
+                      marginBottom: 14 * scale,
+                    },
+                  ]}
+                >
+                  {renderDesignCInlineNote(
+                    "flavour-aftertaste",
+                    designCFlavourAftertasteNotes,
+                    setDesignCFlavourAftertasteNotes,
+                    310 * scale,
+                  )}
+                </View>
+              ) : null}
+              {isDesignC && designCIndividualNoteRows.includes(label) ? (
+                <View
+                  style={[
+                    styles.pairedNotesBlock,
+                    {
+                      marginTop: 1 * scale,
+                      marginBottom: 14 * scale,
+                    },
+                  ]}
+                >
+                  {renderDesignCInlineNote(
+                    label,
+                    designCIndividualNotes[label] || "",
+                    (text) => setDesignCIndividualNote(label, text),
+                    (
+                      {
+                        Acidity: 500,
+                        Sweetness: 665,
+                        Mouthfeel: 830,
+                        Overall: 995,
+                      }[label] || 500
+                    ) * scale,
+                  )}
+                </View>
+              ) : null}
+              </React.Fragment>
             ))}
           </View>
-          {isDesignC && isDesignCNotesFocused ? (
-            <View pointerEvents="none" style={styles.designCScoreVeil} />
-          ) : null}
           </View>
 
-          <View
-            style={[
-              isDesignC && isDesignCNotesFocused ? styles.notesTitleEditingRow : styles.titleWithInfo,
-              {
-                marginTop: 14 * scale,
-                marginHorizontal: 22 * scale,
-                gap: 8 * scale,
-              },
-            ]}
-          >
-            <Text style={[styles.altMessagesTitle, { fontSize: 24 * scale, lineHeight: 31 * scale }]}>
-              Notes:
-            </Text>
-            {isDesignC ? (
-              <View
-                style={[
-                  styles.infoIcon,
-                  {
-                    width: 22 * scale,
-                    height: 22 * scale,
-                    borderRadius: 11 * scale,
-                    borderWidth: 2 * scale,
-                  },
-                ]}
-              >
-                <Text style={[styles.infoIconText, { fontSize: 14 * scale, lineHeight: 17 * scale }]}>i</Text>
-              </View>
-            ) : null}
-            {isDesignC && isDesignCNotesFocused ? (
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Hide keyboard"
-                onPress={dismissKeyboardAndResetFocus}
-                style={[
-                  styles.keyboardDoneButton,
-                  {
-                    right: 0,
-                    minHeight: 32 * scale,
-                    borderRadius: 16 * scale,
-                    paddingHorizontal: 13 * scale,
-                  },
-                ]}
-              >
-                <Text style={[styles.keyboardDoneButtonText, { fontSize: 14 * scale, lineHeight: 18 * scale }]}>
-                  Done
-                </Text>
-              </Pressable>
-            ) : null}
-          </View>
-
-          {isDesignC ? (
+          {isDesignC && !isAnyDesignCNoteFocused && designCDefectBadges.length > 0 ? (
             <View
               style={[
-                styles.designCNotesArea,
+                styles.designCDefectBadgeRow,
                 {
                   paddingHorizontal: 22 * scale,
-                  paddingTop: 14 * scale,
-                  paddingBottom: (isDesignCNotesFocused ? 24 : 180) * scale,
+                  paddingTop: 4 * scale,
+                  paddingBottom: 180 * scale,
+                  gap: 10 * scale,
                 },
               ]}
             >
-              {isDesignCNotesFocused ? (
-                <TextInput
-                  ref={designCNotesInputRef}
-                  autoFocus
-                  value={designBNotes}
-                  onChangeText={setCurrentDesignBNotes}
-                  onFocus={() => setIsDesignCNotesFocused(true)}
-                  onBlur={() => setIsDesignCNotesFocused(false)}
-                  placeholder="Add notes"
-                  placeholderTextColor="#7E858B"
-                  multiline
-                  textAlignVertical="top"
-                  style={[
-                    styles.designCNotesInput,
-                    {
-                      minHeight: 230 * scale,
-                      borderRadius: 14 * scale,
-                      paddingHorizontal: 18 * scale,
-                      paddingTop: 16 * scale,
-                      paddingBottom: 16 * scale,
-                      fontSize: 20 * scale,
-                      lineHeight: 26 * scale,
-                    },
-                  ]}
-                />
-              ) : (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Edit notes"
-                  onPress={focusDesignCNotes}
-                  style={[
-                    styles.designCNotesInput,
-                    {
-                      minHeight: 230 * scale,
-                      borderRadius: 14 * scale,
-                      paddingHorizontal: 18 * scale,
-                      paddingTop: 16 * scale,
-                      paddingBottom: 16 * scale,
-                    },
-                  ]}
-                >
-                  <View style={[styles.altMessageNotesLine, { rowGap: 5 * scale }]}>
-                    {(designBNotes || "Add notes").split(/(apple)/gi).map((part, partIndex) =>
-                      part.toLowerCase() === "apple" ? (
-                        <View
-                          key={`design-c-apple-${partIndex}`}
-                          style={[
-                            styles.applePill,
-                            {
-                              borderRadius: 14 * scale,
-                              paddingHorizontal: 10 * scale,
-                              paddingVertical: 2 * scale,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.applePillText, { fontSize: 20 * scale, lineHeight: 25 * scale }]}>
-                            {part}
-                          </Text>
-                        </View>
-                      ) : (
-                        <Text
-                          key={`design-c-text-${partIndex}`}
-                          style={[
-                            designBNotes ? styles.designCNotesPreviewText : styles.designCNotesPlaceholder,
-                            { fontSize: 20 * scale, lineHeight: 26 * scale },
-                          ]}
-                        >
-                          {part}
-                        </Text>
-                      ),
-                    )}
-                  </View>
-                </Pressable>
-              )}
-              {designCDefectBadges.length > 0 ? (
+              {designCDefectBadges.map((badge) => (
                 <View
+                  key={badge.id}
+                  accessibilityLabel={badge.label}
                   style={[
-                    styles.designCDefectBadgeRow,
+                    styles.designCDefectBadge,
                     {
-                      marginTop: 12 * scale,
-                      gap: 10 * scale,
+                      minHeight: 38 * scale,
+                      borderRadius: 19 * scale,
+                      paddingLeft: 6 * scale,
+                      paddingRight: 13 * scale,
+                      gap: 6 * scale,
                     },
                   ]}
                 >
-                  {designCDefectBadges.map((badge) => (
-                    <View
-                      key={badge.id}
-                      accessibilityLabel={badge.label}
-                      style={[
-                        styles.designCDefectBadge,
-                        {
-                          minHeight: 38 * scale,
-                          borderRadius: 19 * scale,
-                          paddingLeft: 6 * scale,
-                          paddingRight: 13 * scale,
-                          gap: 6 * scale,
-                        },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.designCDefectBadgeIcon,
-                          {
-                            width: 27 * scale,
-                            height: 27 * scale,
-                            borderRadius: 14 * scale,
-                          },
-                        ]}
-                      >
-                        <Text style={[styles.designCDefectBadgeIconText, { fontSize: 13 * scale, lineHeight: 16 * scale }]}>
-                          {badge.icon}
-                        </Text>
-                      </View>
-                      <Text style={[styles.designCDefectBadgeText, { fontSize: 14 * scale, lineHeight: 18 * scale }]}>
-                        {badge.label}
-                      </Text>
-                    </View>
-                  ))}
+                  <View
+                    style={[
+                      styles.designCDefectBadgeIcon,
+                      {
+                        width: 27 * scale,
+                        height: 27 * scale,
+                        borderRadius: 14 * scale,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.designCDefectBadgeIconText, { fontSize: 13 * scale, lineHeight: 16 * scale }]}>
+                      {badge.icon}
+                    </Text>
+                  </View>
+                  <Text style={[styles.designCDefectBadgeText, { fontSize: 14 * scale, lineHeight: 18 * scale }]}>
+                    {badge.label}
+                  </Text>
                 </View>
-              ) : null}
+              ))}
             </View>
-          ) : (
+          ) : null}
+
+          {!isDesignC ? (
+            <>
+            <View
+              style={[
+                styles.titleWithInfo,
+                {
+                  marginTop: 14 * scale,
+                  marginHorizontal: 22 * scale,
+                  gap: 8 * scale,
+                },
+              ]}
+            >
+              <Text style={[styles.altMessagesTitle, { fontSize: 24 * scale, lineHeight: 31 * scale }]}>
+                Notes:
+              </Text>
+            </View>
             <ScrollView
               keyboardShouldPersistTaps="handled"
               onScrollBeginDrag={Keyboard.dismiss}
@@ -1540,8 +1611,9 @@ export default function App() {
               );
               })}
             </ScrollView>
-          )}
-          </View>
+            </>
+          ) : null}
+          </ScrollView>
 
           {isDesignBDrawerOpen ? (
             <View
@@ -1598,7 +1670,7 @@ export default function App() {
             </View>
           ) : null}
 
-          {!isDesignC && !isDesignCNotesFocused ? (
+          {!isDesignC && !isAnyDesignCNoteFocused ? (
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={isDesignBDrawerOpen ? "Close defect drawer" : "Open defect drawer"}
@@ -1625,7 +1697,7 @@ export default function App() {
           </Pressable>
           ) : null}
 
-          {isDesignC && isDesignCNotesFocused ? null : (
+          {isAnyDesignCNoteFocused ? null : (
           <View
             style={[
               styles.altNotesDock,
@@ -2649,6 +2721,19 @@ const styles = StyleSheet.create({
   },
   altFinalTextSelected: {
     color: "#FFFFFF",
+  },
+  pairedNotesBlock: {
+    width: "100%",
+  },
+  pairedNotesInput: {
+    width: "100%",
+    color: "#111111",
+    fontWeight: "500",
+    letterSpacing: 0,
+    backgroundColor: "#EEF0F2",
+    borderWidth: 1,
+    borderColor: "#D5D8DB",
+    marginTop: 7,
   },
   altTableRule: {
     height: 1,
