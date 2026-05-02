@@ -33,6 +33,7 @@ const designCPage = {
   id: "design-c-main",
   rows: ["Fragrance", "Aroma", "Flavour", "Aftertaste", "Acidity", "Sweetness", "Mouthfeel", "Overall"],
 };
+const sessionScoreLabels = ["Fr", "Ar", "Fl", "Af", "Ac", "Sw", "Mf", "Ov"];
 const designCIndividualNoteRows = ["Acidity", "Sweetness", "Mouthfeel", "Overall"];
 const emptyCupFlags = [false, false, false, false, false];
 const defaultDesignBDefects = {
@@ -61,11 +62,56 @@ const sessionCups = [
   { name: "Black", color: "#111820" },
 ];
 const sessionCupRows = [
-  { scores: [7, 7, 8, 7, 6], defects: [], finalScore: "7.0" },
-  { scores: [6, 7, 7, 6, 6], defects: ["≠"], finalScore: "6.4" },
-  { scores: [8, 8, 8, 7, 7], defects: [], finalScore: "7.6" },
-  { scores: [6, 6, 7, 6, 5], defects: ["M"], finalScore: "6.0" },
-  { scores: [7, 7, 7, 7, 7], defects: ["Ph"], finalScore: "7.0" },
+  {
+    scores: [7, 7, 8, 7, 6, 7, 7, 8],
+    finalScoreIndices: [2, 7],
+    defects: [],
+    finalScore: "7.1",
+    cupUuid: "CUP-RED-01A7",
+    coffeeNameOrigin: "Las Flores, Colombia",
+    process: "Washed",
+    flavours: ["apple"],
+  },
+  {
+    scores: [6, 7, null, 6, 6, 7, 6, null],
+    finalScoreIndices: [1, 5],
+    defects: ["≠"],
+    finalScore: "6.5",
+    cupUuid: "CUP-YEL-02B4",
+    coffeeNameOrigin: "Kibingo, Burundi",
+    process: "Honey",
+    flavours: ["apple"],
+  },
+  {
+    scores: [8, 8, 8, 7, 7, 8, 8, 8],
+    finalScoreIndices: [0, 1, 2, 5, 6, 7],
+    defects: [],
+    finalScore: "7.8",
+    cupUuid: "CUP-BLU-03C9",
+    coffeeNameOrigin: "Chelbesa, Ethiopia",
+    process: "Natural",
+    flavours: ["apple"],
+  },
+  {
+    scores: [6, 6, 7, null, 5, 6, null, 6],
+    finalScoreIndices: [2, 4],
+    defects: ["≠", "M", "Ph", "Po"],
+    finalScore: "6.0",
+    cupUuid: "CUP-GRN-04D2",
+    coffeeNameOrigin: "Finca El Alto, Guatemala",
+    process: "Washed",
+    flavours: ["apple"],
+  },
+  {
+    scores: [7, 7, 7, 7, 7, 7, 7, 7],
+    finalScoreIndices: [0, 1, 2, 3, 4, 5, 6, 7],
+    defects: ["Ph"],
+    finalScore: "7.0",
+    cupUuid: "CUP-BLK-05E8",
+    coffeeNameOrigin: "Nyeri AA, Kenya",
+    process: "Anaerobic",
+    flavours: ["apple"],
+  },
 ];
 
 export default function App() {
@@ -88,6 +134,7 @@ export default function App() {
   const [isDesignCNotesFocused, setIsDesignCNotesFocused] = useState(false);
   const [focusedDesignCNote, setFocusedDesignCNote] = useState(null);
   const [currentCupIndex, setCurrentCupIndex] = useState(0);
+  const [expandedSessionCup, setExpandedSessionCup] = useState(null);
   const designCNotesInputRef = useRef(null);
   const designCScrollRef = useRef(null);
   const { width } = useWindowDimensions();
@@ -99,6 +146,12 @@ export default function App() {
   const isHomeAScanned = isHomeABrewing;
   const homeAPageTitle = isHomeABrewing ? "Brewing" : "Home";
   const homeATemperature = "76 °C";
+  const isSessionComplete = sessionCupRows.every(
+    (row) =>
+      row.scores.every((score) => score !== null && score !== undefined) &&
+      row.finalScoreIndices.length === row.scores.length,
+  );
+  const sessionStatus = isSessionComplete ? "Complete" : "Pending";
   const currentSection = sections[sectionIndex];
   const currentDesignBPage = isDesignC ? designCPage : designBPages[designBPageIndex];
   const selectedScore = selectedScores[currentSection] || null;
@@ -674,11 +727,16 @@ export default function App() {
               },
             ]}
           >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 22 * scale }}
+            >
             <View style={[styles.sessionMetaList, { gap: 18 * scale }]}>
               {[
                 { label: "Session UUID", value: "SESSION-19DAFB6B" },
                 { label: "Date", value: "02 May 2026" },
                 { label: "Session Name", value: "Morning Cupping" },
+                { label: "Status", value: sessionStatus },
               ].map((item) => (
                 <View key={item.label} style={[styles.sessionMetaRow, { paddingBottom: 16 * scale }]}>
                   <Text style={[styles.sessionMetaLabel, { fontSize: 16 * scale, lineHeight: 20 * scale }]}>
@@ -693,87 +751,181 @@ export default function App() {
             <View style={[styles.sessionCupList, { marginTop: 24 * scale }]}>
               {sessionCups.map((cup, index) => {
                 const row = sessionCupRows[index];
+                const isExpanded = expandedSessionCup === cup.name;
+                const hasAllScores = row.scores.every((score) => score !== null && score !== undefined);
+                const hasAllFinalScores = row.finalScoreIndices.length === row.scores.length;
+                const isFinalScoreAvailable = hasAllScores && hasAllFinalScores;
                 return (
                   <View
                     key={cup.name}
-                    style={[
-                      styles.sessionCupRow,
-                      {
-                        minHeight: 58 * scale,
-                        paddingVertical: 8 * scale,
-                        gap: 8 * scale,
-                      },
-                    ]}
+                    style={styles.sessionCupDrawer}
                   >
-                    <View style={[styles.sessionCupIdentity, { width: 52 * scale, gap: 5 * scale }]}>
-                      <View
-                        style={[
-                          styles.sessionCupDot,
-                          {
-                            width: 13 * scale,
-                            height: 13 * scale,
-                            borderRadius: 7 * scale,
-                            backgroundColor: cup.color,
-                          },
-                        ]}
-                      />
-                      <Text style={[styles.sessionCupNumber, { fontSize: 14 * scale, lineHeight: 18 * scale }]}>
-                        {index + 1}/5
-                      </Text>
-                    </View>
-
-                    <View style={[styles.sessionScoreCircleRow, { gap: 4 * scale }]}>
-                      {row.scores.map((score, scoreIndex) => (
-                        <View
-                          key={`${cup.name}-score-${scoreIndex}`}
-                          style={[
-                            styles.sessionScoreCircle,
-                            {
-                              width: 28 * scale,
-                              height: 28 * scale,
-                              borderRadius: 14 * scale,
-                              borderWidth: 1.7 * scale,
-                            },
-                          ]}
-                        >
-                          <Text style={[styles.sessionScoreCircleText, { fontSize: 17 * scale, lineHeight: 21 * scale }]}>
-                            {score}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-
-                    <View style={[styles.sessionDefectIconRow, { width: 58 * scale, gap: 4 * scale }]}>
-                      {row.defects.length > 0 ? (
-                        row.defects.map((defect) => (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`${isExpanded ? "Close" : "Open"} ${cup.name} cup details`}
+                      onPress={() => setExpandedSessionCup((currentCupName) => (currentCupName === cup.name ? null : cup.name))}
+                      style={[
+                        styles.sessionCupRow,
+                        {
+                          minHeight: 112 * scale,
+                          paddingVertical: 10 * scale,
+                          gap: 9 * scale,
+                        },
+                      ]}
+                    >
+                      <View style={styles.sessionCupTopLine}>
+                        <View style={[styles.sessionCupIdentity, { gap: 7 * scale }]}>
                           <View
-                            key={`${cup.name}-${defect}`}
                             style={[
-                              styles.sessionDefectIcon,
+                              styles.sessionCupDot,
                               {
-                                width: 24 * scale,
-                                height: 24 * scale,
-                                borderRadius: 12 * scale,
+                                width: 17 * scale,
+                                height: 17 * scale,
+                                borderRadius: 9 * scale,
+                                backgroundColor: cup.color,
                               },
                             ]}
-                          >
-                            <Text style={[styles.sessionDefectIconText, { fontSize: 11 * scale, lineHeight: 14 * scale }]}>
-                              {defect}
+                          />
+                          <Text style={[styles.sessionCupNumber, { fontSize: 22 * scale, lineHeight: 27 * scale }]}>
+                            Cup {index + 1}/5
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={[styles.sessionCupScoresLine, { gap: 6 * scale }]}>
+                          {row.scores.map((score, scoreIndex) => {
+                            const isFinalScore = row.finalScoreIndices.includes(scoreIndex);
+                            return (
+                              <View
+                                key={`${cup.name}-score-${scoreIndex}`}
+                                style={[styles.sessionScoreItem, { gap: 3 * scale }]}
+                              >
+                                <Text style={[styles.sessionScoreLabel, { fontSize: 12 * scale, lineHeight: 15 * scale }]}>
+                                  {sessionScoreLabels[scoreIndex]}
+                                </Text>
+                                <View
+                                  style={[
+                                    styles.sessionScoreCircle,
+                                    {
+                                      width: 38 * scale,
+                                      height: 38 * scale,
+                                      borderRadius: 7 * scale,
+                                      borderWidth: 2.2 * scale,
+                                    },
+                                    isFinalScore ? styles.sessionScoreCircleFinal : null,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.sessionScoreCircleText,
+                                      { fontSize: 25 * scale, lineHeight: 29 * scale },
+                                      isFinalScore ? styles.sessionScoreCircleTextFinal : null,
+                                    ]}
+                                  >
+                                    {score ?? "-"}
+                                  </Text>
+                                </View>
+                              </View>
+                            );
+                          })}
+
+                        <View style={[styles.sessionDefectIconRow, { gap: 4 * scale }]}>
+                          {row.defects.length > 0 ? (
+                            row.defects.map((defect) => (
+                              <View
+                                key={`${cup.name}-${defect}`}
+                                style={[
+                                  styles.sessionDefectIcon,
+                                  {
+                                    width: 32 * scale,
+                                    height: 32 * scale,
+                                    borderRadius: 16 * scale,
+                                  },
+                                ]}
+                              >
+                                <Text style={[styles.sessionDefectIconText, { fontSize: 18 * scale, lineHeight: 22 * scale }]}>
+                                  {defect}
+                                </Text>
+                              </View>
+                            ))
+                          ) : (
+                            <Text style={[styles.sessionNoDefectsText, { fontSize: 20 * scale, lineHeight: 24 * scale }]}>-</Text>
+                          )}
+                        </View>
+                      </View>
+
+                      <View style={styles.sessionCupFinalLine}>
+                        <Text
+                          style={[
+                            styles.sessionFinalScore,
+                            { fontSize: 22 * scale, lineHeight: 27 * scale },
+                            !isFinalScoreAvailable ? styles.sessionFinalScoreUnavailable : null,
+                          ]}
+                        >
+                          {isFinalScoreAvailable ? `Final score ${row.finalScore}` : "Final score -"}
+                        </Text>
+                      </View>
+                      <Text style={[styles.sessionCupDrawerGlyph, { fontSize: 34 * scale, lineHeight: 38 * scale }]}>
+                        {isExpanded ? "⌃" : "⌄"}
+                      </Text>
+                    </Pressable>
+                    {isExpanded ? (
+                      <View
+                        style={[
+                          styles.sessionCupDrawerBody,
+                          {
+                            paddingHorizontal: 18 * scale,
+                            paddingTop: 13 * scale,
+                            paddingBottom: 16 * scale,
+                            gap: 14 * scale,
+                          },
+                        ]}
+                      >
+                        {[
+                          { label: "Cup UUID", value: row.cupUuid },
+                          { label: "Coffee", value: row.coffeeNameOrigin },
+                          { label: "Process", value: row.process },
+                        ].map((item) => (
+                          <View key={`${cup.name}-${item.label}`} style={styles.sessionCupDrawerInfoRow}>
+                            <Text style={[styles.sessionCupDrawerLabel, { width: 130 * scale, fontSize: 20 * scale, lineHeight: 25 * scale }]}>
+                              {item.label}
+                            </Text>
+                            <Text style={[styles.sessionCupDrawerValue, { flex: 1, fontSize: 22 * scale, lineHeight: 27 * scale }]}>
+                              {item.value}
                             </Text>
                           </View>
-                        ))
-                      ) : (
-                        <Text style={[styles.sessionNoDefectsText, { fontSize: 14 * scale, lineHeight: 18 * scale }]}>-</Text>
-                      )}
-                    </View>
-
-                    <Text style={[styles.sessionFinalScore, { width: 42 * scale, fontSize: 20 * scale, lineHeight: 25 * scale }]}>
-                      {row.finalScore}
-                    </Text>
+                        ))}
+                        <View style={styles.sessionCupDrawerInfoRow}>
+                          <Text style={[styles.sessionCupDrawerLabel, { width: 130 * scale, fontSize: 20 * scale, lineHeight: 25 * scale }]}>
+                            Flavours
+                          </Text>
+                          <View style={[styles.sessionFlavourPillRow, { gap: 8 * scale }]}>
+                            {row.flavours.map((flavour) => (
+                              <View
+                                key={`${cup.name}-${flavour}`}
+                                style={[
+                                  styles.applePill,
+                                  {
+                                    borderRadius: 15 * scale,
+                                    paddingHorizontal: 12 * scale,
+                                    paddingVertical: 3 * scale,
+                                  },
+                                ]}
+                              >
+                                <Text style={[styles.applePillText, { fontSize: 20 * scale, lineHeight: 25 * scale }]}>
+                                  {flavour}
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      </View>
+                    ) : null}
                   </View>
                 );
               })}
             </View>
+            </ScrollView>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Scan"
@@ -2346,12 +2498,20 @@ const styles = StyleSheet.create({
   sessionCupList: {
     width: "100%",
   },
+  sessionCupDrawer: {
+    width: "100%",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EEF0F2",
+  },
   sessionCupRow: {
+    width: "100%",
+    alignItems: "stretch",
+  },
+  sessionCupTopLine: {
     width: "100%",
     flexDirection: "row",
     alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: "#EEF0F2",
+    justifyContent: "space-between",
   },
   sessionCupIdentity: {
     flexDirection: "row",
@@ -2369,7 +2529,25 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
+    flexWrap: "wrap",
+  },
+  sessionCupScoresLine: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-end",
+    justifyContent: "flex-start",
+    flexWrap: "wrap",
+  },
+  sessionScoreItem: {
+    alignItems: "center",
+    justifyContent: "flex-start",
+  },
+  sessionScoreLabel: {
+    color: "#667078",
+    fontWeight: "800",
+    letterSpacing: 0,
+    textAlign: "center",
   },
   sessionScoreCircle: {
     alignItems: "center",
@@ -2377,15 +2555,22 @@ const styles = StyleSheet.create({
     borderColor: ink,
     backgroundColor: "#FFFFFF",
   },
+  sessionScoreCircleFinal: {
+    borderColor: "#AEB4BA",
+    backgroundColor: "#AEB4BA",
+  },
   sessionScoreCircleText: {
     color: ink,
     fontWeight: "600",
     letterSpacing: 0,
   },
+  sessionScoreCircleTextFinal: {
+    color: "#FFFFFF",
+  },
   sessionDefectIconRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "flex-start",
     flexWrap: "wrap",
   },
   sessionDefectIcon: {
@@ -2407,7 +2592,45 @@ const styles = StyleSheet.create({
     color: ink,
     fontWeight: "800",
     letterSpacing: 0,
-    textAlign: "right",
+    textAlign: "left",
+  },
+  sessionFinalScoreUnavailable: {
+    color: "#AEB4BA",
+  },
+  sessionCupFinalLine: {
+    width: "100%",
+    alignItems: "flex-start",
+  },
+  sessionCupDrawerGlyph: {
+    color: ink,
+    fontWeight: "800",
+    letterSpacing: 0,
+    textAlign: "center",
+  },
+  sessionCupDrawerBody: {
+    width: "100%",
+    backgroundColor: "#F6F7F8",
+  },
+  sessionCupDrawerInfoRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  sessionCupDrawerLabel: {
+    color: "#667078",
+    fontWeight: "800",
+    letterSpacing: 0,
+  },
+  sessionCupDrawerValue: {
+    color: ink,
+    fontWeight: "700",
+    letterSpacing: 0,
+  },
+  sessionFlavourPillRow: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
   },
   homeAHeroGroup: {
     alignItems: "center",
