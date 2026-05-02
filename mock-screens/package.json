@@ -1,0 +1,21 @@
+{
+  "name": "cup-mock-screens",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.js",
+  "scripts": {
+    "start": "../node_modules/.bin/expo start --go",
+    "ios": "../node_modules/.bin/expo start --ios --go",
+    "android": "../node_modules/.bin/expo start --android --go",
+    "web": "../node_modules/.bin/expo start --web",
+    "build:android": "eas build --platform android --profile preview",
+    "build:ios": "eas build --platform ios --profile preview"
+  },
+  "dependencies": {
+    "expo": "^54.0.0",
+    "expo-status-bar": "~3.0.9",
+    "react": "19.1.0",
+    "react-native": "0.81.5"
+  },
+  "devDependencies": {}
+}

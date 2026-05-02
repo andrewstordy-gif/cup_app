@@ -1,4 +1,4 @@
-package com.andrewstordy.cupusertestapp.b
+package com.andrewstordy.cup
 
 import android.app.Application
 import android.content.res.Configuration

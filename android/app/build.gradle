@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.andrewstordy.cupusertestapp.b'
+    namespace 'com.andrewstordy.cup'
     defaultConfig {
-        applicationId 'com.andrewstordy.cupusertestapp.b'
+        applicationId 'com.andrewstordy.cup'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -1,4 +1,4 @@
-package com.andrewstordy.cupusertestapp.b
+package com.andrewstordy.cup
 
 import android.os.Build
 import android.os.Bundle

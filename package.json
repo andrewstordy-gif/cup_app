@@ -6,17 +6,11 @@
   "scripts": {
     "start": "expo start",
     "start:dev": "expo start --dev-client",
-    "start:dev:a": "APP_VARIANT=A expo start --dev-client",
-    "start:dev:b": "APP_VARIANT=B expo start --dev-client",
     "ios": "expo run:ios",
     "ios:device": "expo run:ios --device",
-    "ios:device:a": "APP_VARIANT=A expo run:ios --device",
-    "ios:device:b": "APP_VARIANT=B expo run:ios --device",
     "android": "expo run:android",
     "web": "expo start --web",
-    "prebuild": "expo prebuild",
-    "prebuild:a": "APP_VARIANT=A expo prebuild --clean",
-    "prebuild:b": "APP_VARIANT=B expo prebuild --clean"
+    "prebuild": "expo prebuild --clean"
   },
   "dependencies": {
     "expo": "^54.0.0",
