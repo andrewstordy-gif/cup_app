@@ -3,7 +3,8 @@ import { Keyboard, Modal, Pressable, StyleSheet, Text, TextInput, View } from "r
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
-import { CUP_NUMBER_OPTIONS } from "../constants/sessionDetails";
+import { CUP_NUMBER_OPTIONS, SAMPLE_COLOUR_OPTIONS } from "../constants/sessionDetails";
+import { ProcessSelector } from "./ProcessSelector";
 
 export function AddCoffeeSampleSheet({
   visible,
@@ -11,12 +12,14 @@ export function AddCoffeeSampleSheet({
   coffeeNameOrigin,
   process,
   cupNumber,
+  sampleColour,
   errors,
   loading,
   statusMessage,
   onChangeCoffeeNameOrigin,
   onChangeProcess,
   onSelectCupNumber,
+  onSelectSampleColour,
   onClose,
   onScanCup,
 }) {
@@ -68,11 +71,9 @@ export function AddCoffeeSampleSheet({
 
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>Process</Text>
-            <TextInput
+            <ProcessSelector
               value={process}
-              onChangeText={onChangeProcess}
-              placeholder="e.g. Washed"
-              style={styles.input}
+              onChange={onChangeProcess}
               accessibilityLabel="Add sample process"
             />
             {errors?.process ? <Text style={styles.errorText}>{errors.process}</Text> : null}
@@ -100,6 +101,31 @@ export function AddCoffeeSampleSheet({
               })}
             </View>
             {errors?.cupNumber ? <Text style={styles.errorText}>{errors.cupNumber}</Text> : null}
+          </View>
+
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Sample Colour</Text>
+            <View style={styles.sampleColourSelector}>
+              {SAMPLE_COLOUR_OPTIONS.map((option) => {
+                const selected = sampleColour === option.hex;
+                return (
+                  <Pressable
+                    key={option.hex}
+                    onPress={() => onSelectSampleColour(option.hex)}
+                    style={[styles.sampleColourOption, selected && styles.sampleColourOptionSelected]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Sample colour ${option.label}`}
+                    accessibilityState={{ selected }}
+                  >
+                    <View style={[styles.sampleColourSwatch, { backgroundColor: option.hex }]} />
+                    <Text style={[styles.sampleColourText, selected && styles.sampleColourTextSelected]}>
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            {errors?.sampleColour ? <Text style={styles.errorText}>{errors.sampleColour}</Text> : null}
           </View>
 
           <View style={styles.sheetActions}>
@@ -230,5 +256,40 @@ const styles = StyleSheet.create({
   },
   cupNumberOptionTextSelected: {
     color: "#ffffff",
+  },
+  sampleColourSelector: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  sampleColourOption: {
+    minHeight: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  sampleColourOptionSelected: {
+    borderColor: colors.text,
+    backgroundColor: "#f3f4f6",
+  },
+  sampleColourSwatch: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.16)",
+  },
+  sampleColourText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: colors.textMuted,
+  },
+  sampleColourTextSelected: {
+    color: colors.text,
   },
 });

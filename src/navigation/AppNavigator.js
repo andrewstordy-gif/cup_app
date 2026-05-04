@@ -40,6 +40,8 @@ export function AppNavigator() {
   const [homeTemperatureC, setHomeTemperatureC] = useState(null);
   const [homeStateLabel, setHomeStateLabel] = useState("Off");
   const [homeTimeLabel, setHomeTimeLabel] = useState("00:00");
+  const [homeElapsedSeconds, setHomeElapsedSeconds] = useState(null);
+  const [homeBrewTimeSeconds, setHomeBrewTimeSeconds] = useState(null);
   const [isScanInProgress, setIsScanInProgress] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [warningVisible, setWarningVisible] = useState(false);
@@ -197,6 +199,18 @@ export function AppNavigator() {
     return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   };
 
+  const resolveElapsedSeconds = (parsed) => {
+    const rawTime = parsed?.text1?.time ?? parsed?.text1?.m ?? parsed?.text2?.time ?? parsed?.text2?.m;
+    const numeric = Number.parseInt(rawTime, 10);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+  };
+
+  const resolveBrewTimeSeconds = (parsed) => {
+    const rawBrewTime = parsed?.text3?.brewTime ?? parsed?.text3?.w;
+    const numeric = Number.parseInt(rawBrewTime, 10);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+  };
+
   const resolveCupState = (parsed) => {
     const rawState = parsed?.text1?.state;
     const parsedState = Number.parseInt(rawState, 10);
@@ -264,8 +278,11 @@ export function AppNavigator() {
       }
 
       const cupState = resolveCupState(parsed);
+      const elapsedSeconds = resolveElapsedSeconds(parsed);
       setHomeTemperatureC(resolveTemperatureC(parsed));
-      setHomeTimeLabel(formatTime(parsed?.text2?.time));
+      setHomeTimeLabel(formatTime(elapsedSeconds));
+      setHomeElapsedSeconds(elapsedSeconds);
+      setHomeBrewTimeSeconds(resolveBrewTimeSeconds(parsed));
       setHomeStateLabel(getStateLabel(cupState));
       if (cupState === 0) {
         addFlowEvent(flowEvents, "STATE_SLEEPING");
@@ -291,10 +308,13 @@ export function AppNavigator() {
         setSelectedCupContext(null);
         setRoute("Home");
         if (cupState === BREWING_STATE) {
+          setHomeStateLabel("Brewing");
           setScanStatusMessage("No-session cup is brewing.");
         } else if (cupState === 3) {
+          setHomeStateLabel("Cupping");
           setScanStatusMessage("No-session cup is in cupping state.");
         } else {
+          setHomeStateLabel("Ready");
           setScanStatusMessage("No-session cup ready.");
         }
         return;
@@ -317,7 +337,7 @@ export function AppNavigator() {
       const cupStatus = {
         state: cupState === 1 ? "READY" : cupState === BREWING_STATE ? "BREWING" : "CUPPING",
         temp: formatTemp(parsed?.text2?.temp),
-        time: formatTime(parsed?.text2?.time),
+        time: formatTime(elapsedSeconds),
       };
       const ndefCupNumber = resolveCupNumberFromText4(parsed);
 
@@ -336,6 +356,9 @@ export function AppNavigator() {
 
       if (cupState === BREWING_STATE) {
         setScanStatusMessage("Cup is brewing. Assessment is locked until cupping state.");
+        setRoute("Home");
+        addFlowEvent(flowEvents, `ROUTE_BREWING uuid=${cupUUID}`);
+        return;
       } else {
         setScanStatusMessage("");
       }
@@ -571,6 +594,8 @@ export function AppNavigator() {
         temperatureC={homeTemperatureC}
         stateLabel={homeStateLabel}
         timeLabel={homeTimeLabel}
+        elapsedSeconds={homeElapsedSeconds}
+        brewTimeSeconds={homeBrewTimeSeconds}
       />
     );
   }, [
@@ -582,6 +607,8 @@ export function AppNavigator() {
     homeTemperatureC,
     homeStateLabel,
     homeTimeLabel,
+    homeElapsedSeconds,
+    homeBrewTimeSeconds,
   ]);
 
   const drawerTranslateX = anim.interpolate({

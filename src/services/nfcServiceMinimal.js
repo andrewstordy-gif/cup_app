@@ -234,6 +234,9 @@ function normalizeText4Payload(payload) {
   const coffeeName = payload.coffeeName ?? payload.n;
   const coffeeProcess = payload.coffeeProcess ?? payload.p;
   const cupNumber = payload.cupNumber ?? payload.y;
+  const samplesInSession = payload.samplesInSession ?? payload.i;
+  const sampleNumber = payload.sampleNumber ?? payload.z;
+  const sampleColour = payload.sampleColour ?? payload.k;
   const sessionName = payload.sessionName ?? payload.e;
   const sessionType = payload.sessionType ?? payload.t;
   const sessionDate = payload.sessionDate ?? payload.d;
@@ -244,6 +247,9 @@ function normalizeText4Payload(payload) {
     ...(coffeeName !== undefined ? { coffeeName } : {}),
     ...(coffeeProcess !== undefined ? { coffeeProcess } : {}),
     ...(cupNumber !== undefined ? { cupNumber } : {}),
+    ...(samplesInSession !== undefined ? { samplesInSession } : {}),
+    ...(sampleNumber !== undefined ? { sampleNumber } : {}),
+    ...(sampleColour !== undefined ? { sampleColour } : {}),
     ...(sessionName !== undefined ? { sessionName } : {}),
     ...(sessionType !== undefined ? { sessionType } : {}),
     ...(sessionDate !== undefined ? { sessionDate } : {}),
@@ -308,6 +314,9 @@ function compactText4Payload(payload) {
   const coffeeName = payload.n ?? payload.coffeeName;
   const coffeeProcess = payload.p ?? payload.coffeeProcess;
   const cupNumber = payload.y ?? payload.cupNumber;
+  const samplesInSession = payload.i ?? payload.samplesInSession;
+  const sampleNumber = payload.z ?? payload.sampleNumber;
+  const sampleColour = payload.k ?? payload.sampleColour;
   const sessionName = payload.e ?? payload.sessionName;
   const sessionType = payload.t ?? payload.sessionType;
   const sessionDate = payload.d ?? payload.sessionDate;
@@ -317,6 +326,9 @@ function compactText4Payload(payload) {
     ...(coffeeName !== undefined ? { n: coffeeName } : {}),
     ...(coffeeProcess !== undefined ? { p: coffeeProcess } : {}),
     ...(cupNumber !== undefined ? { y: cupNumber } : {}),
+    ...(samplesInSession !== undefined ? { i: samplesInSession } : {}),
+    ...(sampleNumber !== undefined ? { z: sampleNumber } : {}),
+    ...(sampleColour !== undefined ? { k: sampleColour } : {}),
     ...(sessionName !== undefined ? { e: sessionName } : {}),
     ...(sessionType !== undefined ? { t: sessionType } : {}),
     ...(sessionDate !== undefined ? { d: sessionDate } : {}),

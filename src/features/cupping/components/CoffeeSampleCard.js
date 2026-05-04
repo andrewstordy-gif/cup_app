@@ -2,6 +2,7 @@ import React from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { ProcessSelector } from "./ProcessSelector";
 
 export function CoffeeSampleCard({
   sample,
@@ -22,6 +23,11 @@ export function CoffeeSampleCard({
   const verificationStatus = sample.verificationStatus || "unverified";
   const isVerified = verificationStatus === "verified";
   const isPendingVerification = verificationStatus === "pending";
+  const sampleNumber =
+    Number.isInteger(Number(sample.sampleNumber)) && Number(sample.sampleNumber) > 0
+      ? Number(sample.sampleNumber)
+      : index + 1;
+  const sampleColour = sample.sampleColour || "#111111";
 
   return (
     <View style={[styles.sampleCard, isLocked && styles.sampleCardLocked]}>
@@ -31,6 +37,10 @@ export function CoffeeSampleCard({
           <Text style={styles.uuidValue} accessibilityLabel={`Sample ${index + 1} cup UUID`}>
             {sample.cupUUID || "CUP-0000-XXX"}
           </Text>
+          <View style={styles.sampleMetaRow}>
+            <View style={[styles.sampleColourDot, { backgroundColor: sampleColour }]} />
+            <Text style={styles.sampleMetaText}>Sample {sampleNumber}</Text>
+          </View>
           <View
             style={styles.cupDotsRow}
             accessibilityLabel={`Sample ${index + 1} has ${displayCupNumber} cups`}
@@ -100,13 +110,10 @@ export function CoffeeSampleCard({
 
       <View style={styles.fieldBlock}>
         <Text style={styles.fieldLabel}>Process</Text>
-        <TextInput
+        <ProcessSelector
           value={sample.process}
-          onChangeText={(value) => onUpdate(sample.id, "process", value)}
-          placeholder="e.g. Washed"
-          style={[styles.input, isLocked && styles.inputDisabled]}
-          editable={!isLocked}
-          selectTextOnFocus={!isLocked}
+          onChange={(value) => onUpdate(sample.id, "process", value)}
+          disabled={isLocked}
           accessibilityLabel={`Sample ${index + 1} process`}
         />
       </View>
@@ -241,6 +248,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
     marginTop: 6,
+  },
+  sampleMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
+  },
+  sampleColourDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "rgba(0, 0, 0, 0.16)",
+  },
+  sampleMetaText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: colors.textMuted,
   },
   cupDot: {
     width: 8,

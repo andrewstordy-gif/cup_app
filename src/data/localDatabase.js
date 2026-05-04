@@ -19,6 +19,7 @@ async function runMigrations(db) {
       session_display_id TEXT NOT NULL,
       session_name TEXT NOT NULL,
       session_type TEXT NOT NULL,
+      samples_in_session INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'pending',
       session_date TEXT NOT NULL,
       created_at TEXT NOT NULL,
@@ -32,6 +33,8 @@ async function runMigrations(db) {
       session_id TEXT NOT NULL,
       cup_uuid TEXT NOT NULL,
       cup_number INTEGER NOT NULL,
+      sample_number INTEGER NOT NULL DEFAULT 0,
+      sample_colour TEXT NOT NULL DEFAULT '',
       coffee_name_origin TEXT NOT NULL,
       process TEXT NOT NULL,
       position_index INTEGER NOT NULL,
@@ -166,8 +169,28 @@ async function runMigrations(db) {
   if (!hasStatusColumn) {
     await db.execAsync("ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';");
   }
+  const hasSamplesInSessionColumn = Array.isArray(sessionColumns)
+    ? sessionColumns.some((column) => column?.name === "samples_in_session")
+    : false;
+  if (!hasSamplesInSessionColumn) {
+    await db.execAsync("ALTER TABLE sessions ADD COLUMN samples_in_session INTEGER NOT NULL DEFAULT 0;");
+  }
 
   await db.execAsync("UPDATE sessions SET status = 'pending' WHERE status IS NULL OR status = '';");
+
+  const sampleColumns = await db.getAllAsync("PRAGMA table_info(samples);");
+  const hasSampleNumberColumn = Array.isArray(sampleColumns)
+    ? sampleColumns.some((column) => column?.name === "sample_number")
+    : false;
+  if (!hasSampleNumberColumn) {
+    await db.execAsync("ALTER TABLE samples ADD COLUMN sample_number INTEGER NOT NULL DEFAULT 0;");
+  }
+  const hasSampleColourColumn = Array.isArray(sampleColumns)
+    ? sampleColumns.some((column) => column?.name === "sample_colour")
+    : false;
+  if (!hasSampleColourColumn) {
+    await db.execAsync("ALTER TABLE samples ADD COLUMN sample_colour TEXT NOT NULL DEFAULT '';");
+  }
 
   isMigrated = true;
 }

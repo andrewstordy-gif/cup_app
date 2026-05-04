@@ -1,4 +1,10 @@
 import { getLocalDatabase } from "./localDatabase";
+import {
+  getSessionDateLabel,
+  getSessionTypeLabel,
+  normalizePositiveInteger,
+  normalizeSampleColour,
+} from "../features/cupping/constants/sessionDetails";
 
 function generateId() {
   const randomUuid = globalThis?.crypto?.randomUUID?.();
@@ -150,6 +156,7 @@ export async function saveSessionWithSamples({
   sessionDisplayId,
   sessionName,
   sessionType,
+  samplesInSession = 0,
   status = "pending",
   sessionDate,
   samples,
@@ -164,6 +171,8 @@ export async function saveSessionWithSamples({
       id: cleanString(sample?.id) || generateId(),
       cupUUID: normalizeCupUuid(sample?.cupUUID),
       cupNumber: coerceCupNumber(sample?.cupNumber),
+      sampleNumber: normalizePositiveInteger(sample?.sampleNumber, index + 1),
+      sampleColour: normalizeSampleColour(sample?.sampleColour),
       coffeeNameOrigin: cleanString(sample?.coffeeNameOrigin),
       process: cleanString(sample?.process),
       positionIndex: index,
@@ -192,13 +201,14 @@ export async function saveSessionWithSamples({
     await db.runAsync(
       `
         INSERT INTO sessions (
-          id, session_uuid, session_display_id, session_name, session_type, status, session_date, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           session_uuid = excluded.session_uuid,
           session_display_id = excluded.session_display_id,
           session_name = excluded.session_name,
           session_type = excluded.session_type,
+          samples_in_session = excluded.samples_in_session,
           status = excluded.status,
           session_date = excluded.session_date,
           updated_at = excluded.updated_at
@@ -209,6 +219,7 @@ export async function saveSessionWithSamples({
         displayIdValue,
         trimmedSessionName,
         cleanString(sessionType),
+        normalizePositiveInteger(samplesInSession, normalizedSamples.length),
         sessionStatusValue,
         cleanString(sessionDate),
         createdAt,
@@ -228,10 +239,12 @@ export async function saveSessionWithSamples({
       await db.runAsync(
         `
           INSERT INTO samples (
-            id, session_id, cup_uuid, cup_number, coffee_name_origin, process, position_index, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, session_id, cup_uuid, cup_number, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(session_id, cup_uuid) DO UPDATE SET
             cup_number = excluded.cup_number,
+            sample_number = excluded.sample_number,
+            sample_colour = excluded.sample_colour,
             coffee_name_origin = excluded.coffee_name_origin,
             process = excluded.process,
             position_index = excluded.position_index,
@@ -242,6 +255,8 @@ export async function saveSessionWithSamples({
           sessionId,
           sample.cupUUID,
           sample.cupNumber,
+          sample.sampleNumber,
+          sample.sampleColour,
           sample.coffeeNameOrigin,
           sample.process,
           sample.positionIndex,
@@ -282,6 +297,7 @@ export async function listSessions() {
         session_display_id AS sessionDisplayId,
         session_name AS sessionName,
         session_type AS sessionType,
+        samples_in_session AS samplesInSession,
         status,
         session_date AS sessionDate,
         updated_at AS updatedAt
@@ -360,6 +376,7 @@ export async function findSessionBySessionUUID(sessionUUID) {
         session_display_id AS sessionDisplayId,
         session_name AS sessionName,
         session_type AS sessionType,
+        samples_in_session AS samplesInSession,
         status,
         session_date AS sessionDate,
         created_at AS createdAt,
@@ -386,6 +403,7 @@ export async function getSessionById(sessionId) {
         session_display_id AS sessionDisplayId,
         session_name AS sessionName,
         session_type AS sessionType,
+        samples_in_session AS samplesInSession,
         status,
         session_date AS sessionDate,
         created_at AS createdAt,
@@ -407,6 +425,8 @@ export async function getSessionById(sessionId) {
         id,
         cup_uuid AS cupUUID,
         cup_number AS cupNumber,
+        sample_number AS sampleNumber,
+        sample_colour AS sampleColour,
         coffee_name_origin AS coffeeNameOrigin,
         process,
         position_index AS positionIndex
@@ -438,6 +458,8 @@ export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) 
         session_id AS sessionId,
         cup_uuid AS cupUUID,
         cup_number AS cupNumber,
+        sample_number AS sampleNumber,
+        sample_colour AS sampleColour,
         coffee_name_origin AS coffeeNameOrigin,
         process,
         position_index AS cupIndex,
@@ -458,6 +480,7 @@ export async function upsertSessionFromCupMetadata({
   sessionName,
   sessionType,
   sessionDate,
+  samplesInSession,
   status = "pending",
 } = {}) {
   const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
@@ -472,21 +495,27 @@ export async function upsertSessionFromCupMetadata({
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextStatus = cleanString(existing?.status || status).toLowerCase() || "pending";
   const nextSessionName = cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
-  const nextSessionType = cleanString(sessionType) || cleanString(existing?.sessionType) || "Other";
+  const nextSessionType =
+    getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
   const nextSessionDate =
-    cleanString(sessionDate) || cleanString(existing?.sessionDate) || formatSessionDateFallback(new Date());
+    getSessionDateLabel(sessionDate) ||
+    cleanString(existing?.sessionDate) ||
+    formatSessionDateFallback(new Date());
+  const nextSamplesInSession =
+    normalizePositiveInteger(samplesInSession, Number(existing?.samplesInSession) || 0);
   const nextDisplayId = cleanString(existing?.sessionDisplayId) || `SESSION-${normalizedSessionUUID.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 
   await db.runAsync(
     `
       INSERT INTO sessions (
-        id, session_uuid, session_display_id, session_name, session_type, status, session_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         session_uuid = excluded.session_uuid,
         session_display_id = excluded.session_display_id,
         session_name = excluded.session_name,
         session_type = excluded.session_type,
+        samples_in_session = excluded.samples_in_session,
         status = excluded.status,
         session_date = excluded.session_date,
         updated_at = excluded.updated_at
@@ -497,6 +526,7 @@ export async function upsertSessionFromCupMetadata({
       nextDisplayId,
       nextSessionName,
       nextSessionType,
+      nextSamplesInSession,
       nextStatus,
       nextSessionDate,
       createdAt,
@@ -510,6 +540,7 @@ export async function upsertSessionFromCupMetadata({
     sessionDisplayId: nextDisplayId,
     sessionName: nextSessionName,
     sessionType: nextSessionType,
+    samplesInSession: nextSamplesInSession,
     status: nextStatus,
     sessionDate: nextSessionDate,
     createdAt,
@@ -523,6 +554,8 @@ export async function upsertSessionSampleFromCupMetadata({
   coffeeNameOrigin,
   process,
   cupNumber,
+  sampleNumber,
+  sampleColour,
 } = {}) {
   const normalizedSessionId = cleanString(sessionId);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
@@ -554,6 +587,12 @@ export async function upsertSessionSampleFromCupMetadata({
   const sampleId = cleanString(existing?.id) || generateId();
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextCupNumber = coerceCupNumber(cupNumber ?? existing?.cupNumber);
+  const nextSampleNumber = normalizePositiveInteger(
+    sampleNumber,
+    Number(existing?.sampleNumber) || nextCupIndex + 1
+  );
+  const nextSampleColour =
+    normalizeSampleColour(sampleColour) || normalizeSampleColour(existing?.sampleColour);
   const nextCoffeeNameOrigin =
     cleanString(coffeeNameOrigin) || cleanString(existing?.coffeeNameOrigin);
   const nextProcess = cleanString(process) || cleanString(existing?.process);
@@ -561,10 +600,12 @@ export async function upsertSessionSampleFromCupMetadata({
   await db.runAsync(
     `
       INSERT INTO samples (
-        id, session_id, cup_uuid, cup_number, coffee_name_origin, process, position_index, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, session_id, cup_uuid, cup_number, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id, cup_uuid) DO UPDATE SET
         cup_number = excluded.cup_number,
+        sample_number = excluded.sample_number,
+        sample_colour = excluded.sample_colour,
         coffee_name_origin = excluded.coffee_name_origin,
         process = excluded.process,
         position_index = excluded.position_index,
@@ -575,6 +616,8 @@ export async function upsertSessionSampleFromCupMetadata({
       normalizedSessionId,
       normalizedCupUUID,
       nextCupNumber,
+      nextSampleNumber,
+      nextSampleColour,
       nextCoffeeNameOrigin,
       nextProcess,
       nextCupIndex,
@@ -588,6 +631,8 @@ export async function upsertSessionSampleFromCupMetadata({
     sessionId: normalizedSessionId,
     cupUUID: normalizedCupUUID,
     cupNumber: nextCupNumber,
+    sampleNumber: nextSampleNumber,
+    sampleColour: nextSampleColour,
     coffeeNameOrigin: nextCoffeeNameOrigin,
     process: nextProcess,
     cupIndex: nextCupIndex,
@@ -611,6 +656,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     sessionName: metadata?.sessionName ?? metadata?.e,
     sessionType: metadata?.sessionType ?? metadata?.t,
     sessionDate: metadata?.sessionDate ?? metadata?.d,
+    samplesInSession: metadata?.samplesInSession ?? metadata?.i,
     status: "pending",
   });
 
@@ -620,6 +666,8 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     coffeeNameOrigin: metadata?.coffeeName ?? metadata?.n,
     process: metadata?.coffeeProcess ?? metadata?.p,
     cupNumber: metadata?.cupNumber ?? metadata?.y,
+    sampleNumber: metadata?.sampleNumber ?? metadata?.z,
+    sampleColour: metadata?.sampleColour ?? metadata?.k,
   });
 
   const db = await getLocalDatabase();
@@ -652,6 +700,8 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     sampleId: sample.id,
     cupUUID: sample.cupUUID,
     cupNumber: sample.cupNumber,
+    sampleNumber: sample.sampleNumber,
+    sampleColour: sample.sampleColour,
     coffeeNameOrigin: sample.coffeeNameOrigin,
     coffeeProcess: sample.process,
     cupIndex: Number(sample.cupIndex) || 0,

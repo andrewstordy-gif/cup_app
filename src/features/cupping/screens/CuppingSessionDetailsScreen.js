@@ -20,9 +20,15 @@ import {
   formatSessionDate,
   formatSessionDisplayId,
   generateSessionUUID,
+  getSessionTypeLabel,
+  normalizeProcessKey,
+  normalizePositiveInteger,
+  normalizeSessionTypeKey,
   normalizeCupUuid,
+  normalizeSampleColour,
   PENDING_CONFLICT_ERROR,
   resolveCupUUIDFromReadResult,
+  SAMPLE_COLOUR_OPTIONS,
   SESSION_TYPE_OPTIONS,
 } from "../constants/sessionDetails";
 import {
@@ -38,7 +44,8 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [sessionDisplayId, setSessionDisplayId] = useState(() => formatSessionDisplayId(sessionUUID));
   const [sessionDate, setSessionDate] = useState(() => formatSessionDate(new Date()));
   const [sessionName, setSessionName] = useState("");
-  const [sessionType, setSessionType] = useState("Sourcing Decision");
+  const [sessionType, setSessionType] = useState("1");
+  const [samplesInSession, setSamplesInSession] = useState("");
   const [sessionStatus, setSessionStatus] = useState("pending");
   const [showSessionTypeMenu, setShowSessionTypeMenu] = useState(false);
 
@@ -48,6 +55,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [sheetCoffeeNameOrigin, setSheetCoffeeNameOrigin] = useState("");
   const [sheetProcess, setSheetProcess] = useState("");
   const [sheetCupNumber, setSheetCupNumber] = useState(3);
+  const [sheetSampleColour, setSheetSampleColour] = useState(SAMPLE_COLOUR_OPTIONS[0].hex);
   const [pendingCupUUID, setPendingCupUUID] = useState("");
   const [sheetErrors, setSheetErrors] = useState({});
   const [scanStatusMessage, setScanStatusMessage] = useState("");
@@ -85,7 +93,8 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         setSessionDisplayId(formatSessionDisplayId(nextSessionUUID));
         setSessionDate(formatSessionDate(new Date()));
         setSessionName("");
-        setSessionType("Sourcing Decision");
+        setSessionType("1");
+        setSamplesInSession("");
         setSessionStatus("pending");
         setSamples([]);
         setShowSessionTypeMenu(false);
@@ -104,7 +113,8 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         setSessionDisplayId(loaded.sessionDisplayId || formatSessionDisplayId(loadedUuid));
         setSessionDate(loaded.sessionDate || formatSessionDate(new Date()));
         setSessionName(loaded.sessionName || "");
-        setSessionType(loaded.sessionType || "Sourcing Decision");
+        setSessionType(String(normalizeSessionTypeKey(loaded.sessionType) || 1));
+        setSamplesInSession(String(loaded.samplesInSession || ""));
         setSessionStatus(loaded.status || "pending");
         setSamples(
           (loaded.samples || []).map((sample) =>
@@ -114,6 +124,8 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
               process: sample.process,
               cupUUID: sample.cupUUID,
               cupNumber: sample.cupNumber,
+              sampleNumber: sample.sampleNumber,
+              sampleColour: sample.sampleColour,
               verificationStatus: sample.verificationStatus,
             })
           )
@@ -185,10 +197,20 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       sessionDate,
       sessionName,
       sessionType,
+      samplesInSession,
       status: sessionStatus,
       samples,
     }),
-    [sessionUUID, sessionDisplayId, sessionDate, sessionName, sessionType, sessionStatus, samples]
+    [
+      sessionUUID,
+      sessionDisplayId,
+      sessionDate,
+      sessionName,
+      sessionType,
+      samplesInSession,
+      sessionStatus,
+      samples,
+    ]
   );
   const isSessionLocked = samples.length > 0;
 
@@ -227,6 +249,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
     setSheetCoffeeNameOrigin("");
     setSheetProcess("");
     setSheetCupNumber(3);
+    setSheetSampleColour(SAMPLE_COLOUR_OPTIONS[0].hex);
     setPendingCupUUID("");
     setSheetErrors({});
     setScanStatusMessage("");
@@ -321,12 +344,16 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       nextErrors.coffeeNameOrigin = "Coffee Name / Origin is required.";
     }
 
-    if (!sheetProcess.trim()) {
+    if (!normalizeProcessKey(sheetProcess)) {
       nextErrors.process = "Process is required.";
     }
 
     if (!CUP_NUMBER_OPTIONS.includes(sheetCupNumber)) {
       nextErrors.cupNumber = "Cup number must be between 1 and 5.";
+    }
+
+    if (!normalizeSampleColour(sheetSampleColour)) {
+      nextErrors.sampleColour = "Sample colour is required.";
     }
 
     setSheetErrors(nextErrors);
@@ -352,6 +379,15 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
     try {
       const normalizedDetectedCupUUID = pendingCupUUID;
+      const duplicateIndex = samples.findIndex(
+        (sample) => normalizeCupUuid(sample.cupUUID) === normalizedDetectedCupUUID
+      );
+      const sampleNumber = duplicateIndex === -1 ? samples.length + 1 : duplicateIndex + 1;
+      const sessionSampleCount = normalizePositiveInteger(
+        samplesInSession,
+        Math.max(samples.length, sampleNumber)
+      );
+      const sampleColour = normalizeSampleColour(sheetSampleColour);
       setScanStatusMessage(`Scan cup ${normalizedDetectedCupUUID} to write session data...`);
 
       await writeNdefMinimal({
@@ -360,29 +396,30 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         },
         text2: {},
         text3: {},
-        text4: {
-          coffeeName: sheetCoffeeNameOrigin.trim(),
-          coffeeProcess: sheetProcess.trim(),
-          sessionName: sessionName.trim(),
-          sessionType: sessionType.trim(),
-          sessionDate: sessionDate,
-          sessionUUID: sessionUUID,
+        text4: buildCompactSessionMetadata({
+          coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
+          process: normalizeProcessKey(sheetProcess),
           cupNumber: sheetCupNumber,
-        },
+          samplesInSession: sessionSampleCount,
+          sampleNumber,
+          sampleColour,
+          sessionName: sessionName.trim(),
+          sessionType: normalizeSessionTypeKey(sessionType),
+          sessionDate,
+          sessionUUID,
+        }),
       });
-
-      const duplicateIndex = samples.findIndex(
-        (sample) => normalizeCupUuid(sample.cupUUID) === normalizedDetectedCupUUID
-      );
 
       if (duplicateIndex === -1) {
         setSamples((prev) => [
           ...prev,
           createSample({
             coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
-            process: sheetProcess.trim(),
+            process: String(normalizeProcessKey(sheetProcess)),
             cupUUID: normalizedDetectedCupUUID,
             cupNumber: sheetCupNumber,
+            sampleNumber,
+            sampleColour,
             verificationStatus: "pending",
           }),
         ]);
@@ -393,9 +430,11 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
               ? {
                   ...sample,
                   coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
-                  process: sheetProcess.trim(),
+                  process: String(normalizeProcessKey(sheetProcess)),
                   cupUUID: normalizedDetectedCupUUID,
                   cupNumber: sheetCupNumber,
+                  sampleNumber,
+                  sampleColour,
                   verificationStatus: "pending",
                 }
               : sample
@@ -435,6 +474,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
           sheetCoffeeNameOrigin,
           sheetProcess,
           sheetCupNumber,
+          sheetSampleColour,
         },
       });
       if (isUserCancelled) {
@@ -484,6 +524,9 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         coffeeNameOrigin: sample.coffeeNameOrigin,
         process: sample.process,
         cupNumber: sample.cupNumber,
+        samplesInSession: normalizePositiveInteger(samplesInSession, samples.length),
+        sampleNumber: samples.findIndex((entry) => entry.id === sampleId) + 1,
+        sampleColour: sample.sampleColour,
         sessionName,
         sessionType,
         sessionDate,
@@ -540,6 +583,9 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       coffeeNameOrigin: sample.coffeeNameOrigin,
       process: sample.process,
       cupNumber: sample.cupNumber,
+      samplesInSession: normalizePositiveInteger(samplesInSession, samples.length),
+      sampleNumber: samples.findIndex((entry) => entry.id === sampleId) + 1,
+      sampleColour: sample.sampleColour,
       sessionName,
       sessionType,
       sessionDate,
@@ -712,11 +758,11 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
                 }}
                 style={[styles.dropdownTrigger, isSessionLocked && styles.dropdownTriggerDisabled]}
                 accessibilityRole="button"
-                accessibilityLabel={`Session type selector. Current value ${sessionType}`}
+                accessibilityLabel={`Session type selector. Current value ${getSessionTypeLabel(sessionType)}`}
                 accessibilityState={{ expanded: showSessionTypeMenu, disabled: isSessionLocked }}
               >
                 <Text style={[styles.dropdownValue, isSessionLocked && styles.dropdownValueDisabled]}>
-                  {sessionType}
+                  {getSessionTypeLabel(sessionType)}
                 </Text>
                 <Text style={[styles.dropdownChevron, isSessionLocked && styles.dropdownChevronDisabled]}>
                   {showSessionTypeMenu ? "▴" : "▾"}
@@ -726,12 +772,12 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
               {showSessionTypeMenu && !isSessionLocked ? (
                 <View style={styles.dropdownMenu}>
                   {SESSION_TYPE_OPTIONS.map((option, index) => {
-                    const selected = sessionType === option;
+                    const selected = normalizeSessionTypeKey(sessionType) === option.key;
                     return (
                       <Pressable
-                        key={option}
+                        key={option.key}
                         onPress={() => {
-                          setSessionType(option);
+                          setSessionType(String(option.key));
                           setShowSessionTypeMenu(false);
                         }}
                         style={[
@@ -740,11 +786,11 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
                           selected && styles.dropdownItemSelected,
                         ]}
                         accessibilityRole="button"
-                        accessibilityLabel={`Session type ${option}`}
+                        accessibilityLabel={`Session type ${option.label}`}
                         accessibilityState={{ selected }}
                       >
                         <Text style={[styles.dropdownItemText, selected && styles.dropdownItemTextSelected]}>
-                          {option}
+                          {option.label}
                         </Text>
                       </Pressable>
                     );
@@ -752,6 +798,20 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
                 </View>
               ) : null}
             </View>
+          </View>
+
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Samples in Session</Text>
+            <TextInput
+              value={samplesInSession}
+              onChangeText={setSamplesInSession}
+              placeholder="e.g. 5"
+              keyboardType="number-pad"
+              style={[styles.input, isSessionLocked && styles.inputDisabled]}
+              editable={!isSessionLocked}
+              selectTextOnFocus={!isSessionLocked}
+              accessibilityLabel="Samples in session"
+            />
           </View>
         </View>
 
@@ -817,12 +877,14 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         coffeeNameOrigin={sheetCoffeeNameOrigin}
         process={sheetProcess}
         cupNumber={sheetCupNumber}
+        sampleColour={sheetSampleColour}
         errors={sheetErrors}
         loading={isNfcWriting}
         statusMessage={scanStatusMessage}
         onChangeCoffeeNameOrigin={setSheetCoffeeNameOrigin}
         onChangeProcess={setSheetProcess}
         onSelectCupNumber={setSheetCupNumber}
+        onSelectSampleColour={setSheetSampleColour}
         onClose={handleCloseAddSheet}
         onScanCup={handleScanCup}
       />
