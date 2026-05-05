@@ -6,12 +6,15 @@ import { typography } from "../../theme/typography";
 
 export function Header({
   title,
+  titleContent = null,
   variant = "menu",
   onMenuPress,
   onBackPress,
   onSearchPress,
   onRightPress,
+  rightContent = null,
   rightIconText = "✎",
+  sideWidth = 48,
   menuAccessibilityLabel = "Open menu",
   backAccessibilityLabel = "Go back",
   searchAccessibilityLabel = "Search",
@@ -23,7 +26,7 @@ export function Header({
   return (
     <View>
       <View style={styles.container}>
-        <View style={styles.left}>
+        <View style={[styles.left, { width: sideWidth }]}>
           {showBack ? (
             <Pressable
               style={styles.action}
@@ -45,12 +48,18 @@ export function Header({
           )}
         </View>
 
-        <Text style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
+        {titleContent ? (
+          <View style={styles.titleContent}>{titleContent}</View>
+        ) : (
+          <Text style={styles.title} numberOfLines={1}>
+            {title}
+          </Text>
+        )}
 
-        <View style={styles.right}>
-          {typeof onRightPress === "function" ? (
+        <View style={[styles.right, { width: sideWidth }]}>
+          {rightContent ? (
+            rightContent
+          ) : typeof onRightPress === "function" ? (
             <Pressable
               style={styles.action}
               onPress={onRightPress}
@@ -105,6 +114,11 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 18,
     paddingRight: 8,
+  },
+  titleContent: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   action: {
     width: 40,

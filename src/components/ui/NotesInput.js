@@ -6,6 +6,8 @@ import { spacing } from "../../theme/spacing";
 export function NotesInput({
   value,
   onChangeText,
+  onFocus,
+  onBlur,
   placeholder = "Notes...",
   accessibilityLabel = "Notes",
   style,
@@ -15,6 +17,8 @@ export function NotesInput({
     <TextInput
       value={value}
       onChangeText={onChangeText}
+      onFocus={onFocus}
+      onBlur={onBlur}
       placeholder={placeholder}
       multiline
       editable={!disabled}

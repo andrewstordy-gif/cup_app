@@ -73,6 +73,8 @@ function parseCupSlotMask(mask, fallbackCount, maxCups = 5) {
 
 async function reconcileCompletedSessions(db) {
   const nowIso = new Date().toISOString();
+  const scoreFieldPlaceholders = CUPPING_SCORE_FIELDS.map(() => "?").join(", ");
+  const requiredFinalFieldCount = CUPPING_SCORE_FIELDS.length;
   try {
     await db.runAsync(
       `
@@ -86,18 +88,46 @@ async function reconcileCompletedSessions(db) {
             WHERE sm.session_id = sessions.id
           ) > 0
           AND (
-            SELECT COUNT(DISTINCT sfe.sample_id)
+            SELECT COUNT(DISTINCT sfe.sample_id || ':' || sfe.field_name)
             FROM sample_feedback_entries sfe
             INNER JOIN samples smf ON smf.id = sfe.sample_id
             WHERE smf.session_id = sessions.id
               AND sfe.is_final = 1
+              AND sfe.field_name IN (${scoreFieldPlaceholders})
           ) >= (
-            SELECT COUNT(*)
+            SELECT COUNT(*) * ?
             FROM samples sm2
             WHERE sm2.session_id = sessions.id
           )
       `,
-      [nowIso]
+      [nowIso, ...CUPPING_SCORE_FIELDS, requiredFinalFieldCount]
+    );
+
+    await db.runAsync(
+      `
+        UPDATE sessions
+        SET status = 'pending',
+            updated_at = ?
+        WHERE status = 'complete'
+          AND (
+            SELECT COUNT(*)
+            FROM samples sm
+            WHERE sm.session_id = sessions.id
+          ) > 0
+          AND (
+            SELECT COUNT(DISTINCT sfe.sample_id || ':' || sfe.field_name)
+            FROM sample_feedback_entries sfe
+            INNER JOIN samples smf ON smf.id = sfe.sample_id
+            WHERE smf.session_id = sessions.id
+              AND sfe.is_final = 1
+              AND sfe.field_name IN (${scoreFieldPlaceholders})
+          ) < (
+            SELECT COUNT(*) * ?
+            FROM samples sm2
+            WHERE sm2.session_id = sessions.id
+          )
+      `,
+      [nowIso, ...CUPPING_SCORE_FIELDS, requiredFinalFieldCount]
     );
   } catch (error) {
     const message = String(error?.message || "");
@@ -114,6 +144,7 @@ const CUPPING_SCORE_FIELDS = [
   "Aftertaste",
   "Acidity",
   "Sweetness",
+  "Mouthfeel",
   "Overall",
 ];
 const CUPPING_SCORE_STEP = 0.25;
@@ -705,7 +736,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     coffeeNameOrigin: sample.coffeeNameOrigin,
     coffeeProcess: sample.process,
     cupIndex: Number(sample.cupIndex) || 0,
-    cupTotal: Number(cupTotalRow?.count) || 1,
+    cupTotal: Number(session.samplesInSession) || Number(cupTotalRow?.count) || 1,
   };
 }
 
@@ -835,7 +866,9 @@ export async function getSessionSampleFinalStatus(sessionId) {
 
   return sampleIds.reduce((acc, sampleId) => {
     const finalScoresByField = latestScoresBySample[sampleId] || null;
-    const isComplete = Boolean(finalScoresByField);
+    const isComplete =
+      Boolean(finalScoresByField) &&
+      CUPPING_SCORE_FIELDS.every((field) => finalScoresByField[field] !== undefined);
     if (!isComplete) {
       acc[sampleId] = {
         isComplete: false,
@@ -1039,13 +1072,14 @@ export async function hasFinalFeedbackForSample(sampleId) {
   try {
     const row = await db.getFirstAsync(
       `
-        SELECT COUNT(*) AS count
+        SELECT COUNT(DISTINCT field_name) AS count
         FROM sample_feedback_entries
         WHERE sample_id = ? AND is_final = 1
+          AND field_name IN (${CUPPING_SCORE_FIELDS.map(() => "?").join(", ")})
       `,
-      [normalizedSampleId]
+      [normalizedSampleId, ...CUPPING_SCORE_FIELDS]
     );
-    return Number(row?.count) > 0;
+    return Number(row?.count) >= CUPPING_SCORE_FIELDS.length;
   } catch (error) {
     const message = String(error?.message || "");
     if (message.includes("no such column: is_final")) {
@@ -1251,7 +1285,7 @@ export async function saveSampleFeedbackBatch({
         value?.score == null || Number.isNaN(Number(value.score)) ? null : Number.parseInt(value.score, 10);
       const comments = cleanString(value?.comments);
 
-      if (score == null && !comments) {
+      if (score == null && !comments && !isFinal) {
         continue;
       }
 
@@ -1283,4 +1317,60 @@ export async function saveSampleFeedbackBatch({
   });
 
   return { savedCount };
+}
+
+export async function clearSampleFeedbackFields({ sampleId, fields = [], isFinal = null } = {}) {
+  const normalizedSampleId = cleanString(sampleId);
+  const normalizedFields = Array.from(
+    new Set((Array.isArray(fields) ? fields : []).map((field) => cleanString(field)).filter(Boolean))
+  );
+
+  if (!normalizedSampleId || normalizedFields.length === 0) {
+    return { clearedCount: 0 };
+  }
+
+  const db = await getLocalDatabase();
+  const placeholders = normalizedFields.map(() => "?").join(", ");
+  const finalClause = isFinal === null ? "" : " AND is_final = ?";
+  const params = [normalizedSampleId, ...normalizedFields];
+  if (isFinal !== null) {
+    params.push(isFinal ? 1 : 0);
+  }
+
+  const result = await db.runAsync(
+    `
+      DELETE FROM sample_feedback_entries
+      WHERE sample_id = ?
+        AND field_name IN (${placeholders})
+        ${finalClause}
+    `,
+    params
+  );
+
+  return { clearedCount: Number(result?.changes) || 0 };
+}
+
+export async function clearSampleFinalFeedbackFields({ sampleId, fields = [] } = {}) {
+  const normalizedSampleId = cleanString(sampleId);
+  const normalizedFields = Array.from(
+    new Set((Array.isArray(fields) ? fields : []).map((field) => cleanString(field)).filter(Boolean))
+  );
+
+  if (!normalizedSampleId || normalizedFields.length === 0) {
+    return { clearedCount: 0 };
+  }
+
+  const db = await getLocalDatabase();
+  const placeholders = normalizedFields.map(() => "?").join(", ");
+  const result = await db.runAsync(
+    `
+      DELETE FROM sample_feedback_entries
+      WHERE sample_id = ?
+        AND is_final = 1
+        AND field_name IN (${placeholders})
+    `,
+    [normalizedSampleId, ...normalizedFields]
+  );
+
+  return { clearedCount: Number(result?.changes) || 0 };
 }

@@ -71,7 +71,7 @@ export function HomeScreen({
   const elapsed = toFiniteNumber(displayElapsedSeconds);
   const normalizedScanStatus = String(scanStatusMessage || "").toLowerCase();
   const isNoSessionCup = normalizedScanStatus.includes("no-session");
-  const isCuppingStatus = normalizedScanStatus.includes("cupping");
+  const isCuppingStatus = isNoSessionCup && normalizedScanStatus.includes("cupping");
   const brewingComplete =
     homeState.isBrewing && isNoSessionCup && elapsed !== null && brewTime !== null && brewTime > 0 && elapsed >= brewTime;
   const effectiveHomeState =

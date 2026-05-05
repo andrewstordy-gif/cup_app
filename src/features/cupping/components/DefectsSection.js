@@ -8,17 +8,17 @@ const DEFECT_OPTIONS = [
   {
     key: "moldy",
     title: "MOULDY",
-    description: "Damp, earthy, or fungal characteristics.",
+    description: "Musty, damp, mould-like flavour (wet cardboard / mildew).",
   },
   {
     key: "phenolic",
     title: "PHENOLIC",
-    description: "Chemical, medicinal, or smoky rubber-like taint.",
+    description: "Medicinal, chemical, plastic-like or smoky taint.",
   },
   {
     key: "potato",
     title: "POTATO",
-    description: "Raw vegetable or tuber-like odor (Antestia bug).",
+    description: "Raw potato smell/taste; earthy, starchy, savoury defect.",
   },
 ];
 
@@ -85,16 +85,152 @@ function CountRow({ label, selectedSlots, maxCount, onChange, disabled = false }
   );
 }
 
+function CupSlotBoxes({ label, selectedSlots, maxCount, onChange, disabled = false, scale = 1 }) {
+  const totalBoxes = Math.max(1, Number(maxCount) || 1);
+  const normalizedSlots = normalizeSelectedSlots(selectedSlots, totalBoxes);
+
+  const handlePress = (index) => {
+    const selectedValue = index + 1;
+    const next = normalizedSlots.includes(selectedValue)
+      ? normalizedSlots.filter((slot) => slot !== selectedValue)
+      : [...normalizedSlots, selectedValue].sort((a, b) => a - b);
+    onChange?.(next);
+  };
+
+  return (
+    <View style={[styles.designCupBoxRow, { gap: 10 * scale }]}>
+      {Array.from({ length: totalBoxes }).map((_, index) => {
+        const selected = normalizedSlots.includes(index + 1);
+        return (
+          <Pressable
+            key={`${label}-${index}`}
+            style={[
+              styles.designCupBox,
+              {
+                width: 30 * scale,
+                height: 30 * scale,
+                borderWidth: 2.4 * scale,
+              },
+              selected && styles.designCupBoxSelected,
+              disabled && styles.rowDisabled,
+            ]}
+            onPress={() => handlePress(index)}
+            disabled={disabled}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: selected, disabled }}
+            accessibilityLabel={`${label} cup ${index + 1}`}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+function DesignCDefectItem({
+  title,
+  description,
+  selectedSlots,
+  maxCount,
+  onChange,
+  disabled = false,
+  scale = 1,
+}) {
+  return (
+    <View style={[styles.designDefectItem, { minHeight: 150 * scale }]}>
+      <View style={styles.designCupFlagRow}>
+        <Text style={[styles.designDefectLabel, { fontSize: 25 * scale, lineHeight: 31 * scale }]}>
+          {title}
+        </Text>
+        <CupSlotBoxes
+          label={title}
+          selectedSlots={selectedSlots}
+          maxCount={maxCount}
+          onChange={onChange}
+          disabled={disabled}
+          scale={scale}
+        />
+      </View>
+      <Text
+        style={[
+          styles.designDefectDescription,
+          {
+            marginTop: 3 * scale,
+            fontSize: 21 * scale,
+            lineHeight: 27 * scale,
+          },
+          disabled && styles.disabledTextBody,
+        ]}
+      >
+        {description}
+      </Text>
+    </View>
+  );
+}
+
 export function DefectsSection({
   cupTotal = 5,
   defects = { moldy: false, phenolic: false, potato: false },
+  defectCupSlots = {},
   nonUniformCupSlots = [],
   defectiveCupSlots = [],
   disabled = false,
+  variant = "default",
+  scale = 1,
   onToggleDefect,
+  onChangeDefectCupSlots,
   onChangeNonUniformCupSlots,
   onChangeDefectiveCupSlots,
 }) {
+  if (variant === "designC") {
+    const totalBoxes = Math.max(1, Number(cupTotal) || 1);
+    const getDefectSlots = (key) => {
+      if (Array.isArray(defectCupSlots?.[key])) {
+        return defectCupSlots[key];
+      }
+      return defects?.[key] ? [1] : [];
+    };
+
+    const setDefectSlots = (key, slots) => {
+      onChangeDefectCupSlots?.(key, slots);
+      if (!onChangeDefectCupSlots) {
+        onToggleDefect?.(key);
+      }
+    };
+
+    return (
+      <View style={styles.designSection}>
+        <View style={[styles.designIntro, { marginBottom: 42 * scale }]}>
+          <Text style={[styles.designIntroText, { fontSize: 21 * scale, lineHeight: 27 * scale }]}>
+            Record any negative flavours that affect cup quality.
+          </Text>
+        </View>
+
+        <DesignCDefectItem
+          title="NON-UNIFORM CUPS"
+          description="Inconsistent flavour between cups of the same sample"
+          selectedSlots={nonUniformCupSlots}
+          maxCount={totalBoxes}
+          disabled={disabled}
+          onChange={onChangeNonUniformCupSlots}
+          scale={scale}
+        />
+
+        {DEFECT_OPTIONS.map((option) => (
+          <DesignCDefectItem
+            key={option.key}
+            title={option.title}
+            description={option.description}
+            selectedSlots={getDefectSlots(option.key)}
+            maxCount={totalBoxes}
+            disabled={disabled}
+            onChange={(slots) => setDefectSlots(option.key, slots)}
+            scale={scale}
+          />
+        ))}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.section}>
       <View style={styles.headerRow}>
@@ -238,6 +374,46 @@ const styles = StyleSheet.create({
   countBoxSelected: {
     backgroundColor: "#111111",
     borderColor: "#111111",
+  },
+  designSection: {
+    width: "100%",
+  },
+  designIntro: {},
+  designIntroText: {
+    color: "#667078",
+    fontWeight: "700",
+    letterSpacing: 0,
+  },
+  designDefectItem: {
+    width: "100%",
+  },
+  designCupFlagRow: {
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  designCupBoxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  designCupBox: {
+    borderColor: "#3f4852",
+    backgroundColor: "#ffffff",
+  },
+  designCupBoxSelected: {
+    backgroundColor: "#3f4852",
+  },
+  designDefectLabel: {
+    color: "#3f4852",
+    fontWeight: "800",
+    letterSpacing: 0,
+  },
+  designDefectDescription: {
+    color: "#667078",
+    fontStyle: "italic",
+    fontWeight: "500",
+    letterSpacing: 0,
   },
   disabledTextStrong: {
     color: "#4b5563",

@@ -4,6 +4,7 @@ import { HomeScreen } from "../features/home/screens/HomeScreen";
 import { CuppingScreen } from "../features/cupping/screens/CuppingScreen";
 import { CuppingSessionScreen } from "../features/cupping/screens/CuppingSessionScreen";
 import { CuppingSessionDetailsScreen } from "../features/cupping/screens/CuppingSessionDetailsScreen";
+import { ActiveSessionScreen } from "../features/cupping/screens/ActiveSessionScreen";
 import { NfcServiceTestScreen } from "../features/nfc/screens/NfcServiceTestScreen";
 import { CoffeeLibraryScreen } from "../features/settings/screens/CoffeeLibraryScreen";
 import { CupSettingsScreen } from "../features/cup-settings/screens/CupSettingsScreen";
@@ -15,7 +16,6 @@ import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
 import { logAppError } from "../services/errorLogger";
 import {
   findActiveSampleByCupUUID,
-  hasFinalFeedbackForSample,
   resolveActiveSampleFromCupMetadata,
 } from "../data/sessionRepository";
 
@@ -27,6 +27,7 @@ const HOME_WRITE_HANDOFF_MS = 700;
 const WRITE_BLOCK_FLAG = "__CUPPING_READ_ONLY_NFC_WRITE_BLOCK__";
 
 const MENU_ITEMS = [
+  { key: "active-session", label: "Active Session", route: "Active Session" },
   { key: "cupping-sessions", label: "Cupping Sessions", route: "Cupping Session" },
   { key: "cup-settings", label: "Cup Settings", route: "Cup Settings" },
   { key: "reset-cup-off", label: "Reset Cup to OFF", action: "reset-cup-off" },
@@ -332,8 +333,6 @@ export function AppNavigator() {
         setNotInSessionDialogVisible(true);
         return;
       }
-      const hasFinalFeedback = await hasFinalFeedbackForSample(activeSample.sampleId);
-
       const cupStatus = {
         state: cupState === 1 ? "READY" : cupState === BREWING_STATE ? "BREWING" : "CUPPING",
         temp: formatTemp(parsed?.text2?.temp),
@@ -349,9 +348,11 @@ export function AppNavigator() {
         sampleId: activeSample.sampleId,
         cupIndex: activeSample.cupIndex,
         cupTotal: activeSample.cupTotal,
+        sampleNumber: activeSample.sampleNumber,
+        sampleColour: activeSample.sampleColour,
         defectsCupTotal: ndefCupNumber || activeSample.cupNumber || 1,
-        startInFinalMode: hasFinalFeedback,
-        startInFinalSaved: hasFinalFeedback,
+        startInFinalMode: false,
+        startInFinalSaved: false,
       });
 
       if (cupState === BREWING_STATE) {
@@ -534,12 +535,16 @@ export function AppNavigator() {
     if (route === "Cupping") {
       return (
         <CuppingScreen
+          key={selectedCupContext?.sampleId || selectedCupContext?.cupUUID || "cupping-screen"}
           onBackPress={() => setRoute("Home")}
+          onScanPress={handleScanNextCupFromCupping}
           cupUUID={selectedCupContext?.cupUUID}
           cupStateNumber={selectedCupContext?.cupStateNumber}
           cupStatus={selectedCupContext?.cupStatus}
           cupIndex={selectedCupContext?.cupIndex}
           cupTotal={selectedCupContext?.cupTotal}
+          sampleNumber={selectedCupContext?.sampleNumber}
+          sampleColour={selectedCupContext?.sampleColour}
           defectsCupTotal={selectedCupContext?.defectsCupTotal}
           sessionId={selectedCupContext?.sessionId}
           sampleId={selectedCupContext?.sampleId}
@@ -573,6 +578,15 @@ export function AppNavigator() {
         <CuppingSessionDetailsScreen
           onBackPress={() => setRoute("Cupping Session")}
           sessionId={selectedSessionId}
+        />
+      );
+    }
+    if (route === "Active Session") {
+      return (
+        <ActiveSessionScreen
+          onBackPress={() => setRoute("Home")}
+          onScanPress={handleScanCupFromHome}
+          isScanInProgress={isScanInProgress}
         />
       );
     }
