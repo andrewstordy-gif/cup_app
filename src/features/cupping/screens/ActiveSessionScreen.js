@@ -13,6 +13,8 @@ import {
   getProcessLabel,
   getSessionTypeLabel,
 } from "../constants/sessionDetails";
+import { KeywordPillRow } from "../components/KeywordPillRow";
+import { findFlavourKeywordPills } from "../data/flavourKeywords";
 import { colors } from "../../../theme/colors";
 
 const INK = "#3f4852";
@@ -63,17 +65,16 @@ function buildDefectIcons(defectRows) {
   ].filter(Boolean);
 }
 
-function extractFlavours(feedbackByField = {}) {
-  const words = new Set();
+function extractFlavourPills(feedbackByField = {}) {
+  const pillsByKeyword = new Map();
   Object.values(feedbackByField || {}).forEach((entries) => {
     (entries || []).forEach((entry) => {
-      const comments = String(entry?.comments || "");
-      if (/\bapple\b/i.test(comments)) {
-        words.add("apple");
-      }
+      findFlavourKeywordPills(entry?.comments).forEach((pill) => {
+        pillsByKeyword.set(pill.keyword, pill);
+      });
     });
   });
-  return Array.from(words);
+  return Array.from(pillsByKeyword.values());
 }
 
 function MetaRow({ label, value, scale }) {
@@ -229,7 +230,6 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, onToggle }) {
           ]}
         >
           {[
-            { label: "Cup UUID", value: cup.cupUUID },
             { label: "Coffee", value: cup.coffeeNameOrigin },
             { label: "Process", value: getProcessLabel(cup.process) || cup.process },
           ].map((item) => (
@@ -246,25 +246,9 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, onToggle }) {
             <Text style={[styles.cupDrawerLabel, { width: 116 * scale, fontSize: 18 * scale, lineHeight: 23 * scale }]}>
               Flavours
             </Text>
-            <View style={[styles.flavourPillRow, { gap: 8 * scale }]}>
+            <View style={styles.flavourPillRow}>
               {cup.flavours.length > 0 ? (
-                cup.flavours.map((flavour) => (
-                  <View
-                    key={`${cup.id}-${flavour}`}
-                    style={[
-                      styles.applePill,
-                      {
-                        borderRadius: 15 * scale,
-                        paddingHorizontal: 12 * scale,
-                        paddingVertical: 3 * scale,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.applePillText, { fontSize: 18 * scale, lineHeight: 23 * scale }]}>
-                      {flavour}
-                    </Text>
-                  </View>
-                ))
+                <KeywordPillRow pills={cup.flavours} scale={scale} />
               ) : (
                 <Text style={[styles.cupDrawerValue, { fontSize: 20 * scale, lineHeight: 25 * scale }]}>-</Text>
               )}
@@ -276,7 +260,7 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, onToggle }) {
   );
 }
 
-export function ActiveSessionScreen({ onBackPress, onScanPress, isScanInProgress = false }) {
+export function ActiveSessionScreen({ sessionId = null, onBackPress, onScanPress, isScanInProgress = false }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [session, setSession] = useState(null);
@@ -293,7 +277,10 @@ export function ActiveSessionScreen({ onBackPress, onScanPress, isScanInProgress
       setLoadError("");
       try {
         const sessions = await listSessions();
-        const active = (sessions || []).find((item) => String(item.status || "").toLowerCase() !== "complete");
+        const active =
+          sessionId
+            ? sessions?.find((item) => item.id === sessionId) || { id: sessionId }
+            : (sessions || []).find((item) => String(item.status || "").toLowerCase() !== "complete");
         if (!active) {
           if (!isCancelled) {
             setSession(null);
@@ -312,7 +299,7 @@ export function ActiveSessionScreen({ onBackPress, onScanPress, isScanInProgress
               ...sample,
               scores: buildScoreItems(feedback),
               defects: buildDefectIcons(defects),
-              flavours: extractFlavours(feedback),
+              flavours: extractFlavourPills(feedback),
               finalScore: finalStatus?.[sample.id]?.finalScore ?? null,
               sampleNumber: Number(sample.sampleNumber) || index + 1,
             };
@@ -339,7 +326,7 @@ export function ActiveSessionScreen({ onBackPress, onScanPress, isScanInProgress
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [sessionId]);
 
   const status = useMemo(() => {
     if (!session) {
@@ -371,7 +358,6 @@ export function ActiveSessionScreen({ onBackPress, onScanPress, isScanInProgress
         {session ? (
           <>
             <View style={[styles.metaList, { gap: 18 * scale }]}>
-              <MetaRow label="Session UUID" value={session.sessionDisplayId || session.sessionUUID} scale={scale} />
               <MetaRow label="Date" value={session.sessionDate} scale={scale} />
               <MetaRow label="Session Name" value={session.sessionName} scale={scale} />
               <MetaRow label="Session Type" value={getSessionTypeLabel(session.sessionType)} scale={scale} />
@@ -404,7 +390,7 @@ export function ActiveSessionScreen({ onBackPress, onScanPress, isScanInProgress
 
       <View style={[styles.footer, { paddingHorizontal: 26 * scale }]}>
         <FullPageButton
-          label="Scan"
+          label="SCAN CUP"
           onPress={onScanPress}
           loading={isScanInProgress}
           disabled={isScanInProgress || typeof onScanPress !== "function"}
@@ -577,14 +563,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-  },
-  applePill: {
-    backgroundColor: "#34c759",
-  },
-  applePillText: {
-    color: "#ffffff",
-    fontWeight: "800",
-    letterSpacing: 0,
   },
   emptyState: {
     flex: 1,

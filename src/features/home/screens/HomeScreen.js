@@ -56,6 +56,7 @@ export function HomeScreen({
   timeLabel = "00:00",
   elapsedSeconds = null,
   brewTimeSeconds = null,
+  sampleColour = null,
 }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
@@ -150,23 +151,46 @@ export function HomeScreen({
       <View style={[styles.content, { paddingHorizontal: 24 * scale, paddingBottom: 24 * scale }]}>
         <View style={[styles.heroGroup, { marginTop: -80 * scale }]}>
           {brewingTimeLabel ? (
-            <Text
+            <View
               style={[
-                styles.brewingPercent,
+                styles.brewingTimerWrap,
                 {
                   top: 76 * scale,
-                  fontSize: 38 * scale,
-                  lineHeight: 44 * scale,
+                  gap: 9 * scale,
                 },
               ]}
             >
-              {brewingTimeLabel}
-            </Text>
+              {sampleColour ? (
+                <View
+                  style={[
+                    styles.brewingTimerDot,
+                    {
+                      width: 18 * scale,
+                      height: 18 * scale,
+                      borderRadius: 9 * scale,
+                      backgroundColor: sampleColour,
+                    },
+                  ]}
+                />
+              ) : null}
+              <Text
+                style={[
+                  styles.brewingPercent,
+                  {
+                    fontSize: 38 * scale,
+                    lineHeight: 44 * scale,
+                  },
+                ]}
+              >
+                {brewingTimeLabel}
+              </Text>
+            </View>
           ) : null}
           {cuppingTimeLabel ? (
             <Text
               style={[
                 styles.brewingPercent,
+                styles.timerSingleLabel,
                 {
                   top: 76 * scale,
                   fontSize: 38 * scale,
@@ -266,7 +290,7 @@ export function HomeScreen({
             ]}
           >
             <Text style={[styles.scanButtonText, { fontSize: 19 * scale, lineHeight: 23 * scale }]}>
-              {isScanInProgress ? "Scanning" : "Scan"}
+              {isScanInProgress ? "Scanning" : "SCAN CUP"}
             </Text>
           </Pressable>
         </View>
@@ -292,11 +316,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   brewingPercent: {
-    position: "absolute",
     color: ink,
     fontWeight: "800",
     letterSpacing: 0,
     textAlign: "center",
+  },
+  brewingTimerWrap: {
+    position: "absolute",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 4,
+  },
+  brewingTimerDot: {},
+  timerSingleLabel: {
+    position: "absolute",
     zIndex: 4,
   },
   cupImageContainer: {

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Animated,
+  Easing,
   Keyboard,
   KeyboardAvoidingView,
   Platform,
@@ -59,6 +61,13 @@ const SCORE_PRECISION = 2;
 const SCORE_STEP = 0.25;
 const IOS_BLUE = "#3478f6";
 const SAVE_GREY = "#3f4852";
+const BALLOON_CONFIGS = [
+  { color: "#E15A64", left: 0.14, size: 34, drift: 20 },
+  { color: "#F2B84B", left: 0.32, size: 28, drift: -16 },
+  { color: "#61A6D8", left: 0.5, size: 38, drift: 12 },
+  { color: "#75B66A", left: 0.68, size: 30, drift: -22 },
+  { color: "#C586D9", left: 0.84, size: 35, drift: 15 },
+];
 
 function getLatestFeedbackEntry(rows) {
   return Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null;
@@ -73,6 +82,18 @@ function buildFeedbackStateFromSavedRows(rowsByField = {}) {
     };
     return acc;
   }, {});
+}
+
+function getLatestFinalEntry(rows) {
+  const finalRows = (Array.isArray(rows) ? rows : []).filter((entry) => entry?.isFinal);
+  return getLatestFeedbackEntry(finalRows);
+}
+
+function hasCompleteFinalScoreSet(rowsByField = {}) {
+  return FEEDBACK_FIELDS.every((field) => {
+    const latestFinal = getLatestFinalEntry(rowsByField[field]);
+    return latestFinal?.score != null;
+  });
 }
 
 function buildInitialFeedbackState() {
@@ -279,7 +300,7 @@ function CuppingScoreRow({
   onScoreSelect,
   onFinalPress,
 }) {
-  const finalDisabled = disabled;
+  const finalDisabled = disabled || (!hasFinalEntry && score == null);
   const scoreDisabled = disabled || hasFinalEntry;
 
   return (
@@ -405,6 +426,60 @@ function DefectBadgeRow({ badges = [], scale }) {
           </Text>
         </View>
       ))}
+    </View>
+  );
+}
+
+function BalloonLayer({ animations, width, scale }) {
+  return (
+    <View pointerEvents="none" style={styles.balloonLayer}>
+      {BALLOON_CONFIGS.map((balloon, index) => {
+        const animation = animations[index];
+        const translateY = animation.interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -640 * scale],
+        });
+        const translateX = animation.interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [0, balloon.drift * scale, -balloon.drift * scale],
+        });
+        const opacity = animation.interpolate({
+          inputRange: [0, 0.1, 0.82, 1],
+          outputRange: [0, 1, 1, 0],
+        });
+
+        return (
+          <Animated.View
+            key={balloon.color}
+            style={[
+              styles.balloon,
+              {
+                left: width * balloon.left,
+                bottom: 92 * scale,
+                width: balloon.size * scale,
+                height: balloon.size * 1.28 * scale,
+                borderRadius: (balloon.size / 2) * scale,
+                backgroundColor: balloon.color,
+                opacity,
+                transform: [{ translateX }, { translateY }],
+              },
+            ]}
+          >
+            <View
+              style={[
+                styles.balloonKnot,
+                {
+                  borderLeftWidth: 5 * scale,
+                  borderRightWidth: 5 * scale,
+                  borderTopWidth: 8 * scale,
+                  bottom: -7 * scale,
+                  borderTopColor: balloon.color,
+                },
+              ]}
+            />
+          </Animated.View>
+        );
+      })}
     </View>
   );
 }
@@ -567,6 +642,7 @@ export function CuppingScreen({
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const scrollRef = useRef(null);
   const noteLayoutYRef = useRef({});
+  const balloonAnimations = useRef(BALLOON_CONFIGS.map(() => new Animated.Value(0))).current;
   const [feedback, setFeedback] = useState(() => buildInitialFeedbackState());
   const [savedFeedback, setSavedFeedback] = useState(() =>
     FEEDBACK_FIELDS.reduce((acc, field) => {
@@ -601,6 +677,25 @@ export function CuppingScreen({
   );
   const hasUnsavedDefectChanges = currentDefectsSignature !== savedDefectsSignature;
   const hasPendingChanges = hasUnsavedChanges || hasUnsavedDefectChanges;
+
+  const triggerBalloons = (onComplete) => {
+    balloonAnimations.forEach((animation) => animation.setValue(0));
+    Animated.stagger(
+      90,
+      balloonAnimations.map((animation) =>
+        Animated.timing(animation, {
+          toValue: 1,
+          duration: 1700,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        })
+      )
+    ).start(({ finished }) => {
+      if (finished && typeof onComplete === "function") {
+        onComplete();
+      }
+    });
+  };
 
   const statusDisplay = useMemo(
     () => ({
@@ -978,6 +1073,9 @@ export function CuppingScreen({
     const hasSavedFinalEntry = (savedFeedback[field] || []).some((entry) => entry?.isFinal);
     const isCurrentlyFinal =
       (Boolean(selectedFinalFields[field]) || hasSavedFinalEntry) && !unselectedFinalFields[field];
+    if (!isCurrentlyFinal && feedback[field]?.score == null) {
+      return;
+    }
 
     setHasUnsavedChanges(true);
     setSelectedFinalFields((prev) => {
@@ -1132,40 +1230,6 @@ export function CuppingScreen({
 
     const fieldsToPersist = visibleFields.filter((field) => isFieldEnabled(field));
 
-      setSavedFeedback((prev) => {
-        const next = { ...prev };
-        fieldsToPersist.forEach((field) => {
-          const entry = feedback[field];
-          const hasValue = entry?.score != null || String(entry?.comments || "").trim();
-        if (!hasValue) {
-          return;
-        }
-        const finalEntries = (savedFeedback[field] || []).filter((savedEntry) => savedEntry?.isFinal);
-        const isFinal =
-          (Boolean(selectedFinalFields[field]) || finalEntries.length > 0) && !unselectedFinalFields[field];
-        const currentList = Array.isArray(next[field]) ? next[field] : [];
-        next[field] = [
-          ...currentList,
-          {
-            isFinal,
-            score: entry.score,
-            comments: entry.comments,
-            tempSnapshot: statusDisplay.temp,
-            timeSnapshot: statusDisplay.time,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          },
-        ];
-      });
-      return next;
-    });
-
-    if (!sessionId || !sampleId) {
-      setStatusMessage("Session linkage missing. Feedback is shown locally only.");
-      setHasUnsavedChanges(false);
-      return;
-    }
-
     try {
       const fieldsToSave = fieldsToPersist.reduce((acc, field) => {
         acc[field] = feedback[field];
@@ -1175,7 +1239,7 @@ export function CuppingScreen({
         const finalEntries = (savedFeedback[field] || []).filter((entry) => entry?.isFinal);
         const shouldSaveFinal =
           (Boolean(selectedFinalFields[field]) || finalEntries.length > 0) && !unselectedFinalFields[field];
-        if (shouldSaveFinal) {
+        if (shouldSaveFinal && feedback[field]?.score != null) {
           acc[field] = feedback[field];
         }
         return acc;
@@ -1186,6 +1250,70 @@ export function CuppingScreen({
         const isEmpty = entry?.score == null && !String(entry?.comments || "").trim();
         return isEmpty && !finalFieldsToSave[field];
       });
+      const wasCompleteBeforeSave = hasCompleteFinalScoreSet(savedFeedback);
+      const nowIso = new Date().toISOString();
+      const nextSavedFeedback = (() => {
+        const next = FEEDBACK_FIELDS.reduce((acc, field) => {
+          let rows = Array.isArray(savedFeedback[field]) ? [...savedFeedback[field]] : [];
+          if (emptyFieldsToClear.includes(field)) {
+            rows = [];
+          }
+          if (finalFieldsToClear.includes(field)) {
+            rows = rows.filter((entry) => !entry?.isFinal);
+          }
+          acc[field] = rows;
+          return acc;
+        }, {});
+
+        fieldsToPersist.forEach((field) => {
+          const entry = feedback[field];
+          const hasValue = entry?.score != null || String(entry?.comments || "").trim();
+          if (!hasValue) {
+            return;
+          }
+
+          next[field] = [
+            ...(Array.isArray(next[field]) ? next[field] : []),
+            {
+              isFinal: false,
+              score: entry.score,
+              comments: entry.comments,
+              tempSnapshot: statusDisplay.temp,
+              timeSnapshot: statusDisplay.time,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+          ];
+        });
+
+        Object.entries(finalFieldsToSave).forEach(([field, entry]) => {
+          next[field] = [
+            ...(Array.isArray(next[field]) ? next[field] : []),
+            {
+              isFinal: true,
+              score: entry?.score ?? null,
+              comments: entry?.comments || "",
+              tempSnapshot: statusDisplay.temp,
+              timeSnapshot: statusDisplay.time,
+              createdAt: nowIso,
+              updatedAt: nowIso,
+            },
+          ];
+        });
+
+        return next;
+      })();
+      const willBeCompleteAfterSave = hasCompleteFinalScoreSet(nextSavedFeedback);
+
+      if (!sessionId || !sampleId) {
+        setSavedFeedback(nextSavedFeedback);
+        setStatusMessage("Session linkage missing. Feedback is shown locally only.");
+        setHasUnsavedChanges(false);
+        if (!wasCompleteBeforeSave && willBeCompleteAfterSave) {
+          triggerBalloons();
+        }
+        return;
+      }
 
       if (emptyFieldsToClear.length > 0) {
         await clearSampleFeedbackFields({
@@ -1232,16 +1360,30 @@ export function CuppingScreen({
         isFinal: false,
       });
       setStatusMessage("Feedback saved.");
-      if (!stayOnScreen) {
+      setSavedFeedback(nextSavedFeedback);
+      const shouldNavigateAfterBalloons =
+        !stayOnScreen &&
+        typeof onBackPress === "function" &&
+        !wasCompleteBeforeSave &&
+        willBeCompleteAfterSave;
+      if (!stayOnScreen && !shouldNavigateAfterBalloons) {
         setFeedback((prev) => clearFeedbackFields(prev, fieldsToPersist));
       }
       setSelectedFinalFields({});
       setIsDefectsDrawerOpen(false);
       setSavedDefectsSignature(currentDefectsSignature);
       setHasUnsavedChanges(false);
-
-      if (!stayOnScreen && typeof onBackPress === "function") {
-        onBackPress();
+      if (stayOnScreen && !wasCompleteBeforeSave && willBeCompleteAfterSave) {
+        triggerBalloons();
+      } else if (!stayOnScreen && typeof onBackPress === "function") {
+        if (shouldNavigateAfterBalloons) {
+          triggerBalloons(() => {
+            setFeedback((prev) => clearFeedbackFields(prev, fieldsToPersist));
+            onBackPress();
+          });
+        } else {
+          onBackPress();
+        }
       }
     } catch (error) {
       setStatusMessage(error?.message || "Could not save feedback.");
@@ -1527,14 +1669,25 @@ export function CuppingScreen({
           {canCaptureFeedback && !isFinalMode ? (
             <View style={[styles.mockFooter, { paddingHorizontal: 26 * scale }]}>
               <FullPageButton
-                label={hasPendingChanges ? "Save" : "Scan"}
-                onPress={hasPendingChanges ? () => handleSave({ stayOnScreen: true }) : onScanPress}
+                label={isDefectsDrawerOpen || hasPendingChanges ? "Save" : "SCAN CUP"}
+                onPress={
+                  isDefectsDrawerOpen
+                    ? () => setIsDefectsDrawerOpen(false)
+                    : hasPendingChanges
+                      ? () => handleSave({ stayOnScreen: true })
+                      : onScanPress
+                }
                 loading={isScanInProgress}
-                disabled={isScanInProgress || (!hasPendingChanges && typeof onScanPress !== "function")}
-                accessibilityLabel={hasPendingChanges ? "Save cupping feedback" : "Scan"}
+                disabled={
+                  isScanInProgress ||
+                  (!isDefectsDrawerOpen && !hasPendingChanges && typeof onScanPress !== "function")
+                }
+                accessibilityLabel={
+                  isDefectsDrawerOpen || hasPendingChanges ? "Save cupping feedback" : "Scan cup"
+                }
                 style={[
                   styles.scanButton,
-                  { backgroundColor: hasPendingChanges ? SAVE_GREY : IOS_BLUE },
+                  { backgroundColor: isDefectsDrawerOpen || hasPendingChanges ? SAVE_GREY : IOS_BLUE },
                 ]}
                 textStyle={[
                   styles.scanButtonText,
@@ -1603,6 +1756,7 @@ export function CuppingScreen({
           />
         </View>
       ) : null}
+      <BalloonLayer animations={balloonAnimations} width={width} scale={scale} />
     </View>
   );
 }
@@ -1986,6 +2140,22 @@ const styles = StyleSheet.create({
   },
   scanButtonText: {
     letterSpacing: 1.4,
+  },
+  balloonLayer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 80,
+    elevation: 80,
+  },
+  balloon: {
+    position: "absolute",
+    alignItems: "center",
+  },
+  balloonKnot: {
+    position: "absolute",
+    width: 0,
+    height: 0,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
   },
   finalScoreButton: {
     backgroundColor: "#374151",

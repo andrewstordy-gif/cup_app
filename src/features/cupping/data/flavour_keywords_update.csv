@@ -1,0 +1,109 @@
+number,descriptor,level,colour,parent
+1,floral,1,#E61E8A,-
+2,fruity,1,#E51C2D,-
+3,green vegetative,1,#1FA64A,-
+4,nutty cocoa,1,#7B5A52,-
+5,other,1,#1E9BC1,-
+6,roasted,1,#C24A2C,-
+7,sour fermented,1,#D9D42E,-
+8,spices,1,#B11F3A,-
+9,sweet,1,#E46C2C,-
+10,brown sugar,2,#C77C8A,sweet
+11,overall sweet,2,#E98B78,sweet
+12,sweet aromatics,2,#D98C9C,sweet
+13,vanilla,2,#E6B8A2,sweet
+14,vanillin,2,#E7B59A,sweet
+15,caramelized,3,#D89B2B,brown sugar
+16,honey,3,#F28C28,brown sugar
+17,maple syrup,3,#B96A3C,brown sugar
+18,molasses,3,#4A2A2A,brown sugar
+19,black tea,2,#4A2A2A,floral
+20,chamomile,2,#F0B23D,floral
+21,jasmine,2,#F4F0E8,floral
+22,rose,2,#D96A9E,floral
+23,blackberry,3,#111111,berry
+24,blueberry,3,#5B5EA6,berry
+25,raspberry,3,#FF1493,berry
+26,strawberry,3,#E63946,berry
+27,coconut,3,#D9903D,dried fruit
+28,prune,3,#6F42C1,dried fruit
+29,raisin,3,#7D3C98,dried fruit
+30,apple,3,#66BB6A,other fruit
+31,cherry,3,#D7263D,other fruit
+32,grape,3,#8BC34A,other fruit
+33,peach,3,#F4A261,other fruit
+34,pear,3,#C0CA33,other fruit
+35,pineapple,3,#F4A261,other fruit
+36,pomegranate,3,#E63946,other fruit
+37,grapefruit,3,#F06292,citrus fruit
+38,lemon,3,#FFEB3B,citrus fruit
+39,lime,3,#8BC34A,citrus fruit
+40,orange,3,#F57C00,citrus fruit
+41,alcohol fermented,2,#A79B36,sour fermented
+42,sour,2,#D7D530,sour fermented
+43,acetic acid,3,#AED581,sour
+44,butyric acid,3,#C0CA33,sour
+45,citric acid,3,#D4E157,sour
+46,isovaleric acid,3,#66BB6A,sour
+47,malic acid,3,#AED581,sour
+48,sour aromatics,3,#B5B83B,sour
+49,fermented,3,#D4AF37,alcohol fermented
+50,overripe,3,#8A7B2F,alcohol fermented
+51,whiskey,3,#8D6E63,alcohol fermented
+52,winey,3,#AD1457,alcohol fermented
+53,beany,2,#7AAE8E,green vegetative
+54,dark green,2,#006B3C,green vegetative
+55,fresh,2,#00A86B,green vegetative
+56,hay-like,2,#A3C644,green vegetative
+57,herb-like,2,#7DBE3C,green vegetative
+58,olive oil,2,#8E8A3A,green vegetative
+59,peapod,2,#57C84D,green vegetative
+60,raw,2,#7E8A3A,green vegetative
+61,under-ripe,2,#B6D94A,green vegetative
+62,vegetative,2,#2F9E44,green vegetative
+63,chemical,2,#5BC0DE,other
+64,papery musty,2,#A8BCC7,other
+65,animalic,3,#A6A57A,papery musty
+66,cardboard,3,#D4B72A,papery musty
+67,meaty brothy,3,#D98C8C,papery musty
+68,moldy damp,3,#8A9A5B,papery musty
+69,musty dusty,3,#B5A36A,papery musty
+70,musty earthy,3,#9C8B5A,papery musty
+71,papery,3,#F2F2F2,papery musty
+72,phenolic,3,#E67E8C,papery musty
+73,stale,3,#6B7F6A,papery musty
+74,woody,3,#8B6B3F,papery musty
+75,bitter,3,#66C2CC,chemical
+76,medicinal,3,#8ED1E8,chemical
+77,petroleum,3,#00AEEF,chemical
+78,rubber,3,#0B132B,chemical
+79,salty,3,#D9E6E6,chemical
+80,skunky,3,#6C7A89,chemical
+81,burnt,2,#A9794A,roasted
+82,cereal,2,#E3C13B,roasted
+83,pipe tobacco,2,#8B6F47,roasted
+84,tobacco,2,#B09B63,roasted
+85,grain,3,#D9B38C,cereal
+86,malt,3,#F0A060,cereal
+87,acrid,3,#9A8F5A,burnt
+88,ashy,3,#A8B0A0,burnt
+89,brown roast,3,#7B5A2E,burnt
+90,smoky,3,#8C8A6B,burnt
+91,brown spice,2,#B23A48,spices
+92,pepper,2,#D7263D,spices
+93,pungent,2,#6B5B6B,spices
+94,anise,3,#D4AF37,brown spice
+95,cinnamon,3,#E67E22,brown spice
+96,clove,3,#C97F6B,brown spice
+97,nutmeg,3,#C0392B,brown spice
+98,cocoa,2,#A66A2C,nutty cocoa
+99,nutty,2,#B89B8A,nutty cocoa
+100,almond,3,#D9B8A6,nutty
+101,hazelnut,3,#A67C3B,nutty
+102,peanuts,3,#E3C13B,nutty
+103,chocolate,3,#6B3E2E,cocoa
+104,dark chocolate,3,#4A2C2A,cocoa
+105,berry,2,#D91F5C,fruity
+106,citrus fruit,2,#F0B52A,fruity
+107,dried fruit,2,#D94B73,fruity
+108,other fruit,2,#E56A4A,fruity

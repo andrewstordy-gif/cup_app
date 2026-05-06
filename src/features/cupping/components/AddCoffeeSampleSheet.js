@@ -131,7 +131,7 @@ export function AddCoffeeSampleSheet({
           <View style={styles.sheetActions}>
             {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
             <FullPageButton
-              label="Scan Cup"
+              label="SCAN CUP"
               onPress={onScanCup}
               loading={loading}
               disabled={loading}

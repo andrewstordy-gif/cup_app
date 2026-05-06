@@ -31,6 +31,7 @@ const MENU_ITEMS = [
   { key: "cupping-sessions", label: "Cupping Sessions", route: "Cupping Session" },
   { key: "cup-settings", label: "Cup Settings", route: "Cup Settings" },
   { key: "reset-cup-off", label: "Reset Cup to OFF", action: "reset-cup-off" },
+  { key: "switch-cup-brewing", label: "Switch Cup to BREWING", action: "switch-cup-brewing" },
   { key: "nfc-test", label: "NFC Test", route: "NFC Test" },
 ];
 
@@ -43,6 +44,7 @@ export function AppNavigator() {
   const [homeTimeLabel, setHomeTimeLabel] = useState("00:00");
   const [homeElapsedSeconds, setHomeElapsedSeconds] = useState(null);
   const [homeBrewTimeSeconds, setHomeBrewTimeSeconds] = useState(null);
+  const [homeSampleColour, setHomeSampleColour] = useState(null);
   const [isScanInProgress, setIsScanInProgress] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [warningVisible, setWarningVisible] = useState(false);
@@ -307,6 +309,7 @@ export function AppNavigator() {
       if (isNoSessionMode(parsed)) {
         addFlowEvent(flowEvents, `NO_SESSION_MODE state=${String(cupState)}`);
         setSelectedCupContext(null);
+        setHomeSampleColour(null);
         setRoute("Home");
         if (cupState === BREWING_STATE) {
           setHomeStateLabel("Brewing");
@@ -339,6 +342,7 @@ export function AppNavigator() {
         time: formatTime(elapsedSeconds),
       };
       const ndefCupNumber = resolveCupNumberFromText4(parsed);
+      setHomeSampleColour(activeSample.sampleColour || null);
 
       setSelectedCupContext({
         cupUUID,
@@ -492,6 +496,7 @@ export function AppNavigator() {
       });
       setHomeStateLabel("Off");
       setHomeTimeLabel("00:00");
+      setHomeSampleColour(null);
       setScanStatusMessage("Cup reset to OFF.");
     } catch (error) {
       const message = error?.message || "Could not reset cup.";
@@ -503,6 +508,43 @@ export function AppNavigator() {
         error,
       });
       showWarning("Reset Failed", message);
+    } finally {
+      scanInProgressRef.current = false;
+      setIsScanInProgress(false);
+    }
+  };
+
+  const handleSwitchCupToBrewingFromMenu = async () => {
+    closeDrawer();
+    setRoute("Home");
+    setSelectedCupContext(null);
+    setIsScanInProgress(true);
+    scanInProgressRef.current = true;
+    setScanStatusMessage("Scan cup to switch it to BREWING...");
+    try {
+      await delay(HOME_WRITE_HANDOFF_MS);
+      await writeNdefMinimal({
+        text1: { state: BREWING_STATE },
+        text2: {},
+        text3: {},
+        text4: {},
+      });
+      setHomeStateLabel("Brewing");
+      setHomeTimeLabel("00:00");
+      setHomeElapsedSeconds(0);
+      setHomeBrewTimeSeconds(null);
+      setHomeSampleColour(null);
+      setScanStatusMessage("Cup switched to BREWING.");
+    } catch (error) {
+      const message = error?.message || "Could not switch cup to brewing.";
+      await playNfcFailureFeedback(error);
+      setScanStatusMessage(message);
+      logHomeError({
+        flow: "home_switch_cup_brewing",
+        friendlyMessage: message,
+        error,
+      });
+      showWarning("Switch Failed", message);
     } finally {
       scanInProgressRef.current = false;
       setIsScanInProgress(false);
@@ -536,7 +578,7 @@ export function AppNavigator() {
       return (
         <CuppingScreen
           key={selectedCupContext?.sampleId || selectedCupContext?.cupUUID || "cupping-screen"}
-          onBackPress={() => setRoute("Home")}
+          onBackPress={() => setRoute(selectedCupContext?.sessionId ? "Active Session" : "Home")}
           onScanPress={handleScanNextCupFromCupping}
           cupUUID={selectedCupContext?.cupUUID}
           cupStateNumber={selectedCupContext?.cupStateNumber}
@@ -584,6 +626,7 @@ export function AppNavigator() {
     if (route === "Active Session") {
       return (
         <ActiveSessionScreen
+          sessionId={selectedCupContext?.sessionId || null}
           onBackPress={() => setRoute("Home")}
           onScanPress={handleScanCupFromHome}
           isScanInProgress={isScanInProgress}
@@ -610,6 +653,7 @@ export function AppNavigator() {
         timeLabel={homeTimeLabel}
         elapsedSeconds={homeElapsedSeconds}
         brewTimeSeconds={homeBrewTimeSeconds}
+        sampleColour={homeSampleColour}
       />
     );
   }, [
@@ -623,6 +667,7 @@ export function AppNavigator() {
     homeTimeLabel,
     homeElapsedSeconds,
     homeBrewTimeSeconds,
+    homeSampleColour,
   ]);
 
   const drawerTranslateX = anim.interpolate({
@@ -671,6 +716,10 @@ export function AppNavigator() {
                   onPress={() => {
                     if (item.action === "reset-cup-off") {
                       handleResetCupToOffFromMenu();
+                      return;
+                    }
+                    if (item.action === "switch-cup-brewing") {
+                      handleSwitchCupToBrewingFromMenu();
                       return;
                     }
                     navigate(item.route);

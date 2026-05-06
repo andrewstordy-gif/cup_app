@@ -928,7 +928,7 @@ export default function App() {
             </ScrollView>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="Scan"
+              accessibilityLabel="Scan cup"
               style={[
                 styles.scanButton,
                 {
@@ -937,7 +937,7 @@ export default function App() {
                 },
               ]}
             >
-              <Text style={[styles.scanButtonText, { fontSize: 19 * scale, lineHeight: 23 * scale }]}>Scan</Text>
+              <Text style={[styles.scanButtonText, { fontSize: 19 * scale, lineHeight: 23 * scale }]}>SCAN CUP</Text>
             </Pressable>
           </View>
         </View>
@@ -1095,7 +1095,7 @@ export default function App() {
               <View style={styles.homeAInstructionsGroup}>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Scan"
+                  accessibilityLabel="Scan cup"
                   onPress={() => setActiveDesign("home-brewing")}
                   style={[
                     styles.scanButton,
@@ -1105,7 +1105,7 @@ export default function App() {
                     },
                   ]}
                 >
-                  <Text style={[styles.scanButtonText, { fontSize: 19 * scale, lineHeight: 23 * scale }]}>Scan</Text>
+                  <Text style={[styles.scanButtonText, { fontSize: 19 * scale, lineHeight: 23 * scale }]}>SCAN CUP</Text>
                 </Pressable>
               </View>
             </View>
@@ -1965,7 +1965,7 @@ export default function App() {
             )}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={isDesignBSaveAction ? "Save" : "Scan"}
+              accessibilityLabel={isDesignBSaveAction ? "Save" : "Scan cup"}
               onPress={saveDesignBEntry}
               style={[
                 styles.scanButton,
@@ -1977,7 +1977,7 @@ export default function App() {
               ]}
             >
               <Text style={[styles.scanButtonText, { fontSize: 19 * scale, lineHeight: 23 * scale }]}>
-                {isDesignBSaveAction ? "Save" : "Scan"}
+                {isDesignBSaveAction ? "Save" : "SCAN CUP"}
               </Text>
             </Pressable>
           </View>
