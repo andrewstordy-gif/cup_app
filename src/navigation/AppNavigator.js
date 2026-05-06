@@ -12,6 +12,11 @@ import { AccountScreen } from "../features/account/screens/AccountScreen";
 import { WarningDialog } from "../components/ui/WarningDialog";
 import { colors } from "../theme/colors";
 import { readNdefMinimal, writeNdefMinimal } from "../services/nfcServiceMinimal";
+import {
+  NFC_TAG_TYPES,
+  classifyNfcTagReadResult,
+  getNfcTagIdentifier,
+} from "../services/nfcTagClassifier";
 import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
 import { logAppError } from "../services/errorLogger";
 import {
@@ -243,6 +248,20 @@ export function AppNavigator() {
     return parsedCupNumber;
   };
 
+  const resolveCupNumberFromMetadata = (metadata) => {
+    const rawCupNumber = metadata?.cupNumber ?? metadata?.y;
+    const parsedCupNumber = Number.parseInt(rawCupNumber, 10);
+    if (!Number.isFinite(parsedCupNumber) || parsedCupNumber < 1) {
+      return null;
+    }
+    return parsedCupNumber;
+  };
+
+  const isNtagCupLike = (tagClassification) =>
+    tagClassification?.type === NFC_TAG_TYPES.NTAG_CUP ||
+    tagClassification?.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+    tagClassification?.type === NFC_TAG_TYPES.EMPTY_TAG;
+
   const scanCupForAssessment = async ({ statusPrefix } = {}) => {
     const flowEvents = [];
     addFlowEvent(flowEvents, "SCAN_START");
@@ -274,6 +293,63 @@ export function AppNavigator() {
       }
       const parsed = readResult?.parsed || {};
       const recordCount = Number(readResult?.recordCount) || 0;
+      const tagClassification = classifyNfcTagReadResult(readResult);
+      addFlowEvent(flowEvents, `TAG_CLASSIFIED type=${tagClassification.type} reason=${tagClassification.reason}`);
+
+      if (isNtagCupLike(tagClassification)) {
+        const tagId = normalizeCupUuid(getNfcTagIdentifier(readResult?.tag));
+        if (!tagId) {
+          addFlowEvent(flowEvents, "NTAG_ID_MISSING");
+          throw new Error("Could not read NTAG identifier.");
+        }
+
+        const metadata = tagClassification.metadataPayload;
+        const importedSample = metadata
+          ? await resolveActiveSampleFromCupMetadata({
+              cupUUID: tagId,
+              metadata,
+            })
+          : null;
+        const activeSample = importedSample || (await findActiveSampleByCupUUID(tagId));
+        if (!activeSample) {
+          addFlowEvent(flowEvents, `NTAG_NO_ACTIVE_SAMPLE id=${tagId}`);
+          setScanStatusMessage("NTAG cup is not associated with a cupping session.");
+          notInSessionDialogVisibleRef.current = true;
+          setNotInSessionDialogVisible(true);
+          return;
+        }
+
+        const ntagCupNumber = resolveCupNumberFromMetadata(metadata);
+        setHomeTemperatureC(null);
+        setHomeTimeLabel("00:00");
+        setHomeElapsedSeconds(null);
+        setHomeBrewTimeSeconds(null);
+        setHomeStateLabel("Cupping");
+        setHomeSampleColour(activeSample.sampleColour || metadata?.sampleColour || metadata?.k || null);
+        setSelectedCupContext({
+          cupUUID: tagId,
+          tagType: NFC_TAG_TYPES.NTAG_CUP,
+          cupStateNumber: 3,
+          cupStatus: {
+            state: "CUPPING",
+            temp: "N/A",
+            time: "00:00",
+          },
+          sessionId: activeSample.sessionId,
+          sampleId: activeSample.sampleId,
+          cupIndex: activeSample.cupIndex,
+          cupTotal: activeSample.cupTotal,
+          sampleNumber: activeSample.sampleNumber,
+          sampleColour: activeSample.sampleColour,
+          defectsCupTotal: ntagCupNumber || activeSample.cupNumber || 1,
+          startInFinalMode: false,
+          startInFinalSaved: false,
+        });
+        setScanStatusMessage("");
+        setRoute("Cupping");
+        addFlowEvent(flowEvents, `ROUTE_NTAG_CUPPING id=${tagId}`);
+        return;
+      }
 
       if (recordCount === 0) {
         addFlowEvent(flowEvents, "READ_EMPTY_NDEF");
@@ -581,6 +657,7 @@ export function AppNavigator() {
           onBackPress={() => setRoute(selectedCupContext?.sessionId ? "Active Session" : "Home")}
           onScanPress={handleScanNextCupFromCupping}
           cupUUID={selectedCupContext?.cupUUID}
+          tagType={selectedCupContext?.tagType}
           cupStateNumber={selectedCupContext?.cupStateNumber}
           cupStatus={selectedCupContext?.cupStatus}
           cupIndex={selectedCupContext?.cupIndex}

@@ -695,7 +695,7 @@ export async function writeSingleRecordMetadataDiagnosticMinimal(records) {
     };
     const builtRecords = buildSingleMetadataDiagnosticRecords(safeRecords);
     const debugSummary = buildDebugSummaryFromBuiltRecords(builtRecords);
-    logNfcEvent("write single-record metadata start", {
+    logNfcEvent("write metadata-only start", {
       compactPreview,
       exactText4: exactPayloads.text4,
       exactText4Length: exactPayloads.text4.length,
@@ -707,20 +707,24 @@ export async function writeSingleRecordMetadataDiagnosticMinimal(records) {
     const bytes = encodeBuiltRecords(builtRecords);
     await writeEncodedNdefBytes(
       bytes,
-      "Hold your phone near the cup to write the single-record diagnostic NDEF.",
+      "Hold your phone near the cup to write the session metadata.",
     );
-    logNfcEvent("write single-record metadata success", {
+    logNfcEvent("write metadata-only success", {
       byteLength: bytes.length,
       compactPreview,
     });
     await closeIosSessionNow();
     return { ok: true, compactPreview };
   } catch (error) {
-    throw normalizeNfcError(error, "Unable to write single-record diagnostic NFC tag.");
+    throw normalizeNfcError(error, "Unable to write session metadata to NFC tag.");
   } finally {
     await cancelMinimal();
     if (Platform.OS === "ios") {
       await delay(IOS_SESSION_SETTLE_MS);
     }
   }
+}
+
+export async function writeNdefMetadataOnlyMinimal(records) {
+  return writeSingleRecordMetadataDiagnosticMinimal(records);
 }

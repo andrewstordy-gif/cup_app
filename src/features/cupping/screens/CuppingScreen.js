@@ -625,6 +625,7 @@ export function CuppingScreen({
   onBackPress,
   onScanPress,
   cupUUID = "CUP-8291-XJ2",
+  tagType = null,
   cupIndex = 0,
   cupTotal = 10,
   defectsCupTotal = null,
@@ -706,6 +707,7 @@ export function CuppingScreen({
     [cupStateNumber, cupStatus]
   );
 
+  const isNtagCup = tagType === "ntag_cup";
   const isBrewing = cupStateNumber === 2;
   const isCupping = cupStateNumber === 3;
   const canCaptureFeedback = cupStateNumber === 1 || cupStateNumber === 3;
@@ -733,6 +735,10 @@ export function CuppingScreen({
       return isFinalSaved ? [] : FEEDBACK_FIELDS;
     }
 
+    if (isNtagCup) {
+      return FEEDBACK_FIELDS;
+    }
+
     if (cupStateNumber === 1) {
       return ["Fragrance"];
     }
@@ -742,7 +748,7 @@ export function CuppingScreen({
     }
 
     return [];
-  }, [cupStateNumber, isAromaPopulated, isFinalMode, isFinalSaved]);
+  }, [cupStateNumber, isAromaPopulated, isFinalMode, isFinalSaved, isNtagCup]);
 
   const finalScoreSummary = useMemo(() => {
     if (!isFinalMode || !isFinalSaved) {
@@ -1133,9 +1139,9 @@ export function CuppingScreen({
           showInputs={
             isFinalMode
               ? !isFinalSaved
-              : !isBrewing && !(cupStateNumber === 3 && field === "Fragrance")
+              : !isBrewing && !(cupStateNumber === 3 && field === "Fragrance" && !isNtagCup)
           }
-          showTitle={isFinalMode ? true : !isBrewing && !(cupStateNumber === 3 && field === "Fragrance")}
+          showTitle={isFinalMode ? true : !isBrewing && !(cupStateNumber === 3 && field === "Fragrance" && !isNtagCup)}
           showFinalTitleSuffix={isFinalMode}
           isSavedView={isFinalMode && isFinalSaved}
         />

@@ -28,6 +28,76 @@ function getReadableTextColour(backgroundColour) {
   return luminance > 0.72 ? "#222222" : "#ffffff";
 }
 
+function KeywordTokenPreview({
+  tokens,
+  hasValue,
+  placeholder,
+  previewFontSize,
+  previewLineHeight,
+  style,
+}) {
+  return (
+    <View style={[styles.previewLine, style]}>
+      {hasValue ? (
+        tokens.map((token, index) =>
+          token.type === "pill" ? (
+            <View
+              key={`${token.keyword}-${index}`}
+              style={[
+                styles.keywordPill,
+                {
+                  borderRadius: Math.round(previewFontSize * 0.72),
+                  paddingHorizontal: Math.round(previewFontSize * 0.5),
+                  paddingVertical: Math.max(2, Math.round(previewFontSize * 0.12)),
+                  backgroundColor: token.colour,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.keywordPillText,
+                  {
+                    color: getReadableTextColour(token.colour),
+                    fontSize: previewFontSize,
+                    lineHeight: previewLineHeight,
+                  },
+                ]}
+              >
+                {token.text}
+              </Text>
+            </View>
+          ) : (
+            <Text
+              key={`text-${index}`}
+              style={[
+                styles.previewText,
+                {
+                  fontSize: previewFontSize,
+                  lineHeight: previewLineHeight,
+                },
+              ]}
+            >
+              {token.text}
+            </Text>
+          )
+        )
+      ) : (
+        <Text
+          style={[
+            styles.placeholderText,
+            {
+              fontSize: previewFontSize,
+              lineHeight: previewLineHeight,
+            },
+          ]}
+        >
+          {placeholder}
+        </Text>
+      )}
+    </View>
+  );
+}
+
 export function NotesInput({
   value,
   onChangeText,
@@ -83,64 +153,13 @@ export function NotesInput({
           accessibilityElementsHidden
           importantForAccessibility="no-hide-descendants"
         />
-        <View style={styles.previewLine}>
-          {hasValue ? (
-            tokens.map((token, index) =>
-              token.type === "pill" ? (
-                <View
-                  key={`${token.keyword}-${index}`}
-                  style={[
-                    styles.keywordPill,
-                    {
-                      borderRadius: Math.round(previewFontSize * 0.72),
-                      paddingHorizontal: Math.round(previewFontSize * 0.5),
-                      paddingVertical: Math.max(2, Math.round(previewFontSize * 0.12)),
-                      backgroundColor: token.colour,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.keywordPillText,
-                      {
-                        color: getReadableTextColour(token.colour),
-                        fontSize: previewFontSize,
-                        lineHeight: previewLineHeight,
-                      },
-                    ]}
-                  >
-                    {token.text}
-                  </Text>
-                </View>
-              ) : (
-                <Text
-                  key={`text-${index}`}
-                  style={[
-                    styles.previewText,
-                    {
-                      fontSize: previewFontSize,
-                      lineHeight: previewLineHeight,
-                    },
-                  ]}
-                >
-                  {token.text}
-                </Text>
-              )
-            )
-          ) : (
-            <Text
-              style={[
-                styles.placeholderText,
-                {
-                  fontSize: previewFontSize,
-                  lineHeight: previewLineHeight,
-                },
-              ]}
-            >
-              {placeholder}
-            </Text>
-          )}
-        </View>
+        <KeywordTokenPreview
+          tokens={tokens}
+          hasValue={hasValue}
+          placeholder={placeholder}
+          previewFontSize={previewFontSize}
+          previewLineHeight={previewLineHeight}
+        />
         {Platform.OS === "ios" ? (
           <InputAccessoryView nativeID={accessoryId}>
             <View style={styles.accessory}>

@@ -1,29 +1,64 @@
-# cup-user-test-app
+# cup
 
-Expo React Native prototype for CUP NFC flows, cupping workflows, and local-first persistence.
+Expo React Native app for CUP NFC cupping workflows, local session storage, and NFC cup/tag testing.
 
 ## Current Status
 
-This repo currently contains:
-- the React Native app
-- the Arduino cup firmware
-- an NFC Test screen used to validate the cup/app protocol on-device
+This branch is the NTAG prototype branch:
 
-The latest working checkpoint implements a sparse 4-record NFC protocol and matching firmware support for metadata preservation.
+- branch: `codex/ntag-version`
+- base checkpoint: `codex/redesign-cupping-flow`
+- app bundle id: `com.andrewstordy.cup`
 
-## Run
+The app currently supports two NFC cup paths:
+
+- Smart CUP hardware using the 4-record NDEF protocol.
+- Standard NTAG sticker cups for prototype testing, using metadata-only NDEF.
+
+## Run Locally
 
 ```bash
-cd /Users/andrewstordy/code/cup_app/cup-user-test-app
+cd /Volumes/external/code/cup_app
 npm install
 npm run ios:device
 npm run start:dev
 ```
 
 Typical device workflow:
-1. `npm run ios:device` to install/update the dev client on iPhone
-2. `npm run start:dev` to start Metro
-3. open the app on the device and use the NFC Test screen for protocol validation
+
+1. `npm run ios:device` installs or updates the Expo dev client on the iPhone.
+2. `npm run start:dev` starts Metro.
+3. Open the app on the phone and scan cups/tags.
+
+## TestFlight Build
+
+The root `eas.json` contains a production iOS profile for App Store Connect/TestFlight builds.
+
+Before building, make sure the working tree is committed and you are logged in:
+
+```bash
+npx eas login
+```
+
+Build for TestFlight:
+
+```bash
+npx eas build --platform ios --profile production
+```
+
+Submit the completed build to App Store Connect:
+
+```bash
+npx eas submit --platform ios --profile production
+```
+
+Or build and submit in one step:
+
+```bash
+npx eas build --platform ios --profile production --auto-submit
+```
+
+After submission, Apple processes the build in App Store Connect. It should then appear under TestFlight.
 
 ## App Structure
 
@@ -31,166 +66,151 @@ Typical device workflow:
 src/
   components/
   data/
+    sessionRepository.js
   features/
-    cup-settings/screens/
-    cupping/components/
-    cupping/screens/
-    home/screens/
-    nfc/screens/
-    settings/screens/
-  navigation/AppNavigator.js
+    account/
+    cup-settings/
+    cupping/
+      components/
+      data/
+      screens/
+    home/
+    nfc/
+    settings/
+  navigation/
+    AppNavigator.js
   services/
-    errorLogger.js
-    nfcService.js
     nfcServiceMinimal.js
+    nfcTagClassifier.js
   theme/
 ```
 
-## NFC Protocol
+## Smart CUP NFC Protocol
 
-The cup/tag protocol is position-based and always uses exactly 4 NDEF text records in this order:
+Smart cups use a position-based 4-record NDEF protocol.
 
 1. `NDEF1` = state
 2. `NDEF2` = status
 3. `NDEF3` = settings
-4. `NDEF4` = metadata
+4. `NDEF4` = session/sample metadata
 
-Records must never be deleted.
+### Compact Keys
 
-### Compact on-tag keys
+`NDEF1`
 
-- `NDEF1`
-  - `s` = state (`0..4`)
-- `NDEF2`
-  - `t` = temp x10
-  - `m` = time seconds
-  - `b` = battery
-  - `u` = cup UUID
-- `NDEF3`
-  - `r` = trigger temp
-  - `a` = max start temp
-  - `w` = brew time
-  - `c` = max cup temp
-  - `x` = max time
-  - `l` = LED brightness
-- `NDEF4`
-  - `n` = coffee name
-  - `p` = coffee process
-  - `y` = cup number
-  - `e` = session name
-  - `t` = session type
-  - `d` = session date
-  - `u` = session UUID
+- `s` = state
 
-### Sparse write protocol
+`NDEF2`
 
-The app now writes sparse 4-record frames.
+- `t` = temp x10
+- `m` = time seconds
+- `b` = battery
+- `u` = cup UUID
 
-Rules:
-- every write always sends all 4 records
-- `NDEF2` is always written as `{}` by the app
-- `{}` in `NDEF1` means no state update
-- `{}` in `NDEF3` means no settings update
-- `{}` in `NDEF4` means preserve existing metadata in firmware
-- explicit "no session" metadata should be written as:
+`NDEF3`
+
+- `r` = trigger temp
+- `a` = max start temp
+- `w` = brew time
+- `c` = max cup temp
+- `x` = max time
+- `l` = LED brightness
+
+`NDEF4`
+
+- `n` = coffee name
+- `p` = coffee process key
+- `y` = cups per sample
+- `i` = samples in session
+- `z` = sample number
+- `k` = sample colour hex
+- `e` = session name
+- `t` = session type key
+- `d` = compact date, for example `260506`
+- `u` = session UUID
+
+Example `NDEF4`:
 
 ```json
-{"u":"NO-SESSION"}
+{"n":"Burundi","p":6,"y":3,"i":3,"z":2,"k":"#00A651","e":"NTAG","t":1,"d":260506,"u":"nfzyy8y0pqizn6"}
 ```
 
-Examples:
+## NTAG Cup Prototype
 
-State update:
+Standard NTAG sticker cups do not provide smart-cup state, temperature, brew timer, or firmware settings.
 
-```json
-NDEF1 = {"s":1}
-NDEF2 = {}
-NDEF3 = {}
-NDEF4 = {}
-```
+The app classifies NFC reads as:
 
-Settings update:
+- `smart_cup`
+- `ntag_cup`
+- `generic_ndef_tag`
+- `empty_tag`
+- `unknown`
 
-```json
-NDEF1 = {}
-NDEF2 = {}
-NDEF3 = {"r":40,"a":93,"w":240,"c":70,"x":3600,"l":100}
-NDEF4 = {}
-```
+For NTAG cups:
 
-Metadata update:
+- The app writes session/sample metadata only.
+- The physical NFC tag id is used as the cup/sample identifier when no smart-cup UUID exists.
+- Home scan resolves the active sample from metadata or tag id.
+- The cupping screen opens directly with all scoring fields available.
+- Temperature is shown as unavailable because NTAG stickers do not provide cup temperature.
 
-```json
-NDEF1 = {}
-NDEF2 = {}
-NDEF3 = {}
-NDEF4 = {"u":"NO-SESSION"}
-```
+## Cupping Flow
 
-## NFC Test Screen
+Smart CUP behaviour:
 
-Location:
-- [src/features/nfc/screens/NfcServiceTestScreen.js](/Users/andrewstordy/code/cup_app/cup-user-test-app/src/features/nfc/screens/NfcServiceTestScreen.js)
+- Ready state: cupping screen opens with Fragrance available first.
+- Brewing state: brewing timer screen opens.
+- Cupping state: Fragrance and Aroma are available first; remaining fields unlock after Aroma is populated.
 
-Current purpose:
-- read raw and parsed NDEF records from the cup
-- manually write sparse protocol frames for state, settings, and metadata
-- show the exact compact payload being written to each of the 4 records
+NTAG cup behaviour:
 
-Current write actions:
-- `Write State Update`
-- `Write Settings Update`
-- `Write Metadata Update`
-- `Write No Session`
+- Cupping screen opens directly.
+- All scoring fields are available immediately.
 
-Current service:
-- [src/services/nfcServiceMinimal.js](/Users/andrewstordy/code/cup_app/cup-user-test-app/src/services/nfcServiceMinimal.js)
+Shared cupping features:
 
-This minimal service now includes:
-- read retry for temporarily missing `ndefMessage`
-- one write retry for transient `TagUpdateFailure` / `TagConnectionLost`
-- iOS session cooldown after `UserCancel` / `SystemBusy`
-- short session settle delay before `writeNdefMessage(...)`
+- 1-9 selectors with `FINAL` gating.
+- Defects drawer.
+- Save/scan footer behaviour.
+- Active Session overview.
+- Flavour keyword pills in notes after leaving the notes field.
 
-## Home Flow
+## Flavour Keywords
 
-Home remains conservative/read-oriented while the sparse-write protocol is being validated.
+Keyword data lives in:
 
-Current status:
-- Home scan reads the cup and routes by state
-- NFC Test is the primary place to validate new write behavior
+- `src/features/cupping/data/flavour_keywords_update.csv`
+- `src/features/cupping/data/flavourKeywords.js`
 
-## Cup Settings
+The runtime list currently contains 108 descriptors. Recognised flavour words are rendered as coloured pills in notes previews and active session details.
 
-The regular Cup Settings flow still gates settings writes to cup states:
-- `OFF`
-- `READY`
-- `LOW_BATTERY`
+## NFC Services
 
-Firmware behavior is different:
-- in `BREWING` / `CUPPING`, firmware ignores `NDEF3` settings updates at runtime because those states do not read settings back
+Main files:
 
-## Firmware
+- `src/services/nfcServiceMinimal.js`
+- `src/services/nfcTagClassifier.js`
 
-Firmware lives in:
-- [cup_firmware/README.md](/Users/andrewstordy/code/cup_app/cup-user-test-app/cup_firmware/README.md)
+`nfcServiceMinimal.js` handles:
 
-Important recent firmware behaviors:
-- invalid states above `4` are rejected
-- `NDEF4 = {}` preserves the last meaningful metadata
-- startup bootstrap restores a valid baseline 4-record tag layout
+- smart cup 4-record reads/writes
+- metadata-only NTAG writes
+- read retries when `ndefMessage` is temporarily missing
+- transient write retries
+- iOS NFC session cooldowns
 
-## Device-Test Notes
+`nfcTagClassifier.js` handles:
 
-Useful patterns from recent testing:
-- deleting records is unsafe because record order shifts
-- writing `{}` placeholders is much safer than deleting records
-- malformed `NDEF2` writes can make the tag unreadable until reboot/bootstrap
-- valid sparse writes now work reliably enough for iterative testing
+- tag type classification
+- NTAG tag id extraction
+- metadata payload detection
 
 ## Known Constraints
 
-- no automated test suite yet; device testing is still the primary validation path
-- `react-native-nfc-manager` remains timing-sensitive on iOS
-- `expo-av` is still used for NFC Test failure feedback and is deprecated on SDK 54
-- native `ios/` and `android/` folders are kept in-repo
+- Device testing is still the primary validation path.
+- `react-native-nfc-manager` is timing-sensitive on iOS.
+- Blank NTAG behaviour depends on whether iOS exposes NDEF data or only the physical tag id.
+- NTAG cups cannot supply live state, temperature, or brew timing.
+- `expo-av` is still present and deprecated in Expo SDK 54.
+- Native `ios/` and `android/` folders are kept in the repo.

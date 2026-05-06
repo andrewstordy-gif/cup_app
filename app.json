@@ -8,6 +8,7 @@
     "icon": "./src/assets/images/cup_image_transparrent.png",
     "ios": {
       "supportsTablet": true,
+      "buildNumber": "1",
       "infoPlist": {
         "NFCReaderUsageDescription": "This app scans NFC cup tags to read and write cupping session data."
       },
@@ -19,6 +20,7 @@
       "bundleIdentifier": "com.andrewstordy.cup"
     },
     "android": {
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./src/assets/images/cup_image_transparrent.png",
         "backgroundColor": "#f5f5f5"

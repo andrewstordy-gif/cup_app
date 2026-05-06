@@ -6,7 +6,16 @@ import { full_page_button as FullPageButton } from "../../../components/ui/full_
 import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
-import { readNdefMinimal, writeNdefMinimal } from "../../../services/nfcServiceMinimal";
+import {
+  readNdefMinimal,
+  writeNdefMetadataOnlyMinimal,
+  writeNdefMinimal,
+} from "../../../services/nfcServiceMinimal";
+import {
+  NFC_TAG_TYPES,
+  classifyNfcTagReadResult,
+  getNfcTagIdentifier,
+} from "../../../services/nfcTagClassifier";
 import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
@@ -57,6 +66,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [sheetCupNumber, setSheetCupNumber] = useState(3);
   const [sheetSampleColour, setSheetSampleColour] = useState(SAMPLE_COLOUR_OPTIONS[0].hex);
   const [pendingCupUUID, setPendingCupUUID] = useState("");
+  const [pendingTagType, setPendingTagType] = useState("");
   const [sheetErrors, setSheetErrors] = useState({});
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [isNfcWriting, setIsNfcWriting] = useState(false);
@@ -251,6 +261,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
     setSheetCupNumber(3);
     setSheetSampleColour(SAMPLE_COLOUR_OPTIONS[0].hex);
     setPendingCupUUID("");
+    setPendingTagType("");
     setSheetErrors({});
     setScanStatusMessage("");
     void handleIdentifyCupForSample();
@@ -259,6 +270,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const handleCloseAddSheet = () => {
     setIsAddSheetVisible(false);
     setPendingCupUUID("");
+    setPendingTagType("");
     setSheetErrors({});
     setScanStatusMessage("");
   };
@@ -276,9 +288,19 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       const result = await readNdefMinimal();
       const parsed = result?.parsed || {};
       const tag = result?.tag;
-      const detectedCupUUID = resolveCupUUIDFromReadResult({ parsed, tag });
+      const tagClassification = classifyNfcTagReadResult(result);
+      const canUseNtagIdentifier =
+        tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
+        tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+        tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG;
+      const detectedCupUUID =
+        tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+          ? resolveCupUUIDFromReadResult({ parsed, tag })
+          : canUseNtagIdentifier
+            ? getNfcTagIdentifier(tag)
+            : null;
       if (!detectedCupUUID) {
-        throw new Error("Could not read cup UUID from tag. Please try scanning again.");
+        throw new Error("NFC tag format is not recognised yet. Please scan a smart cup or NTAG sticker.");
       }
 
       const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
@@ -297,7 +319,16 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       }
 
       setPendingCupUUID(normalizedDetectedCupUUID);
-      setScanStatusMessage(`Cup ${normalizedDetectedCupUUID} identified. Add details, then scan again to write.`);
+      setPendingTagType(tagClassification.type);
+      const tagTypeLabel =
+        tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+          ? "Smart cup"
+          : canUseNtagIdentifier
+            ? "NTAG cup"
+            : "NFC tag";
+      setScanStatusMessage(
+        `${tagTypeLabel} ${normalizedDetectedCupUUID} identified. Add details, then scan again to write.`
+      );
       setIsAddSheetVisible(true);
     } catch (error) {
       const message = error?.message || "Unable to scan cup.";
@@ -322,7 +353,9 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       });
 
       if (isUserCancelled) {
-        setScanStatusMessage("");
+        setScanStatusMessage(
+          "No NDEF data was read. If this was a blank NTAG, format it with a simple NDEF record first, then try again."
+        );
       } else if (error?.code === PENDING_CONFLICT_ERROR) {
         setCupBlockedMessage(message);
         setScanStatusMessage(message);
@@ -388,27 +421,38 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         Math.max(samples.length, sampleNumber)
       );
       const sampleColour = normalizeSampleColour(sheetSampleColour);
+      const isNtagCup =
+        pendingTagType === NFC_TAG_TYPES.NTAG_CUP ||
+        pendingTagType === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+        pendingTagType === NFC_TAG_TYPES.EMPTY_TAG;
+      const sessionMetadata = buildCompactSessionMetadata({
+        coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
+        process: normalizeProcessKey(sheetProcess),
+        cupNumber: sheetCupNumber,
+        samplesInSession: sessionSampleCount,
+        sampleNumber,
+        sampleColour,
+        sessionName: sessionName.trim(),
+        sessionType: normalizeSessionTypeKey(sessionType),
+        sessionDate,
+        sessionUUID,
+      });
       setScanStatusMessage(`Scan cup ${normalizedDetectedCupUUID} to write session data...`);
 
-      await writeNdefMinimal({
-        text1: {
-          state: 1,
-        },
-        text2: {},
-        text3: {},
-        text4: buildCompactSessionMetadata({
-          coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
-          process: normalizeProcessKey(sheetProcess),
-          cupNumber: sheetCupNumber,
-          samplesInSession: sessionSampleCount,
-          sampleNumber,
-          sampleColour,
-          sessionName: sessionName.trim(),
-          sessionType: normalizeSessionTypeKey(sessionType),
-          sessionDate,
-          sessionUUID,
-        }),
-      });
+      if (isNtagCup) {
+        await writeNdefMetadataOnlyMinimal({
+          text4: sessionMetadata,
+        });
+      } else {
+        await writeNdefMinimal({
+          text1: {
+            state: 1,
+          },
+          text2: {},
+          text3: {},
+          text4: sessionMetadata,
+        });
+      }
 
       if (duplicateIndex === -1) {
         setSamples((prev) => [
@@ -444,6 +488,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
       setIsAddSheetVisible(false);
       setPendingCupUUID("");
+      setPendingTagType("");
       if (duplicateIndex !== -1) {
         setOverwriteDialogMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten.`);
         setIsOverwriteDialogVisible(true);

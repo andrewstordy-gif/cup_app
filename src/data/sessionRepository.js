@@ -950,6 +950,8 @@ export async function findActiveSampleByCupUUID(cupUUID) {
         sm.id AS sampleId,
         sm.cup_uuid AS cupUUID,
         sm.cup_number AS cupNumber,
+        sm.sample_number AS sampleNumber,
+        sm.sample_colour AS sampleColour,
         sm.coffee_name_origin AS coffeeNameOrigin,
         sm.process AS coffeeProcess,
         sm.position_index AS cupIndex,
@@ -983,6 +985,8 @@ export async function findActiveSampleByCupUUID(cupUUID) {
     cupIndex: Number(row.cupIndex) || 0,
     cupTotal: Number(row.cupTotal) || 1,
     cupNumber: Number(row.cupNumber) || 3,
+    sampleNumber: Number(row.sampleNumber) || null,
+    sampleColour: row.sampleColour || null,
   };
 }
 
