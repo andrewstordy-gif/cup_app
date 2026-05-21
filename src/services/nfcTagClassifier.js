@@ -39,44 +39,46 @@ function hasNumericKey(value, keys) {
   });
 }
 
-function getRawTextPayloads(parsed) {
-  const raw = parsed?.raw || {};
-  return [raw.text1, raw.text2, raw.text3, raw.text4].filter((value) => typeof value === "string");
-}
-
-function getParsedTextPayloads(parsed) {
-  const normalizedPayloads = [parsed?.text1, parsed?.text2, parsed?.text3, parsed?.text4].filter(isObject);
-  const rawPayloads = getRawTextPayloads(parsed).map(safeJsonParse).filter(isObject);
-  return [...normalizedPayloads, ...rawPayloads];
+function isSessionMetadataPayload(payload) {
+  const hasSessionId = hasAnyKey(payload, ["sessionUUID", "u"]);
+  const hasSessionShape = hasAnyKey(payload, [
+    "coffeeName",
+    "n",
+    "coffeeProcess",
+    "p",
+    "cupNumber",
+    "y",
+    "samplesInSession",
+    "i",
+    "sampleNumber",
+    "z",
+    "sampleColour",
+    "k",
+    "sessionName",
+    "e",
+    "sessionType",
+    "sessionDate",
+    "d",
+  ]);
+  return hasSessionId && hasSessionShape;
 }
 
 export function findNdef4MetadataPayload(parsed) {
-  return (
-    getParsedTextPayloads(parsed).find((payload) => {
-      const hasSessionId = hasAnyKey(payload, ["sessionUUID", "u"]);
-      const hasSessionShape = hasAnyKey(payload, [
-        "coffeeName",
-        "n",
-        "coffeeProcess",
-        "p",
-        "cupNumber",
-        "y",
-        "samplesInSession",
-        "i",
-        "sampleNumber",
-        "z",
-        "sampleColour",
-        "k",
-        "sessionName",
-        "e",
-        "sessionType",
-        "t",
-        "sessionDate",
-        "d",
-      ]);
-      return hasSessionId && hasSessionShape;
-    }) || null
-  );
+  const rawText4 = safeJsonParse(parsed?.raw?.text4);
+  const text4Candidates = [parsed?.text4, rawText4].filter(isObject);
+  const text4Payload = text4Candidates.find(isSessionMetadataPayload);
+  if (text4Payload) {
+    return text4Payload;
+  }
+
+  const rawText1 = safeJsonParse(parsed?.raw?.text1);
+  const text1Candidates = [parsed?.text1, rawText1].filter(isObject);
+  const hasOnlyMetadataRecord = !parsed?.text2 && !parsed?.text3 && !parsed?.text4;
+  if (hasOnlyMetadataRecord) {
+    return text1Candidates.find(isSessionMetadataPayload) || null;
+  }
+
+  return null;
 }
 
 export function classifyNfcTagReadResult(readResult) {
@@ -87,7 +89,10 @@ export function classifyNfcTagReadResult(readResult) {
   const hasSmartCupConfig = hasAnyKey(parsed?.text3, ["brewTime", "w", "triggerTemp", "r"]);
   const metadataPayload = findNdef4MetadataPayload(parsed);
 
-  if (hasSmartCupState || hasSmartCupUuid || hasSmartCupConfig) {
+  // A state value on its own is not enough to identify a smart cup. Some
+  // standard NTAG stickers can be left with stale NDEF1 state records, but they
+  // should still be treated as app-owned metadata tags and identified by tag id.
+  if (hasSmartCupUuid || hasSmartCupConfig) {
     return {
       type: NFC_TAG_TYPES.SMART_CUP,
       recordCount,
@@ -161,4 +166,9 @@ export function getNfcTagIdentifier(tag) {
   }
 
   return String(rawId || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+}
+
+export function isSmartCupHardwareTag(tag) {
+  const tagId = getNfcTagIdentifier(tag);
+  return Boolean(tag?.icManufacturerCode || tag?.icSerialNumber || /^E0/i.test(tagId));
 }

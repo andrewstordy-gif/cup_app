@@ -4,6 +4,7 @@ import {
   Easing,
   Keyboard,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -43,12 +44,7 @@ const FEEDBACK_FIELDS = [
 const READY_FIELDS = ["Fragrance"];
 const CUPPING_FIELDS = FEEDBACK_FIELDS;
 const NOTE_GROUPS = [
-  { afterField: "Aroma", fields: ["Fragrance", "Aroma"] },
-  { afterField: "Aftertaste", fields: ["Flavour", "Aftertaste"] },
-  { afterField: "Acidity", fields: ["Acidity"] },
-  { afterField: "Sweetness", fields: ["Sweetness"] },
-  { afterField: "Mouthfeel", fields: ["Mouthfeel"] },
-  { afterField: "Overall", fields: ["Overall"] },
+  { afterField: "Overall", fields: FEEDBACK_FIELDS },
 ];
 const CUP_STATE_LABELS = {
   0: "OFF",
@@ -162,6 +158,14 @@ function calculateFinalCuppingScore({
   };
 }
 
+function hasAnyScore(scoresByField = {}) {
+  return FEEDBACK_FIELDS.some((field) => scoresByField?.[field] != null);
+}
+
+function countScores(scoresByField = {}) {
+  return FEEDBACK_FIELDS.filter((field) => scoresByField?.[field] != null).length;
+}
+
 function buildDefaultDefectsState() {
   return {
     moldy: false,
@@ -217,6 +221,17 @@ function formatTitleTemperature(value) {
   return raw.replace(/\s*C$/i, " °C") || "-- °C";
 }
 
+function formatElapsedTime(value) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return "00:00";
+  }
+
+  const minutes = Math.floor(numeric / 60);
+  const seconds = numeric % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function resolveSampleNumber(sampleNumber, cupIndex) {
   const explicitSampleNumber = Number.parseInt(sampleNumber, 10);
   if (Number.isInteger(explicitSampleNumber) && explicitSampleNumber > 0) {
@@ -234,27 +249,38 @@ function resolveSamplesInSession(samplesInSession) {
     : 1;
 }
 
-function CuppingTitleContent({ sampleNumber, samplesInSession, cupIndex, sampleColour, scale }) {
+function CuppingTitleContent({
+  sampleNumber,
+  samplesInSession,
+  cupIndex,
+  sampleColour,
+  scale,
+  pagerCurrent,
+  pagerTotal,
+}) {
   const displayNumber = resolveSampleNumber(sampleNumber, cupIndex);
   const displayTotal = resolveSamplesInSession(samplesInSession);
   const markerColour = sampleColour || "#d95f63";
 
   return (
-    <View style={[styles.cuppingHeaderTitle, { gap: 8 * scale }]}>
-      <View
-        style={[
-          styles.cuppingHeaderDot,
-          {
-            width: 14 * scale,
-            height: 14 * scale,
-            borderRadius: 7 * scale,
-            backgroundColor: markerColour,
-          },
-        ]}
-      />
-      <Text style={[styles.cuppingHeaderTitleText, { fontSize: 30 * scale, lineHeight: 36 * scale }]}>
-        {`${displayNumber}/${displayTotal}`}
-      </Text>
+    <View style={[styles.cuppingHeaderTitleStack, { gap: 2 * scale }]}>
+      <View style={[styles.cuppingHeaderTitle, { gap: 8 * scale }]}>
+        <View
+          style={[
+            styles.cuppingHeaderDot,
+            {
+              width: 14 * scale,
+              height: 14 * scale,
+              borderRadius: 7 * scale,
+              backgroundColor: markerColour,
+            },
+          ]}
+        />
+        <Text style={[styles.cuppingHeaderTitleText, { fontSize: 30 * scale, lineHeight: 36 * scale }]}>
+          {`${displayNumber}/${displayTotal}`}
+        </Text>
+      </View>
+      <SamplePagerIndicator current={pagerCurrent} total={pagerTotal} scale={scale} compact />
     </View>
   );
 }
@@ -287,6 +313,42 @@ function CuppingHeaderTemperature({ temp, scale }) {
         />
       </View>
       <Text style={styles.cuppingHeaderTempText}>{formatTitleTemperature(temp)}</Text>
+    </View>
+  );
+}
+
+function SamplePagerIndicator({ current, total, scale, compact = false }) {
+  if (!total || total <= 1) {
+    return null;
+  }
+
+  return (
+    <View
+      style={[
+        styles.samplePager,
+        {
+          gap: compact ? 5 * scale : 7 * scale,
+          paddingBottom: compact ? 0 : 8 * scale,
+        },
+      ]}
+    >
+      {Array.from({ length: total }).map((_, index) => {
+        const active = index === current;
+        return (
+          <View
+            key={`sample-page-${index}`}
+            style={[
+              styles.samplePagerDot,
+              {
+                width: (active ? 18 : 9) * scale * (compact ? 0.78 : 1),
+                height: 9 * scale * (compact ? 0.78 : 1),
+                borderRadius: 5 * scale,
+              },
+              active ? styles.samplePagerDotActive : null,
+            ]}
+          />
+        );
+      })}
     </View>
   );
 }
@@ -638,6 +700,10 @@ export function CuppingScreen({
   startInFinalMode = false,
   startInFinalSaved = false,
   isScanInProgress = false,
+  canSwipeSamples = false,
+  onSampleSwipe,
+  elapsedSeconds = null,
+  brewTimeSeconds = null,
 }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
@@ -664,6 +730,7 @@ export function CuppingScreen({
   const [savedDefectsSignature, setSavedDefectsSignature] = useState(() => buildDefectsSignature());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(elapsedSeconds);
   const nonUniformCups = nonUniformCupSlots.length;
   const defectiveCups = defectiveCupSlots.length;
   const currentDefectsSignature = useMemo(
@@ -678,6 +745,38 @@ export function CuppingScreen({
   );
   const hasUnsavedDefectChanges = currentDefectsSignature !== savedDefectsSignature;
   const hasPendingChanges = hasUnsavedChanges || hasUnsavedDefectChanges;
+  const samplePagerTotal = Number(cupTotal) || 0;
+  const samplePagerIndex = Math.max(
+    0,
+    Math.min(samplePagerTotal - 1, Number.isInteger(Number(sampleNumber)) ? Number(sampleNumber) - 1 : Number(cupIndex) || 0)
+  );
+  const canSwipeSamplePages = Boolean(canSwipeSamples && samplePagerTotal > 1 && typeof onSampleSwipe === "function");
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) => {
+          if (!canSwipeSamplePages) {
+            return false;
+          }
+          return Math.abs(gestureState.dx) > 42 && Math.abs(gestureState.dx) > Math.abs(gestureState.dy) * 1.6;
+        },
+        onPanResponderRelease: (_, gestureState) => {
+          if (!canSwipeSamplePages) {
+            return;
+          }
+          if (hasPendingChanges) {
+            setStatusMessage("Save changes before switching samples.");
+            return;
+          }
+          if (gestureState.dx < -48 && samplePagerIndex < samplePagerTotal - 1) {
+            onSampleSwipe("next");
+          } else if (gestureState.dx > 48 && samplePagerIndex > 0) {
+            onSampleSwipe("previous");
+          }
+        },
+      }),
+    [canSwipeSamplePages, hasPendingChanges, onSampleSwipe, samplePagerIndex, samplePagerTotal]
+  );
 
   const triggerBalloons = (onComplete) => {
     balloonAnimations.forEach((animation) => animation.setValue(0));
@@ -702,9 +801,12 @@ export function CuppingScreen({
     () => ({
       state: cupStatus?.state || CUP_STATE_LABELS[cupStateNumber] || "UNKNOWN",
       temp: cupStatus?.temp || "92 C",
-      time: cupStatus?.time || "04:20",
+      time:
+        cupStateNumber === 2 && displayElapsedSeconds !== null
+          ? `${formatElapsedTime(displayElapsedSeconds)}${brewTimeSeconds ? ` / ${formatElapsedTime(brewTimeSeconds)}` : ""}`
+          : cupStatus?.time || "04:20",
     }),
-    [cupStateNumber, cupStatus]
+    [brewTimeSeconds, cupStateNumber, cupStatus, displayElapsedSeconds]
   );
 
   const isNtagCup = tagType === "ntag_cup";
@@ -751,38 +853,54 @@ export function CuppingScreen({
   }, [cupStateNumber, isAromaPopulated, isFinalMode, isFinalSaved, isNtagCup]);
 
   const finalScoreSummary = useMemo(() => {
-    if (!isFinalMode || !isFinalSaved) {
-      return null;
-    }
-
-    const finalScoresByField = FEEDBACK_FIELDS.reduce((acc, field) => {
+    const scoresByField = FEEDBACK_FIELDS.reduce((acc, field) => {
       const finalEntries = (savedFeedback[field] || []).filter(
         (entry) => entry?.isFinal && entry?.score != null
       );
       const latestFinalEntry =
         finalEntries.length > 0 ? finalEntries[finalEntries.length - 1] : null;
-      acc[field] = latestFinalEntry?.score ?? 0;
+      acc[field] = unselectedFinalFields[field]
+        ? feedback[field]?.score ?? null
+        : latestFinalEntry?.score ?? feedback[field]?.score ?? null;
       return acc;
     }, {});
 
+    if (!hasAnyScore(scoresByField) || countScores(scoresByField) < FEEDBACK_FIELDS.length) {
+      return null;
+    }
+
     return calculateFinalCuppingScore({
-      finalScoresByField,
+      finalScoresByField: scoresByField,
       nonUniformCups,
       defectiveCups,
       numberOfCups: defectsCupTotal || cupTotal || 1,
     });
   }, [
-    isFinalMode,
-    isFinalSaved,
+    feedback,
     savedFeedback,
+    unselectedFinalFields,
     nonUniformCups,
     defectiveCups,
     defectsCupTotal,
     cupTotal,
   ]);
+  const isLiveScoreFinal = useMemo(
+    () =>
+      FEEDBACK_FIELDS.every((field) => {
+        const finalEntries = (savedFeedback[field] || []).filter((entry) => entry?.isFinal && entry?.score != null);
+        const hasSavedFinalEntry = finalEntries.length > 0;
+        const isFinalSelected =
+          (Boolean(selectedFinalFields[field]) || hasSavedFinalEntry) && !unselectedFinalFields[field];
+        return isFinalSelected && feedback[field]?.score != null;
+      }),
+    [feedback, savedFeedback, selectedFinalFields, unselectedFinalFields]
+  );
+  const liveScoreTitle = finalScoreSummary
+    ? `${isLiveScoreFinal ? "Final Score" : "Score"} ${finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION)}`
+    : "Score Pending";
   const cupIndexDisplay = `CUP ${String(cupIndex + 1).padStart(2, "0")} / ${String(cupTotal).padStart(2, "0")}`;
   const scoreDisplay =
-    isFinalMode && isFinalSaved && finalScoreSummary
+    isLiveScoreFinal && finalScoreSummary
       ? `  |  SCORE ${finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION)}`
       : "";
   const usesMockCuppingLayout = !isBrewing && (canCaptureFeedback || isFinalMode);
@@ -959,6 +1077,28 @@ export function CuppingScreen({
     setUnselectedFinalFields({});
     setHasUnsavedChanges(false);
   }, [sampleId, startInFinalMode, startInFinalSaved]);
+
+  useEffect(() => {
+    const numericElapsed = Number.parseInt(elapsedSeconds, 10);
+    setDisplayElapsedSeconds(Number.isFinite(numericElapsed) && numericElapsed >= 0 ? numericElapsed : null);
+  }, [elapsedSeconds, sampleId]);
+
+  useEffect(() => {
+    if (!isBrewing) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      setDisplayElapsedSeconds((prev) => {
+        if (prev === null || prev === undefined) {
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isBrewing, sampleId]);
 
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -1152,7 +1292,7 @@ export function CuppingScreen({
       <View style={styles.cuppingForm}>
         <View style={[styles.cuppingFormTitleRow, { marginTop: 12 * scale, gap: 8 * scale }]}>
           <Text style={[styles.cuppingFormTitle, { fontSize: 22 * scale, lineHeight: 28 * scale }]}>
-            Score Sample
+            {liveScoreTitle}
           </Text>
           <View
             style={[
@@ -1208,7 +1348,7 @@ export function CuppingScreen({
                     styles.cuppingNoteInput,
                     !noteGroupEnabled && styles.cuppingNoteInputDisabled,
                     {
-                      minHeight: 74 * scale,
+                      minHeight: 148 * scale,
                       borderRadius: 13 * scale,
                       paddingHorizontal: 15 * scale,
                       paddingTop: 12 * scale,
@@ -1496,7 +1636,7 @@ export function CuppingScreen({
   };
 
   return (
-    <View style={styles.screen}>
+    <View style={styles.screen} {...panResponder.panHandlers}>
       {usesMockCuppingLayout ? (
         <View style={styles.cuppingHeaderLayer}>
           <Header
@@ -1511,6 +1651,8 @@ export function CuppingScreen({
                 cupIndex={cupIndex}
                 sampleColour={sampleColour}
                 scale={scale}
+                pagerCurrent={samplePagerIndex}
+                pagerTotal={samplePagerTotal}
               />
             }
             rightContent={<CuppingHeaderTemperature temp={statusDisplay.temp} scale={scale} />}
@@ -1536,6 +1678,7 @@ export function CuppingScreen({
           </View>
 
           <CupStatusStrip state={statusDisplay.state} temp={statusDisplay.temp} time={statusDisplay.time} />
+          <SamplePagerIndicator current={samplePagerIndex} total={samplePagerTotal} scale={scale} />
         </>
       )}
 
@@ -1783,6 +1926,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  cuppingHeaderTitleStack: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cuppingHeaderDot: {},
   cuppingHeaderTitleText: {
     fontWeight: "700",
@@ -1812,6 +1959,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     fontWeight: "700",
     color: colors.text,
+  },
+  samplePager: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+  },
+  samplePagerDot: {
+    backgroundColor: "#cfd4d8",
+  },
+  samplePagerDotActive: {
+    backgroundColor: "#3f4852",
   },
   hero: {
     paddingTop: 24,

@@ -682,6 +682,114 @@ export async function writeNdefMinimal(records) {
   }
 }
 
+export async function readAndWriteNdefMinimal(buildWritePayload, options = {}) {
+  try {
+    await startMinimal();
+    logNfcEvent("read+write start");
+    await requestNdefTechnology(options.alertMessage || "Hold your phone near the cup to read and write NDEF.");
+    const tag = await getCurrentTagWithRetry("read+write");
+    const ndefMessage = Array.isArray(tag?.ndefMessage) ? tag.ndefMessage : [];
+    const parsed = parseNdefMessageMinimal(ndefMessage);
+    const recordDebugs = ndefMessage.map((record, index) => ({
+      index: index + 1,
+      ...summarizeRecordForDebug(record),
+    }));
+    const readResult = {
+      tag,
+      parsed,
+      recordCount: ndefMessage.length,
+    };
+
+    logNfcEvent("read+write read result", {
+      recordCount: ndefMessage.length,
+      text1: parsed.text1,
+      text2: parsed.text2,
+      text3: parsed.text3,
+      text4: parsed.text4,
+      rawText1: parsed?.raw?.text1 ?? null,
+      rawText4: parsed?.raw?.text4 ?? null,
+      recordDebugs,
+    });
+
+    const writePayload = await buildWritePayload(readResult);
+    const records = writePayload?.records || {};
+    const metadataOnly = Boolean(writePayload?.metadataOnly);
+    const exactPayloads = buildExactTextPayloads(records);
+    const compactPreview = {
+      text1: compactText1Payload(records?.text1),
+      text2: compactText2Payload(records?.text2),
+      text3: compactText3Payload(records?.text3),
+      text4: compactText4Payload(records?.text4),
+    };
+    const builtRecords = metadataOnly
+      ? buildSingleMetadataDiagnosticRecords(records)
+      : buildNdefRecordsMinimal(records);
+    const debugSummary = buildDebugSummaryFromBuiltRecords(builtRecords);
+
+    logNfcEvent(metadataOnly ? "read+write metadata-only write start" : "read+write write start", {
+      compactPreview,
+      exactText4: exactPayloads.text4,
+      exactText4Length: exactPayloads.text4.length,
+      encodedMessageLength: debugSummary.encodedMessageLength,
+      encodedMessageHeadHex: debugSummary.encodedMessageHeadHex,
+      encodedMessageTailHex: debugSummary.encodedMessageTailHex,
+      record1Debug: debugSummary.recordSummaries[0],
+      record2Debug: debugSummary.recordSummaries[1],
+      record3Debug: debugSummary.recordSummaries[2],
+      record4Debug: debugSummary.recordSummaries[3],
+    });
+
+    await delay(WRITE_SESSION_SETTLE_MS);
+    const bytes = encodeBuiltRecords(builtRecords);
+    let writeSucceeded = false;
+    for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
+      try {
+        await NfcManager.ndefHandler.writeNdefMessage(bytes);
+        writeSucceeded = true;
+        break;
+      } catch (error) {
+        logNativeNfcError("read+write writeNdefMessage", error);
+        const shouldRetry =
+          attempt < WRITE_RETRY_ATTEMPTS && isRetryableWriteError(error);
+        if (!shouldRetry) {
+          throw error;
+        }
+
+        logNfcEvent("read+write write retry scheduled", {
+          attempt: attempt + 1,
+          delayMs: WRITE_RETRY_DELAY_MS,
+        });
+        await delay(WRITE_RETRY_DELAY_MS);
+      }
+    }
+
+    if (!writeSucceeded) {
+      throw new Error("Unable to write NFC tag.");
+    }
+
+    logNfcEvent(metadataOnly ? "read+write metadata-only write success" : "read+write write success", {
+      byteLength: bytes.length,
+      compactPreview,
+    });
+    await closeIosSessionNow();
+    return {
+      ok: true,
+      tag,
+      parsed,
+      recordCount: ndefMessage.length,
+      compactPreview,
+      result: writePayload?.result,
+    };
+  } catch (error) {
+    throw normalizeNfcError(error, "Unable to read and write NFC tag.");
+  } finally {
+    await cancelMinimal();
+    if (Platform.OS === "ios") {
+      await delay(IOS_SESSION_SETTLE_MS);
+    }
+  }
+}
+
 export async function writeSingleRecordMetadataDiagnosticMinimal(records) {
   try {
     await startMinimal();

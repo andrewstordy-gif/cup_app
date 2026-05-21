@@ -46,14 +46,16 @@ export function AddCoffeeSampleSheet({
 
           <Text style={styles.sheetSubtitle}>
             {loading
-              ? statusMessage || "Writing session data to the selected cup..."
-              : "Add details for the scanned cup, then scan it again to write the session data."}
+              ? statusMessage || "Scan the cup to write session data..."
+              : "Add coffee details, then scan the cup to write session data and add it to this session."}
           </Text>
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Cup UUID</Text>
-            <Text style={styles.readOnlyValue}>{cupUUID || "-"}</Text>
-          </View>
+          {cupUUID ? (
+            <View style={styles.fieldBlock}>
+              <Text style={styles.fieldLabel}>Cup UUID</Text>
+              <Text style={styles.readOnlyValue}>{cupUUID}</Text>
+            </View>
+          ) : null}
 
           <View style={styles.fieldBlock}>
             <Text style={styles.fieldLabel}>Coffee Name / Origin</Text>
@@ -131,7 +133,7 @@ export function AddCoffeeSampleSheet({
           <View style={styles.sheetActions}>
             {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
             <FullPageButton
-              label="SCAN CUP"
+              label="SCAN & ADD CUP"
               onPress={onScanCup}
               loading={loading}
               disabled={loading}

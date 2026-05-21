@@ -7,6 +7,7 @@ import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import {
+  readAndWriteNdefMinimal,
   readNdefMinimal,
   writeNdefMetadataOnlyMinimal,
   writeNdefMinimal,
@@ -15,6 +16,7 @@ import {
   NFC_TAG_TYPES,
   classifyNfcTagReadResult,
   getNfcTagIdentifier,
+  isSmartCupHardwareTag,
 } from "../../../services/nfcTagClassifier";
 import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
@@ -48,6 +50,32 @@ import {
   saveSessionWithSamples,
 } from "../../../data/sessionRepository";
 
+const RECOVERED_SMART_CUP_TEXT3 = {
+  triggerTemp: 40,
+  maxStartTemp: 93,
+  brewTime: 240,
+  maxCupTemp: 70,
+  maxTime: 3600,
+  ledBrightness: 100,
+};
+
+function canRepairSmartCupNdefShape(tagClassification) {
+  return (
+    tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
+    tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+    tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG
+  );
+}
+
+function buildRecoveredSmartCupText2(tag) {
+  return {
+    u: getNfcTagIdentifier(tag),
+    t: 0,
+    m: 0,
+    b: 0,
+  };
+}
+
 export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [sessionUUID, setSessionUUID] = useState(() => generateSessionUUID());
   const [sessionDisplayId, setSessionDisplayId] = useState(() => formatSessionDisplayId(sessionUUID));
@@ -65,8 +93,6 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [sheetProcess, setSheetProcess] = useState("");
   const [sheetCupNumber, setSheetCupNumber] = useState(3);
   const [sheetSampleColour, setSheetSampleColour] = useState(SAMPLE_COLOUR_OPTIONS[0].hex);
-  const [pendingCupUUID, setPendingCupUUID] = useState("");
-  const [pendingTagType, setPendingTagType] = useState("");
   const [sheetErrors, setSheetErrors] = useState({});
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [isNfcWriting, setIsNfcWriting] = useState(false);
@@ -260,114 +286,15 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
     setSheetProcess("");
     setSheetCupNumber(3);
     setSheetSampleColour(SAMPLE_COLOUR_OPTIONS[0].hex);
-    setPendingCupUUID("");
-    setPendingTagType("");
     setSheetErrors({});
     setScanStatusMessage("");
-    void handleIdentifyCupForSample();
+    setIsAddSheetVisible(true);
   };
 
   const handleCloseAddSheet = () => {
     setIsAddSheetVisible(false);
-    setPendingCupUUID("");
-    setPendingTagType("");
     setSheetErrors({});
     setScanStatusMessage("");
-  };
-
-  const handleIdentifyCupForSample = async () => {
-    if (!sessionName.trim()) {
-      setScanStatusMessage("Please enter Session Name before scanning cup.");
-      return;
-    }
-
-    setIsNfcWriting(true);
-
-    try {
-      setScanStatusMessage("Scan cup to identify it for this sample...");
-      const result = await readNdefMinimal();
-      const parsed = result?.parsed || {};
-      const tag = result?.tag;
-      const tagClassification = classifyNfcTagReadResult(result);
-      const canUseNtagIdentifier =
-        tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
-        tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
-        tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG;
-      const detectedCupUUID =
-        tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-          ? resolveCupUUIDFromReadResult({ parsed, tag })
-          : canUseNtagIdentifier
-            ? getNfcTagIdentifier(tag)
-            : null;
-      if (!detectedCupUUID) {
-        throw new Error("NFC tag format is not recognised yet. Please scan a smart cup or NTAG sticker.");
-      }
-
-      const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
-      const conflictingSession = await findPendingSessionByCupUUID({
-        cupUUID: normalizedDetectedCupUUID,
-        excludeSessionId: sessionUUID,
-      });
-
-      if (conflictingSession) {
-        const conflictName =
-          conflictingSession.sessionName || conflictingSession.sessionDisplayId || "another session";
-        const conflictType = conflictingSession.sessionType || "Pending";
-        throw createPendingConflictError(
-          `Cup UUID ${normalizedDetectedCupUUID} is already assigned to ${conflictName} (${conflictType}).`
-        );
-      }
-
-      setPendingCupUUID(normalizedDetectedCupUUID);
-      setPendingTagType(tagClassification.type);
-      const tagTypeLabel =
-        tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-          ? "Smart cup"
-          : canUseNtagIdentifier
-            ? "NTAG cup"
-            : "NFC tag";
-      setScanStatusMessage(
-        `${tagTypeLabel} ${normalizedDetectedCupUUID} identified. Add details, then scan again to write.`
-      );
-      setIsAddSheetVisible(true);
-    } catch (error) {
-      const message = error?.message || "Unable to scan cup.";
-      const normalizedMessage = String(message).toLowerCase();
-      const isUserCancelled =
-        normalizedMessage.includes("scan cancelled") ||
-        normalizedMessage.includes("session was cancelled");
-
-      await playNfcFailureFeedback(error);
-      void logAppError({
-        screen: "CuppingSessionDetails",
-        route: "Cupping Session Details",
-        flow: "identify_cup_for_sample",
-        friendlyMessage: message,
-        error,
-        context: {
-          sessionUUID,
-          sessionName,
-          sessionType,
-          sessionDate,
-        },
-      });
-
-      if (isUserCancelled) {
-        setScanStatusMessage(
-          "No NDEF data was read. If this was a blank NTAG, format it with a simple NDEF record first, then try again."
-        );
-      } else if (error?.code === PENDING_CONFLICT_ERROR) {
-        setCupBlockedMessage(message);
-        setScanStatusMessage(message);
-        setTimeout(() => {
-          setIsCupBlockedDialogVisible(true);
-        }, 0);
-      } else {
-        setScanStatusMessage(message);
-      }
-    } finally {
-      setIsNfcWriting(false);
-    }
   };
 
   const validateAddSheet = () => {
@@ -403,76 +330,85 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       return;
     }
 
-    if (!pendingCupUUID) {
-      setScanStatusMessage("Please identify a cup before writing sample details.");
-      return;
-    }
-
     setIsNfcWriting(true);
 
     try {
-      const normalizedDetectedCupUUID = pendingCupUUID;
-      const duplicateIndex = samples.findIndex(
-        (sample) => normalizeCupUuid(sample.cupUUID) === normalizedDetectedCupUUID
-      );
-      const sampleNumber = duplicateIndex === -1 ? samples.length + 1 : duplicateIndex + 1;
-      const sessionSampleCount = normalizePositiveInteger(
-        samplesInSession,
-        Math.max(samples.length, sampleNumber)
-      );
-      const sampleColour = normalizeSampleColour(sheetSampleColour);
-      const isNtagCup =
-        pendingTagType === NFC_TAG_TYPES.NTAG_CUP ||
-        pendingTagType === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
-        pendingTagType === NFC_TAG_TYPES.EMPTY_TAG;
-      const sessionMetadata = buildCompactSessionMetadata({
-        coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
-        process: normalizeProcessKey(sheetProcess),
-        cupNumber: sheetCupNumber,
-        samplesInSession: sessionSampleCount,
-        sampleNumber,
-        sampleColour,
-        sessionName: sessionName.trim(),
-        sessionType: normalizeSessionTypeKey(sessionType),
-        sessionDate,
-        sessionUUID,
-      });
-      setScanStatusMessage(`Scan cup ${normalizedDetectedCupUUID} to write session data...`);
+      setScanStatusMessage("Scan cup to write session data...");
+      const writeResult = await readAndWriteNdefMinimal(async (result) => {
+        const parsed = result?.parsed || {};
+        const tag = result?.tag;
+        const tagClassification = classifyNfcTagReadResult(result);
+        const isSmartCupHardware = isSmartCupHardwareTag(tag);
+        const isRepairableSmartCup =
+          isSmartCupHardware &&
+          tagClassification.type !== NFC_TAG_TYPES.SMART_CUP &&
+          canRepairSmartCupNdefShape(tagClassification);
+        if (isSmartCupHardware && tagClassification.type !== NFC_TAG_TYPES.SMART_CUP && !isRepairableSmartCup) {
+          throw new Error("Smart cup records could not be read. Please retry and hold the phone still.");
+        }
+        const canUseNtagIdentifier =
+          !isSmartCupHardware &&
+          (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
+            tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+            tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
+        const detectedCupUUID =
+          tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+            ? resolveCupUUIDFromReadResult({ parsed, tag })
+            : isRepairableSmartCup
+              ? getNfcTagIdentifier(tag)
+            : canUseNtagIdentifier
+              ? getNfcTagIdentifier(tag)
+              : null;
+        if (!detectedCupUUID) {
+          throw new Error("NFC tag format is not recognised yet. Please scan a smart cup or NTAG sticker.");
+        }
 
-      if (isNtagCup) {
-        await writeNdefMetadataOnlyMinimal({
-          text4: sessionMetadata,
+        const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
+        const conflictingSession = await findPendingSessionByCupUUID({
+          cupUUID: normalizedDetectedCupUUID,
+          excludeSessionId: sessionUUID,
         });
-      } else {
-        await writeNdefMinimal({
-          text1: {
-            state: 1,
-          },
-          text2: {},
-          text3: {},
-          text4: sessionMetadata,
-        });
-      }
 
-      if (duplicateIndex === -1) {
-        setSamples((prev) => [
-          ...prev,
-          createSample({
-            coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
-            process: String(normalizeProcessKey(sheetProcess)),
-            cupUUID: normalizedDetectedCupUUID,
-            cupNumber: sheetCupNumber,
-            sampleNumber,
-            sampleColour,
-            verificationStatus: "pending",
-          }),
-        ]);
-      } else {
-        setSamples((prev) =>
-          prev.map((sample, index) =>
-            index === duplicateIndex
-              ? {
-                  ...sample,
+        if (conflictingSession) {
+          const conflictName =
+            conflictingSession.sessionName || conflictingSession.sessionDisplayId || "another session";
+          const conflictType = conflictingSession.sessionType || "Pending";
+          throw createPendingConflictError(
+            `Cup UUID ${normalizedDetectedCupUUID} is already assigned to ${conflictName} (${conflictType}).`
+          );
+        }
+
+        const duplicateIndex = samples.findIndex(
+          (sample) => normalizeCupUuid(sample.cupUUID) === normalizedDetectedCupUUID
+        );
+        const sampleNumber = duplicateIndex === -1 ? samples.length + 1 : duplicateIndex + 1;
+        const sessionSampleCount = normalizePositiveInteger(
+          samplesInSession,
+          Math.max(samples.length, sampleNumber)
+        );
+        const sampleColour = normalizeSampleColour(sheetSampleColour);
+        const isNtagCup =
+          !isSmartCupHardware &&
+          (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
+            tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+            tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
+        const sessionMetadata = buildCompactSessionMetadata({
+          coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
+          process: normalizeProcessKey(sheetProcess),
+          cupNumber: sheetCupNumber,
+          samplesInSession: sessionSampleCount,
+          sampleNumber,
+          sampleColour,
+          sessionName: sessionName.trim(),
+          sessionType: normalizeSessionTypeKey(sessionType),
+          sessionDate,
+          sessionUUID,
+        });
+        const nextSamples =
+          duplicateIndex === -1
+            ? [
+                ...samples,
+                createSample({
                   coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
                   process: String(normalizeProcessKey(sheetProcess)),
                   cupUUID: normalizedDetectedCupUUID,
@@ -480,15 +416,68 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
                   sampleNumber,
                   sampleColour,
                   verificationStatus: "pending",
-                }
-              : sample
-          )
-        );
-      }
+                }),
+              ]
+            : samples.map((sample, index) =>
+                index === duplicateIndex
+                  ? {
+                      ...sample,
+                      coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
+                      process: String(normalizeProcessKey(sheetProcess)),
+                      cupUUID: normalizedDetectedCupUUID,
+                      cupNumber: sheetCupNumber,
+                      sampleNumber,
+                      sampleColour,
+                      verificationStatus: "pending",
+                    }
+                  : sample
+              );
+
+        return {
+          metadataOnly: isNtagCup,
+          records: isNtagCup
+            ? { text4: sessionMetadata }
+            : {
+                text1: {
+                  ...(tagClassification.type === NFC_TAG_TYPES.SMART_CUP ? parsed?.text1 || {} : {}),
+                  state: 1,
+                },
+                text2:
+                  tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+                    ? parsed?.text2 || {}
+                    : buildRecoveredSmartCupText2(tag),
+                text3:
+                  tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+                    ? parsed?.text3 || {}
+                    : RECOVERED_SMART_CUP_TEXT3,
+                text4: sessionMetadata,
+              },
+          result: {
+            duplicateIndex,
+            normalizedDetectedCupUUID,
+            nextSamples,
+          },
+        };
+      });
+      const {
+        duplicateIndex,
+        normalizedDetectedCupUUID,
+        nextSamples,
+      } = writeResult.result || {};
+
+      await saveSessionWithSamples({
+        sessionUUID,
+        sessionDisplayId,
+        sessionDate,
+        sessionName,
+        sessionType,
+        samplesInSession,
+        status: sessionStatus,
+        samples: nextSamples,
+      });
+      setSamples(nextSamples);
 
       setIsAddSheetVisible(false);
-      setPendingCupUUID("");
-      setPendingTagType("");
       if (duplicateIndex !== -1) {
         setOverwriteDialogMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten.`);
         setIsOverwriteDialogVisible(true);
@@ -515,7 +504,6 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
           sessionName,
           sessionType,
           sessionDate,
-          pendingCupUUID,
           sheetCoffeeNameOrigin,
           sheetProcess,
           sheetCupNumber,
@@ -554,7 +542,23 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
       const result = await readNdefMinimal();
       const parsed = result?.parsed || {};
       const tag = result?.tag;
-      const detectedCupUUID = normalizeCupUuid(resolveCupUUIDFromReadResult({ parsed, tag }));
+      const tagClassification = classifyNfcTagReadResult(result);
+      const isSmartCupHardware = isSmartCupHardwareTag(tag);
+      const isRepairableSmartCup =
+        isSmartCupHardware &&
+        tagClassification.type !== NFC_TAG_TYPES.SMART_CUP &&
+        canRepairSmartCupNdefShape(tagClassification);
+      if (isSmartCupHardware && tagClassification.type !== NFC_TAG_TYPES.SMART_CUP && !isRepairableSmartCup) {
+        throw new Error("Smart cup records could not be read. Please retry and hold the phone still.");
+      }
+      const isNtagCup =
+        !isSmartCupHardware &&
+        (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
+          tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+          tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
+      const detectedCupUUID = normalizeCupUuid(
+        isNtagCup || isRepairableSmartCup ? getNfcTagIdentifier(tag) : resolveCupUUIDFromReadResult({ parsed, tag })
+      );
       const expectedCupUUID = normalizeCupUuid(sample.cupUUID);
 
       if (!detectedCupUUID || detectedCupUUID !== expectedCupUUID) {
@@ -565,19 +569,26 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         return;
       }
 
+      const expectedSampleNumber = samples.findIndex((entry) => entry.id === sampleId) + 1;
+      const expectedSamplesInSession = normalizePositiveInteger(
+        samplesInSession,
+        Math.max(samples.length, expectedSampleNumber)
+      );
       const expectedMetadata = buildCompactSessionMetadata({
         coffeeNameOrigin: sample.coffeeNameOrigin,
         process: sample.process,
         cupNumber: sample.cupNumber,
-        samplesInSession: normalizePositiveInteger(samplesInSession, samples.length),
-        sampleNumber: samples.findIndex((entry) => entry.id === sampleId) + 1,
+        samplesInSession: expectedSamplesInSession,
+        sampleNumber: expectedSampleNumber,
         sampleColour: sample.sampleColour,
         sessionName,
         sessionType,
         sessionDate,
         sessionUUID,
       });
-      const actualMetadata = parsed?.raw?.text4 ? JSON.parse(parsed.raw.text4) : parsed?.text4;
+      const actualMetadata =
+        tagClassification.metadataPayload ||
+        (parsed?.raw?.text4 ? JSON.parse(parsed.raw.text4) : parsed?.text4);
 
       if (doesMetadataMatchExpected(actualMetadata, expectedMetadata)) {
         setSampleVerificationStatus(sampleId, "verified");
@@ -624,12 +635,17 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
     }
 
     const expectedCupUUID = normalizeCupUuid(sample.cupUUID);
+    const expectedSampleNumber = samples.findIndex((entry) => entry.id === sampleId) + 1;
+    const expectedSamplesInSession = normalizePositiveInteger(
+      samplesInSession,
+      Math.max(samples.length, expectedSampleNumber)
+    );
     const expectedMetadata = buildCompactSessionMetadata({
       coffeeNameOrigin: sample.coffeeNameOrigin,
       process: sample.process,
       cupNumber: sample.cupNumber,
-      samplesInSession: normalizePositiveInteger(samplesInSession, samples.length),
-      sampleNumber: samples.findIndex((entry) => entry.id === sampleId) + 1,
+      samplesInSession: expectedSamplesInSession,
+      sampleNumber: expectedSampleNumber,
       sampleColour: sample.sampleColour,
       sessionName,
       sessionType,
@@ -641,14 +657,59 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
     try {
       setScanStatusMessage(`Scan cup ${expectedCupUUID} to rewrite its session data...`);
-      await writeNdefMinimal({
-        text1: {
-          state: 1,
-        },
-        text2: {},
-        text3: {},
-        text4: expectedMetadata,
-      });
+      const result = await readNdefMinimal();
+      const parsed = result?.parsed || {};
+      const tag = result?.tag;
+      const tagClassification = classifyNfcTagReadResult(result);
+      const isSmartCupHardware = isSmartCupHardwareTag(tag);
+      const isRepairableSmartCup =
+        isSmartCupHardware &&
+        tagClassification.type !== NFC_TAG_TYPES.SMART_CUP &&
+        canRepairSmartCupNdefShape(tagClassification);
+      if (isSmartCupHardware && tagClassification.type !== NFC_TAG_TYPES.SMART_CUP && !isRepairableSmartCup) {
+        throw new Error("Smart cup records could not be read. Please retry and hold the phone still.");
+      }
+      const isNtagCup =
+        !isSmartCupHardware &&
+        (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
+          tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+          tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
+
+      if (isNtagCup) {
+        const detectedTagId = normalizeCupUuid(getNfcTagIdentifier(tag));
+        if (!detectedTagId || detectedTagId !== expectedCupUUID) {
+          throw new Error(`Scanned cup ${detectedTagId || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
+        }
+
+        await writeNdefMetadataOnlyMinimal({
+          text4: expectedMetadata,
+        });
+      } else if (tagClassification.type === NFC_TAG_TYPES.SMART_CUP || isRepairableSmartCup) {
+        const detectedCupUUID = normalizeCupUuid(
+          isRepairableSmartCup ? getNfcTagIdentifier(tag) : resolveCupUUIDFromReadResult({ parsed, tag })
+        );
+        if (!detectedCupUUID || detectedCupUUID !== expectedCupUUID) {
+          throw new Error(`Scanned cup ${detectedCupUUID || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
+        }
+
+        await writeNdefMinimal({
+          text1:
+            tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+              ? parsed?.text1 || {}
+              : { state: 1 },
+          text2:
+            tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+              ? parsed?.text2 || {}
+              : buildRecoveredSmartCupText2(tag),
+          text3:
+            tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+              ? parsed?.text3 || {}
+              : RECOVERED_SMART_CUP_TEXT3,
+          text4: expectedMetadata,
+        });
+      } else {
+        throw new Error("NFC tag format is not recognised yet. Please scan the matching cup or NTAG sticker.");
+      }
 
       setSampleVerificationStatus(sampleId, "pending");
       setScanStatusMessage(`Cup ${expectedCupUUID} rewritten. Please run Check Cup to verify it.`);
@@ -918,7 +979,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
       <AddCoffeeSampleSheet
         visible={isAddSheetVisible}
-        cupUUID={pendingCupUUID}
+        cupUUID=""
         coffeeNameOrigin={sheetCoffeeNameOrigin}
         process={sheetProcess}
         cupNumber={sheetCupNumber}

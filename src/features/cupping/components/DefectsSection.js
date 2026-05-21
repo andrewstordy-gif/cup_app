@@ -136,7 +136,7 @@ function DesignCDefectItem({
   scale = 1,
 }) {
   return (
-    <View style={[styles.designDefectItem, { minHeight: 150 * scale }]}>
+    <View style={[styles.designDefectItem, { minHeight: 112 * scale }]}>
       <View style={styles.designCupFlagRow}>
         <Text style={[styles.designDefectLabel, { fontSize: 25 * scale, lineHeight: 31 * scale }]}>
           {title}
@@ -154,9 +154,60 @@ function DesignCDefectItem({
         style={[
           styles.designDefectDescription,
           {
-            marginTop: 3 * scale,
+            marginTop: 1 * scale,
             fontSize: 21 * scale,
-            lineHeight: 27 * scale,
+            lineHeight: 25 * scale,
+          },
+          disabled && styles.disabledTextBody,
+        ]}
+      >
+        {description}
+      </Text>
+    </View>
+  );
+}
+
+function DesignCSingleDefectItem({
+  title,
+  description,
+  checked,
+  onPress,
+  disabled = false,
+  scale = 1,
+}) {
+  return (
+    <View style={[styles.designDefectItem, { minHeight: 104 * scale }]}>
+      <Pressable
+        style={styles.designCupFlagRow}
+        onPress={onPress}
+        disabled={disabled}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked, disabled }}
+        accessibilityLabel={`${title} defect`}
+      >
+        <Text style={[styles.designDefectLabel, { fontSize: 25 * scale, lineHeight: 31 * scale }]}>
+          {title}
+        </Text>
+        <View
+          style={[
+            styles.designCupBox,
+            {
+              width: 30 * scale,
+              height: 30 * scale,
+              borderWidth: 2.4 * scale,
+            },
+            checked && styles.designCupBoxSelected,
+            disabled && styles.rowDisabled,
+          ]}
+        />
+      </Pressable>
+      <Text
+        style={[
+          styles.designDefectDescription,
+          {
+            marginTop: 1 * scale,
+            fontSize: 21 * scale,
+            lineHeight: 25 * scale,
           },
           disabled && styles.disabledTextBody,
         ]}
@@ -183,23 +234,17 @@ export function DefectsSection({
 }) {
   if (variant === "designC") {
     const totalBoxes = Math.max(1, Number(cupTotal) || 1);
-    const getDefectSlots = (key) => {
-      if (Array.isArray(defectCupSlots?.[key])) {
-        return defectCupSlots[key];
-      }
-      return defects?.[key] ? [1] : [];
-    };
 
-    const setDefectSlots = (key, slots) => {
-      onChangeDefectCupSlots?.(key, slots);
-      if (!onChangeDefectCupSlots) {
-        onToggleDefect?.(key);
+    const toggleSingleDefect = (key) => {
+      if (Array.isArray(defectCupSlots?.[key]) && defectCupSlots[key].length > 0) {
+        onChangeDefectCupSlots?.(key, []);
       }
+      onToggleDefect?.(key);
     };
 
     return (
       <View style={styles.designSection}>
-        <View style={[styles.designIntro, { marginBottom: 42 * scale }]}>
+        <View style={[styles.designIntro, { marginBottom: 24 * scale }]}>
           <Text style={[styles.designIntroText, { fontSize: 21 * scale, lineHeight: 27 * scale }]}>
             Record any negative flavours that affect cup quality.
           </Text>
@@ -215,15 +260,24 @@ export function DefectsSection({
           scale={scale}
         />
 
+        <DesignCDefectItem
+          title="DEFECTIVE CUPS"
+          description="Cups with a clear defect that should be penalised"
+          selectedSlots={defectiveCupSlots}
+          maxCount={totalBoxes}
+          disabled={disabled}
+          onChange={onChangeDefectiveCupSlots}
+          scale={scale}
+        />
+
         {DEFECT_OPTIONS.map((option) => (
-          <DesignCDefectItem
+          <DesignCSingleDefectItem
             key={option.key}
             title={option.title}
             description={option.description}
-            selectedSlots={getDefectSlots(option.key)}
-            maxCount={totalBoxes}
+            checked={Boolean(defects?.[option.key]) || (defectCupSlots?.[option.key] || []).length > 0}
             disabled={disabled}
-            onChange={(slots) => setDefectSlots(option.key, slots)}
+            onPress={() => toggleSingleDefect(option.key)}
             scale={scale}
           />
         ))}

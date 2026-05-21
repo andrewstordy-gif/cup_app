@@ -16,11 +16,13 @@ import {
   NFC_TAG_TYPES,
   classifyNfcTagReadResult,
   getNfcTagIdentifier,
+  isSmartCupHardwareTag,
 } from "../services/nfcTagClassifier";
 import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
 import { logAppError } from "../services/errorLogger";
 import {
   findActiveSampleByCupUUID,
+  getSessionById,
   resolveActiveSampleFromCupMetadata,
 } from "../data/sessionRepository";
 
@@ -44,6 +46,8 @@ export function AppNavigator() {
   const [route, setRoute] = useState("Home");
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedCupContext, setSelectedCupContext] = useState(null);
+  const [sessionSampleContexts, setSessionSampleContexts] = useState([]);
+  const [sampleRuntimeById, setSampleRuntimeById] = useState({});
   const [homeTemperatureC, setHomeTemperatureC] = useState(null);
   const [homeStateLabel, setHomeStateLabel] = useState("Off");
   const [homeTimeLabel, setHomeTimeLabel] = useState("00:00");
@@ -169,6 +173,19 @@ export function AppNavigator() {
 
   const normalizeCupUuid = (value) => String(value || "").trim().toUpperCase();
 
+  const rememberSampleRuntime = (sampleId, runtime) => {
+    if (!sampleId) {
+      return;
+    }
+    setSampleRuntimeById((prev) => ({
+      ...prev,
+      [sampleId]: {
+        ...(prev[sampleId] || {}),
+        ...runtime,
+      },
+    }));
+  };
+
   const formatTemp = (value) => {
     const numeric = Number.parseFloat(value);
     if (!Number.isFinite(numeric)) {
@@ -257,10 +274,11 @@ export function AppNavigator() {
     return parsedCupNumber;
   };
 
-  const isNtagCupLike = (tagClassification) =>
-    tagClassification?.type === NFC_TAG_TYPES.NTAG_CUP ||
-    tagClassification?.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
-    tagClassification?.type === NFC_TAG_TYPES.EMPTY_TAG;
+  const isNtagCupLike = (tagClassification, tag) =>
+    !isSmartCupHardwareTag(tag) &&
+    (tagClassification?.type === NFC_TAG_TYPES.NTAG_CUP ||
+      tagClassification?.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+      tagClassification?.type === NFC_TAG_TYPES.EMPTY_TAG);
 
   const scanCupForAssessment = async ({ statusPrefix } = {}) => {
     const flowEvents = [];
@@ -296,7 +314,7 @@ export function AppNavigator() {
       const tagClassification = classifyNfcTagReadResult(readResult);
       addFlowEvent(flowEvents, `TAG_CLASSIFIED type=${tagClassification.type} reason=${tagClassification.reason}`);
 
-      if (isNtagCupLike(tagClassification)) {
+      if (isNtagCupLike(tagClassification, readResult?.tag)) {
         const tagId = normalizeCupUuid(getNfcTagIdentifier(readResult?.tag));
         if (!tagId) {
           addFlowEvent(flowEvents, "NTAG_ID_MISSING");
@@ -345,6 +363,15 @@ export function AppNavigator() {
           startInFinalMode: false,
           startInFinalSaved: false,
         });
+        rememberSampleRuntime(activeSample.sampleId, {
+          tagType: NFC_TAG_TYPES.NTAG_CUP,
+          cupStateNumber: 3,
+          cupStatus: {
+            state: "CUPPING",
+            temp: "N/A",
+            time: "00:00",
+          },
+        });
         setScanStatusMessage("");
         setRoute("Cupping");
         addFlowEvent(flowEvents, `ROUTE_NTAG_CUPPING id=${tagId}`);
@@ -358,10 +385,11 @@ export function AppNavigator() {
 
       const cupState = resolveCupState(parsed);
       const elapsedSeconds = resolveElapsedSeconds(parsed);
+      const brewTimeSeconds = resolveBrewTimeSeconds(parsed);
       setHomeTemperatureC(resolveTemperatureC(parsed));
       setHomeTimeLabel(formatTime(elapsedSeconds));
       setHomeElapsedSeconds(elapsedSeconds);
-      setHomeBrewTimeSeconds(resolveBrewTimeSeconds(parsed));
+      setHomeBrewTimeSeconds(brewTimeSeconds);
       setHomeStateLabel(getStateLabel(cupState));
       if (cupState === 0) {
         addFlowEvent(flowEvents, "STATE_SLEEPING");
@@ -382,7 +410,18 @@ export function AppNavigator() {
         throw new Error("Could not read cup UUID from NDEF Text 2.");
       }
 
-      if (isNoSessionMode(parsed)) {
+      const noSessionMode = isNoSessionMode(parsed);
+      const importedSample = noSessionMode
+        ? null
+        : await resolveActiveSampleFromCupMetadata({
+            cupUUID,
+            metadata: parsed?.text4,
+          });
+      const activeSample = importedSample || (await findActiveSampleByCupUUID(cupUUID));
+      if (activeSample && noSessionMode) {
+        addFlowEvent(flowEvents, `NO_SESSION_IGNORED_ACTIVE_SAMPLE uuid=${cupUUID}`);
+      }
+      if (!activeSample && noSessionMode) {
         addFlowEvent(flowEvents, `NO_SESSION_MODE state=${String(cupState)}`);
         setSelectedCupContext(null);
         setHomeSampleColour(null);
@@ -399,12 +438,6 @@ export function AppNavigator() {
         }
         return;
       }
-
-      const importedSample = await resolveActiveSampleFromCupMetadata({
-        cupUUID,
-        metadata: parsed?.text4,
-      });
-      const activeSample = importedSample || (await findActiveSampleByCupUUID(cupUUID));
       if (!activeSample) {
         addFlowEvent(flowEvents, `NO_ACTIVE_SAMPLE uuid=${cupUUID}`);
         setScanStatusMessage("Cup is not associated with a cupping session.");
@@ -431,8 +464,16 @@ export function AppNavigator() {
         sampleNumber: activeSample.sampleNumber,
         sampleColour: activeSample.sampleColour,
         defectsCupTotal: ndefCupNumber || activeSample.cupNumber || 1,
+        elapsedSeconds,
+        brewTimeSeconds,
         startInFinalMode: false,
         startInFinalSaved: false,
+      });
+      rememberSampleRuntime(activeSample.sampleId, {
+        cupStateNumber: cupState,
+        cupStatus,
+        elapsedSeconds,
+        brewTimeSeconds,
       });
 
       if (cupState === BREWING_STATE) {
@@ -649,6 +690,103 @@ export function AppNavigator() {
     closeDrawer();
   };
 
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadSessionSamples = async () => {
+      const sessionId = selectedCupContext?.sessionId;
+      if (!sessionId) {
+        setSessionSampleContexts([]);
+        return;
+      }
+
+      try {
+        const session = await getSessionById(sessionId);
+        if (isCancelled) {
+          return;
+        }
+        setSessionSampleContexts(Array.isArray(session?.samples) ? session.samples : []);
+      } catch {
+        if (!isCancelled) {
+          setSessionSampleContexts([]);
+        }
+      }
+    };
+
+    loadSessionSamples();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedCupContext?.sessionId]);
+
+  const buildContextFromSessionSample = (sample, index, total) => {
+    if (!sample) {
+      return null;
+    }
+
+    const runtime = sampleRuntimeById[sample.id] || {};
+    const cupStateNumber = runtime.cupStateNumber ?? 3;
+    const cupStatus =
+      runtime.cupStatus ||
+      (cupStateNumber === BREWING_STATE
+        ? { state: "BREWING", temp: "N/A", time: "00:00" }
+        : { state: "CUPPING", temp: "N/A", time: "00:00" });
+
+    return {
+      cupUUID: sample.cupUUID,
+      tagType: runtime.tagType || null,
+      cupStateNumber,
+      cupStatus,
+      sessionId: selectedCupContext?.sessionId || sample.sessionId,
+      sampleId: sample.id,
+      cupIndex: index,
+      cupTotal: total,
+      sampleNumber: Number(sample.sampleNumber) || index + 1,
+      sampleColour: sample.sampleColour || null,
+      defectsCupTotal: Number(sample.cupNumber) || 1,
+      elapsedSeconds: runtime.elapsedSeconds ?? null,
+      brewTimeSeconds: runtime.brewTimeSeconds ?? null,
+      startInFinalMode: false,
+      startInFinalSaved: false,
+    };
+  };
+
+  const handleCuppingSampleSwipe = (direction) => {
+    const samples = sessionSampleContexts;
+    if (!selectedCupContext?.sessionId || !Array.isArray(samples) || samples.length <= 1) {
+      return;
+    }
+
+    const currentIndex = samples.findIndex((sample) => sample.id === selectedCupContext.sampleId);
+    const fallbackIndex = Number.isInteger(Number(selectedCupContext.cupIndex))
+      ? Number(selectedCupContext.cupIndex)
+      : 0;
+    const resolvedIndex = currentIndex >= 0 ? currentIndex : fallbackIndex;
+    const nextIndex = direction === "previous" ? resolvedIndex - 1 : resolvedIndex + 1;
+    if (nextIndex < 0 || nextIndex >= samples.length) {
+      return;
+    }
+
+    const nextContext = buildContextFromSessionSample(samples[nextIndex], nextIndex, samples.length);
+    if (nextContext) {
+      setSelectedCupContext(nextContext);
+      setScanStatusMessage("");
+      setRoute("Cupping");
+    }
+  };
+
+  const handleActiveSessionSamplePress = (sample, index = 0, total = 1) => {
+    const context = buildContextFromSessionSample(sample, index, total);
+    if (!context) {
+      return;
+    }
+
+    setSelectedCupContext(context);
+    setScanStatusMessage("");
+    setRoute("Cupping");
+  };
+
   const content = useMemo(() => {
     if (route === "Cupping") {
       return (
@@ -670,6 +808,10 @@ export function AppNavigator() {
           startInFinalMode={selectedCupContext?.startInFinalMode}
           startInFinalSaved={selectedCupContext?.startInFinalSaved}
           isScanInProgress={isScanInProgress}
+          canSwipeSamples={sessionSampleContexts.length > 1}
+          onSampleSwipe={handleCuppingSampleSwipe}
+          elapsedSeconds={selectedCupContext?.elapsedSeconds}
+          brewTimeSeconds={selectedCupContext?.brewTimeSeconds}
         />
       );
     }
@@ -706,6 +848,7 @@ export function AppNavigator() {
           sessionId={selectedCupContext?.sessionId || null}
           onBackPress={() => setRoute("Home")}
           onScanPress={handleScanCupFromHome}
+          onSamplePress={handleActiveSessionSamplePress}
           isScanInProgress={isScanInProgress}
         />
       );
@@ -737,6 +880,8 @@ export function AppNavigator() {
     route,
     selectedSessionId,
     selectedCupContext,
+    sessionSampleContexts,
+    sampleRuntimeById,
     isScanInProgress,
     scanStatusMessage,
     homeTemperatureC,

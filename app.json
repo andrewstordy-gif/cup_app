@@ -8,7 +8,7 @@
     "icon": "./src/assets/images/cup_image_transparrent.png",
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "NFCReaderUsageDescription": "This app scans NFC cup tags to read and write cupping session data."
       },

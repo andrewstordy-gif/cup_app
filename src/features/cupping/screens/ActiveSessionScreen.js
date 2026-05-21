@@ -21,6 +21,7 @@ const INK = "#3f4852";
 const IOS_BLUE = "#3478f6";
 const SCORE_FIELDS = ["Fragrance", "Aroma", "Flavour", "Aftertaste", "Acidity", "Sweetness", "Mouthfeel", "Overall"];
 const SCORE_LABELS = ["Fr", "Ar", "Fl", "Af", "Ac", "Sw", "Mf", "Ov"];
+const SCORE_STEP = 0.25;
 
 function formatStatus(value) {
   const text = String(value || "pending").trim().toLowerCase();
@@ -29,6 +30,38 @@ function formatStatus(value) {
 
 function getLatestEntry(entries = []) {
   return Array.isArray(entries) && entries.length > 0 ? entries[entries.length - 1] : null;
+}
+
+function roundToStep(value, step = SCORE_STEP) {
+  const numericValue = Number(value);
+  const numericStep = Number(step);
+  if (!Number.isFinite(numericValue) || !Number.isFinite(numericStep) || numericStep <= 0) {
+    return 0;
+  }
+  return Math.round((numericValue + Number.EPSILON) / numericStep) * numericStep;
+}
+
+function toNumericOrZero(value) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function calculateCurrentScore({ scores, defects, numberOfCups }) {
+  const scoreCount = (scores || []).filter((item) => item?.score != null).length;
+  if (scoreCount < SCORE_FIELDS.length) {
+    return null;
+  }
+
+  const cups = Math.max(1, toNumericOrZero(numberOfCups));
+  const sumHi = SCORE_FIELDS.reduce((sum, field) => {
+    const scoreItem = (scores || []).find((item) => item.key === field);
+    return sum + toNumericOrZero(scoreItem?.score);
+  }, 0);
+  const nonUniformCups = toNumericOrZero(defects?.nonUniformCups);
+  const defectiveCups = toNumericOrZero(defects?.defectiveCups);
+  const uNormalized = (nonUniformCups / cups) * 5;
+  const dNormalized = (defectiveCups / cups) * 5;
+  return roundToStep(0.65625 * sumHi + 52.75 - 2 * uNormalized - 4 * dNormalized);
 }
 
 function buildScoreItems(feedbackByField = {}) {
@@ -48,11 +81,7 @@ function buildScoreItems(feedbackByField = {}) {
 }
 
 function buildDefectIcons(defectRows) {
-  const rows = [
-    ...(Array.isArray(defectRows?.nonFinal) ? defectRows.nonFinal : []),
-    ...(Array.isArray(defectRows?.final) ? defectRows.final : []),
-  ];
-  const latest = getLatestEntry(rows);
+  const latest = getLatestDefects(defectRows);
   if (!latest) {
     return [];
   }
@@ -63,6 +92,14 @@ function buildDefectIcons(defectRows) {
     latest.phenolic ? "Ph" : null,
     latest.potato ? "Po" : null,
   ].filter(Boolean);
+}
+
+function getLatestDefects(defectRows) {
+  const rows = [
+    ...(Array.isArray(defectRows?.nonFinal) ? defectRows.nonFinal : []),
+    ...(Array.isArray(defectRows?.final) ? defectRows.final : []),
+  ];
+  return getLatestEntry(rows);
 }
 
 function extractFlavourPills(feedbackByField = {}) {
@@ -118,15 +155,17 @@ function ScoreBox({ item, scale }) {
   );
 }
 
-function ActiveSessionCupRow({ cup, index, total, scale, expanded, onToggle }) {
+function ActiveSessionCupRow({ cup, index, total, scale, expanded, onToggle, onOpenSample }) {
   const isFinalScoreAvailable = cup.finalScore !== null && cup.finalScore !== undefined;
+  const currentScore = isFinalScoreAvailable ? cup.finalScore : cup.currentScore;
+  const isCurrentScoreAvailable = currentScore !== null && currentScore !== undefined;
 
   return (
     <View style={styles.cupDrawer}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${expanded ? "Close" : "Open"} cup ${index + 1} details`}
-        onPress={onToggle}
+        accessibilityLabel={`Open cup ${index + 1} cupping screen`}
+        onPress={onOpenSample}
         style={[
           styles.cupRow,
           {
@@ -206,15 +245,27 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, onToggle }) {
             style={[
               styles.finalScore,
               { fontSize: 22 * scale, lineHeight: 27 * scale },
-              !isFinalScoreAvailable ? styles.finalScoreUnavailable : null,
+              !isCurrentScoreAvailable ? styles.finalScoreUnavailable : null,
             ]}
           >
-            {isFinalScoreAvailable ? `Final score ${Number(cup.finalScore).toFixed(1)}` : "Final score -"}
+            {isCurrentScoreAvailable
+              ? `${isFinalScoreAvailable ? "Final score" : "Current score"} ${Number(currentScore).toFixed(2)}`
+              : "Score -"}
           </Text>
         </View>
-        <Text style={[styles.cupDrawerGlyph, { fontSize: 34 * scale, lineHeight: 38 * scale }]}>
-          {expanded ? "⌃" : "⌄"}
-        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`${expanded ? "Close" : "Open"} cup ${index + 1} details`}
+          onPress={(event) => {
+            event?.stopPropagation?.();
+            onToggle?.();
+          }}
+          hitSlop={10 * scale}
+        >
+          <Text style={[styles.cupDrawerGlyph, { fontSize: 34 * scale, lineHeight: 38 * scale }]}>
+            {expanded ? "⌃" : "⌄"}
+          </Text>
+        </Pressable>
       </Pressable>
 
       {expanded ? (
@@ -260,7 +311,13 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, onToggle }) {
   );
 }
 
-export function ActiveSessionScreen({ sessionId = null, onBackPress, onScanPress, isScanInProgress = false }) {
+export function ActiveSessionScreen({
+  sessionId = null,
+  onBackPress,
+  onScanPress,
+  onSamplePress,
+  isScanInProgress = false,
+}) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [session, setSession] = useState(null);
@@ -295,12 +352,20 @@ export function ActiveSessionScreen({ sessionId = null, onBackPress, onScanPress
           (fullSession?.samples || []).map(async (sample, index) => {
             const feedback = await getSampleFeedback(sample.id);
             const defects = await getSampleDefects(sample.id);
+            const scores = buildScoreItems(feedback);
+            const latestDefects = getLatestDefects(defects);
             return {
               ...sample,
-              scores: buildScoreItems(feedback),
+              sessionId: fullSession?.id || sample.sessionId,
+              scores,
               defects: buildDefectIcons(defects),
               flavours: extractFlavourPills(feedback),
               finalScore: finalStatus?.[sample.id]?.finalScore ?? null,
+              currentScore: calculateCurrentScore({
+                scores,
+                defects: latestDefects,
+                numberOfCups: sample.cupNumber,
+              }),
               sampleNumber: Number(sample.sampleNumber) || index + 1,
             };
           })
@@ -374,6 +439,11 @@ export function ActiveSessionScreen({ sessionId = null, onBackPress, onScanPress
                   scale={scale}
                   expanded={expandedCupId === cup.id}
                   onToggle={() => setExpandedCupId((current) => (current === cup.id ? null : cup.id))}
+                  onOpenSample={
+                    typeof onSamplePress === "function"
+                      ? () => onSamplePress(cup, index, Number(session.samplesInSession) || cups.length || 1)
+                      : undefined
+                  }
                 />
               ))}
             </View>
