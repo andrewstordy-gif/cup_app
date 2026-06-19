@@ -20,7 +20,7 @@ async function runMigrations(db) {
       session_name TEXT NOT NULL,
       session_type TEXT NOT NULL,
       samples_in_session INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'pending',
+      status TEXT NOT NULL DEFAULT 'new',
       session_date TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
@@ -72,15 +72,38 @@ async function runMigrations(db) {
       moldy INTEGER NOT NULL DEFAULT 0,
       phenolic INTEGER NOT NULL DEFAULT 0,
       potato INTEGER NOT NULL DEFAULT 0,
+      other_bean INTEGER NOT NULL DEFAULT 0,
+      underdeveloped INTEGER NOT NULL DEFAULT 0,
+      baked INTEGER NOT NULL DEFAULT 0,
+      uneven_roast INTEGER NOT NULL DEFAULT 0,
+      overdeveloped INTEGER NOT NULL DEFAULT 0,
       non_uniform_cups INTEGER NOT NULL DEFAULT 0,
       defective_cups INTEGER NOT NULL DEFAULT 0,
       non_uniform_mask TEXT NOT NULL DEFAULT '',
       defective_mask TEXT NOT NULL DEFAULT '',
+      defect_type_masks TEXT NOT NULL DEFAULT '',
       number_of_cups INTEGER NOT NULL DEFAULT 1,
       temp_snapshot TEXT,
       time_snapshot TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
+    );
+  `);
+
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS sample_flavour_observations (
+      id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      sample_id TEXT NOT NULL,
+      keyword TEXT NOT NULL,
+      label TEXT NOT NULL,
+      colour TEXT NOT NULL DEFAULT '',
+      temp_c INTEGER,
+      elapsed_seconds INTEGER,
+      source_field TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
     );
@@ -142,6 +165,15 @@ async function runMigrations(db) {
   await db.execAsync(
     "CREATE INDEX IF NOT EXISTS idx_defect_entries_is_final ON sample_defect_entries(is_final);"
   );
+  await db.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_flavour_observations_sample_id ON sample_flavour_observations(sample_id);"
+  );
+  await db.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_flavour_observations_session_id ON sample_flavour_observations(session_id);"
+  );
+  await db.execAsync(
+    "CREATE INDEX IF NOT EXISTS idx_flavour_observations_keyword ON sample_flavour_observations(keyword);"
+  );
 
   const defectColumns = await db.getAllAsync("PRAGMA table_info(sample_defect_entries);");
   const hasNonUniformMaskColumn = Array.isArray(defectColumns)
@@ -160,6 +192,31 @@ async function runMigrations(db) {
       "ALTER TABLE sample_defect_entries ADD COLUMN defective_mask TEXT NOT NULL DEFAULT '';"
     );
   }
+  const defectColumnsAfterMasks = await db.getAllAsync("PRAGMA table_info(sample_defect_entries);");
+  const ensureDefectColumn = async (name) => {
+    const hasColumn = Array.isArray(defectColumnsAfterMasks)
+      ? defectColumnsAfterMasks.some((column) => column?.name === name)
+      : false;
+    if (!hasColumn) {
+      await db.execAsync(
+        `ALTER TABLE sample_defect_entries ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0;`
+      );
+    }
+  };
+  await ensureDefectColumn("underdeveloped");
+  await ensureDefectColumn("baked");
+  await ensureDefectColumn("uneven_roast");
+  await ensureDefectColumn("overdeveloped");
+  await ensureDefectColumn("other_bean");
+  const defectColumnsAfterTypeMasks = await db.getAllAsync("PRAGMA table_info(sample_defect_entries);");
+  const hasDefectTypeMasksColumn = Array.isArray(defectColumnsAfterTypeMasks)
+    ? defectColumnsAfterTypeMasks.some((column) => column?.name === "defect_type_masks")
+    : false;
+  if (!hasDefectTypeMasksColumn) {
+    await db.execAsync(
+      "ALTER TABLE sample_defect_entries ADD COLUMN defect_type_masks TEXT NOT NULL DEFAULT '';"
+    );
+  }
 
   const sessionColumns = await db.getAllAsync("PRAGMA table_info(sessions);");
   const hasStatusColumn = Array.isArray(sessionColumns)
@@ -167,7 +224,7 @@ async function runMigrations(db) {
     : false;
 
   if (!hasStatusColumn) {
-    await db.execAsync("ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'pending';");
+    await db.execAsync("ALTER TABLE sessions ADD COLUMN status TEXT NOT NULL DEFAULT 'new';");
   }
   const hasSamplesInSessionColumn = Array.isArray(sessionColumns)
     ? sessionColumns.some((column) => column?.name === "samples_in_session")
@@ -176,7 +233,11 @@ async function runMigrations(db) {
     await db.execAsync("ALTER TABLE sessions ADD COLUMN samples_in_session INTEGER NOT NULL DEFAULT 0;");
   }
 
-  await db.execAsync("UPDATE sessions SET status = 'pending' WHERE status IS NULL OR status = '';");
+  // Migrate to new/pending/complete status model (idempotent).
+  // Run in this order: rename old 'pending' (setup) → 'new', then old 'active' (in-progress) → 'pending'.
+  await db.execAsync("UPDATE sessions SET status = 'new' WHERE status IS NULL OR status = '';");
+  await db.execAsync("UPDATE sessions SET status = 'new' WHERE status = 'pending';");
+  await db.execAsync("UPDATE sessions SET status = 'pending' WHERE status = 'active';");
 
   const sampleColumns = await db.getAllAsync("PRAGMA table_info(samples);");
   const hasSampleNumberColumn = Array.isArray(sampleColumns)

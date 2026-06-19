@@ -1,5 +1,6 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "./TypographyAuditText";
 import { colors } from "../../theme/colors";
 import { typography } from "../../theme/typography";
 

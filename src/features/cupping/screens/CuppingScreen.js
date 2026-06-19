@@ -9,27 +9,34 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   useWindowDimensions,
   View,
 } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { CupStatusStrip } from "../../../components/ui/CupStatusStrip";
 import { ScoreSelector } from "../../../components/ui/ScoreSelector";
 import { NotesInput } from "../../../components/ui/NotesInput";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
+import { AppIcon } from "../../../components/ui/AppIcon";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { typography } from "../../../theme/typography";
 import {
   clearSampleFeedbackFields,
   clearSampleFinalFeedbackFields,
   getSampleDefects,
   getSampleFeedback,
+  getSampleFlavourObservations,
   markSessionCompleteIfAllSamplesComplete,
   saveSampleDefectsEntry,
   saveSampleFeedbackBatch,
+  saveSampleFlavourObservations,
+  pruneSampleFlavourObservations,
 } from "../../../data/sessionRepository";
 import { DefectsSection } from "../components/DefectsSection";
+import { KeywordPillRow } from "../components/KeywordPillRow";
+import { tokenizeFlavourKeywords } from "../data/flavourKeywords";
 
 const FEEDBACK_FIELDS = [
   "Fragrance",
@@ -44,7 +51,8 @@ const FEEDBACK_FIELDS = [
 const READY_FIELDS = ["Fragrance"];
 const CUPPING_FIELDS = FEEDBACK_FIELDS;
 const NOTE_GROUPS = [
-  { afterField: "Overall", fields: FEEDBACK_FIELDS },
+  { afterField: "Aroma", fields: ["Fragrance", "Aroma"], label: "Fragrance / Aroma Notes" },
+  { afterField: "Overall", fields: ["Flavour", "Aftertaste", "Acidity", "Sweetness", "Mouthfeel", "Overall"], label: "Flavour Notes" },
 ];
 const CUP_STATE_LABELS = {
   0: "OFF",
@@ -55,8 +63,8 @@ const CUP_STATE_LABELS = {
 };
 const SCORE_PRECISION = 2;
 const SCORE_STEP = 0.25;
-const IOS_BLUE = "#3478f6";
-const SAVE_GREY = "#3f4852";
+const IOS_BLUE = colors.action;
+const SAVE_GREY = colors.ink;
 const BALLOON_CONFIGS = [
   { color: "#E15A64", left: 0.14, size: 34, drift: 20 },
   { color: "#F2B84B", left: 0.32, size: 28, drift: -16 },
@@ -171,6 +179,11 @@ function buildDefaultDefectsState() {
     moldy: false,
     phenolic: false,
     potato: false,
+    otherBean: false,
+    underdeveloped: false,
+    baked: false,
+    unevenRoast: false,
+    overdeveloped: false,
   };
 }
 
@@ -198,10 +211,184 @@ function buildDefectsSignature({
     normalizeSlotSignature(defectCupSlots?.moldy),
     normalizeSlotSignature(defectCupSlots?.phenolic),
     normalizeSlotSignature(defectCupSlots?.potato),
+    normalizeSlotSignature(defectCupSlots?.otherBean),
+    normalizeSlotSignature(defectCupSlots?.underdeveloped),
+    normalizeSlotSignature(defectCupSlots?.baked),
+    normalizeSlotSignature(defectCupSlots?.unevenRoast),
+    normalizeSlotSignature(defectCupSlots?.overdeveloped),
     defects?.moldy ? "1" : "0",
     defects?.phenolic ? "1" : "0",
     defects?.potato ? "1" : "0",
+    defects?.otherBean ? "1" : "0",
+    defects?.underdeveloped ? "1" : "0",
+    defects?.baked ? "1" : "0",
+    defects?.unevenRoast ? "1" : "0",
+    defects?.overdeveloped ? "1" : "0",
   ].join("|");
+}
+
+function parseTemperatureSnapshot(value) {
+  const text = String(value || "");
+  if (!text || text.toLowerCase().includes("n/a")) {
+    return null;
+  }
+
+  const numeric = Number.parseFloat(text);
+  return Number.isFinite(numeric) ? Math.round(numeric) : null;
+}
+
+function parseTimeSnapshot(value) {
+  const text = String(value || "").split("/")[0].trim();
+  if (!text) {
+    return null;
+  }
+
+  const parts = text.split(":").map((part) => Number.parseInt(part, 10));
+  if (parts.length < 2 || parts.some((part) => !Number.isFinite(part) || part < 0)) {
+    return null;
+  }
+
+  const seconds = parts.pop();
+  const minutes = parts.pop();
+  const hours = parts.length > 0 ? parts.pop() : 0;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function formatObservationElapsedTime(value) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric) || numeric < 0) {
+    return null;
+  }
+
+  const minutes = Math.floor(numeric / 60);
+  const seconds = numeric % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatObservationPillLabel(observation) {
+  const parts = [];
+  if (observation?.tempC != null && Number.isFinite(Number(observation.tempC))) {
+    parts.push(`${Math.round(Number(observation.tempC))} °C`);
+  }
+
+  parts.push(observation?.label || observation?.keyword || "");
+  return parts.filter(Boolean).join("|");
+}
+
+function getObservationSourceFields(observation) {
+  return String(observation?.sourceField || "")
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean);
+}
+
+function observationMatchesFields(observation, fields = []) {
+  const sourceFields = getObservationSourceFields(observation);
+  if (sourceFields.length === 0) {
+    return true;
+  }
+
+  const fieldSet = new Set((Array.isArray(fields) ? fields : []).map((field) => String(field).trim()));
+  return sourceFields.some((field) => fieldSet.has(field));
+}
+
+
+function buildFlavourObservationCommentGroups(feedback, fields) {
+  const includedFields = new Set(Array.isArray(fields) ? fields : []);
+  const groupedFields = new Set();
+  const groups = [];
+
+  NOTE_GROUPS.forEach((group) => {
+    const sourceFields = group.fields.filter((field) => includedFields.has(field));
+    if (sourceFields.length === 0) {
+      return;
+    }
+
+    sourceFields.forEach((field) => groupedFields.add(field));
+    const firstWithComments = sourceFields.find((field) => String(feedback?.[field]?.comments || "").trim());
+    const comments = firstWithComments ? String(feedback?.[firstWithComments]?.comments || "").trim() : "";
+    if (comments) {
+      groups.push({ comments, fields: sourceFields });
+    }
+  });
+
+  Array.from(includedFields).forEach((field) => {
+    if (groupedFields.has(field)) {
+      return;
+    }
+
+    const comments = String(feedback?.[field]?.comments || "").trim();
+    if (comments) {
+      groups.push({ comments, fields: [field] });
+    }
+  });
+
+  return groups;
+}
+
+function buildFlavourObservationsFromFeedback({
+  feedback,
+  fields,
+  existingObservations,
+  tempSnapshot,
+  timeSnapshot,
+  createdAt,
+}) {
+  const tempC = parseTemperatureSnapshot(tempSnapshot);
+  const elapsedSeconds = parseTimeSnapshot(timeSnapshot);
+  const observationsBySourceAndKeyword = new Map();
+
+  buildFlavourObservationCommentGroups(feedback, fields).forEach(({ comments, fields: sourceFields }) => {
+    const keywordsByName = tokenizeFlavourKeywords(comments).reduce((acc, token) => {
+      if (token.type !== "pill") {
+        return acc;
+      }
+
+      const keyword = String(token.keyword || "").trim().toLowerCase();
+      if (!keyword) {
+        return acc;
+      }
+
+      if (!acc[keyword]) {
+        acc[keyword] = {
+          keyword,
+          label: token.keyword,
+          colour: token.colour,
+          count: 0,
+        };
+      }
+      acc[keyword].count += 1;
+      return acc;
+    }, {});
+
+    Object.values(keywordsByName).forEach((pill) => {
+      const existingCount = (Array.isArray(existingObservations) ? existingObservations : []).filter(
+        (observation) =>
+          String(observation?.keyword || "").trim().toLowerCase() === pill.keyword &&
+          observationMatchesFields(observation, sourceFields)
+      ).length;
+      if (existingCount >= pill.count) {
+        return;
+      }
+
+      const observationKey = `${sourceFields.join(",")}:${pill.keyword}`;
+      if (observationsBySourceAndKeyword.has(observationKey)) {
+        return;
+      }
+
+      observationsBySourceAndKeyword.set(observationKey, {
+        keyword: pill.keyword,
+        label: pill.label || pill.keyword,
+        colour: pill.colour,
+        tempC,
+        elapsedSeconds,
+        sourceField: sourceFields.join(","),
+        createdAt,
+      });
+    });
+  });
+
+  return Array.from(observationsBySourceAndKeyword.values());
 }
 
 function getNoteGroupForField(field) {
@@ -255,12 +442,10 @@ function CuppingTitleContent({
   cupIndex,
   sampleColour,
   scale,
-  pagerCurrent,
-  pagerTotal,
 }) {
   const displayNumber = resolveSampleNumber(sampleNumber, cupIndex);
   const displayTotal = resolveSamplesInSession(samplesInSession);
-  const markerColour = sampleColour || "#d95f63";
+  const markerColour = sampleColour || colors.danger;
 
   return (
     <View style={[styles.cuppingHeaderTitleStack, { gap: 2 * scale }]}>
@@ -276,11 +461,8 @@ function CuppingTitleContent({
             },
           ]}
         />
-        <Text style={[styles.cuppingHeaderTitleText, { fontSize: 30 * scale, lineHeight: 36 * scale }]}>
-          {`${displayNumber}/${displayTotal}`}
-        </Text>
+        <Text style={styles.cuppingHeaderTitleText}>{`${displayNumber}/${displayTotal}`}</Text>
       </View>
-      <SamplePagerIndicator current={pagerCurrent} total={pagerTotal} scale={scale} compact />
     </View>
   );
 }
@@ -353,48 +535,56 @@ function SamplePagerIndicator({ current, total, scale, compact = false }) {
   );
 }
 
+function DefectsDrawerLabel({ expanded, scale = 1, textStyle }) {
+  return (
+    <View style={styles.defectsDrawerLabel}>
+      <AppIcon
+        name={expanded ? "chevron-down" : "chevron-up"}
+        role="icon_navigation"
+      />
+      <Text style={textStyle}>Defects</Text>
+    </View>
+  );
+}
+
 function CuppingScoreRow({
   title,
   score,
-  hasFinalEntry = false,
   disabled = false,
   scale,
   onScoreSelect,
-  onFinalPress,
 }) {
-  const finalDisabled = disabled || (!hasFinalEntry && score == null);
-  const scoreDisabled = disabled || hasFinalEntry;
-
   return (
-    <View style={[styles.cuppingScoreRow, { paddingBottom: 11 * scale }, disabled && styles.feedbackSectionDisabled]}>
-      <Text style={[styles.cuppingScoreTitle, { fontSize: 22 * scale, lineHeight: 28 * scale }]}>{title}</Text>
-      <View style={[styles.cuppingScoreControls, { marginTop: 2 * scale }]}>
+    <View style={[styles.cuppingScoreRow, disabled && styles.feedbackSectionDisabled]}>
+      <Text style={styles.cuppingScoreTitle}>{title}</Text>
+      <View style={[styles.cuppingScoreControls, { marginTop: spacing.xs }]}>
         {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((value) => {
           const selected = score === value;
           return (
             <Pressable
               key={`${title}-${value}`}
               onPress={() => onScoreSelect(selected ? null : value)}
-              disabled={scoreDisabled}
+              disabled={disabled}
               style={[
                 styles.cuppingScoreCircle,
                 {
-                  width: 38 * scale,
-                  height: 38 * scale,
-                  borderRadius: 19 * scale,
+                  width: 46 * scale,
+                  height: 46 * scale,
+                  borderRadius: 23 * scale,
                   borderWidth: 2.3 * scale,
                 },
                 selected && styles.cuppingScoreCircleSelected,
+                disabled && styles.cuppingScoreCircleDisabled,
               ]}
               accessibilityRole="button"
               accessibilityLabel={`${title} score ${value}`}
-              accessibilityState={{ selected, disabled: scoreDisabled }}
+              accessibilityState={{ selected, disabled }}
             >
               <Text
                 style={[
                   styles.cuppingScoreText,
-                  { fontSize: 27 * scale, lineHeight: 30 * scale },
                   selected && styles.cuppingScoreTextSelected,
+                  disabled && styles.cuppingScoreTextDisabled,
                 ]}
               >
                 {value}
@@ -402,36 +592,6 @@ function CuppingScoreRow({
             </Pressable>
           );
         })}
-        <Pressable
-          onPress={onFinalPress}
-          disabled={finalDisabled}
-          style={[
-            styles.cuppingFinalPill,
-            {
-              minWidth: 84 * scale,
-              height: 38 * scale,
-              borderRadius: 19 * scale,
-              marginLeft: 12 * scale,
-              paddingHorizontal: 12 * scale,
-            },
-            hasFinalEntry && styles.cuppingFinalPillSelected,
-            finalDisabled && styles.cuppingFinalPillDisabled,
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel={`${title} final score`}
-          accessibilityState={{ disabled: finalDisabled, selected: hasFinalEntry }}
-        >
-          <Text
-            style={[
-              styles.cuppingFinalText,
-              { fontSize: 14 * scale, lineHeight: 18 * scale },
-              hasFinalEntry && styles.cuppingFinalTextSelected,
-              finalDisabled && styles.cuppingFinalTextDisabled,
-            ]}
-          >
-            FINAL
-          </Text>
-        </Pressable>
       </View>
     </View>
   );
@@ -479,13 +639,14 @@ function DefectBadgeRow({ badges = [], scale }) {
               },
             ]}
           >
-            <Text style={[styles.defectBadgeIconText, { fontSize: 13 * scale, lineHeight: 16 * scale }]}>
-              {badge.icon}
-            </Text>
+            <AppIcon
+              name={badge.iconName}
+              role="icon_compact"
+              size={13 * scale}
+              style={styles.defectBadgeIconText}
+            />
           </View>
-          <Text style={[styles.defectBadgeText, { fontSize: 14 * scale, lineHeight: 18 * scale }]}>
-            {badge.label}
-          </Text>
+          <Text style={styles.defectBadgeText}>{badge.label}</Text>
         </View>
       ))}
     </View>
@@ -704,11 +865,17 @@ export function CuppingScreen({
   onSampleSwipe,
   elapsedSeconds = null,
   brewTimeSeconds = null,
+  scanRevision = null,
+  initialScrollTarget = null,
+  captureMode = null,
+  isSessionComplete = false,
 }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const scrollRef = useRef(null);
   const noteLayoutYRef = useRef({});
+  const fieldLayoutYRef = useRef({});
+  const autoScrolledSampleRef = useRef(null);
   const balloonAnimations = useRef(BALLOON_CONFIGS.map(() => new Animated.Value(0))).current;
   const [feedback, setFeedback] = useState(() => buildInitialFeedbackState());
   const [savedFeedback, setSavedFeedback] = useState(() =>
@@ -717,6 +884,8 @@ export function CuppingScreen({
       return acc;
     }, {})
   );
+  const [savedFlavourObservations, setSavedFlavourObservations] = useState([]);
+  const [isSavedFeedbackLoaded, setIsSavedFeedbackLoaded] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [isFinalMode, setIsFinalMode] = useState(Boolean(startInFinalMode));
   const [isFinalSaved, setIsFinalSaved] = useState(Boolean(startInFinalSaved));
@@ -725,8 +894,6 @@ export function CuppingScreen({
   const [nonUniformCupSlots, setNonUniformCupSlots] = useState([]);
   const [defectiveCupSlots, setDefectiveCupSlots] = useState([]);
   const [isDefectsDrawerOpen, setIsDefectsDrawerOpen] = useState(false);
-  const [selectedFinalFields, setSelectedFinalFields] = useState({});
-  const [unselectedFinalFields, setUnselectedFinalFields] = useState({});
   const [savedDefectsSignature, setSavedDefectsSignature] = useState(() => buildDefectsSignature());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -812,13 +979,16 @@ export function CuppingScreen({
   const isNtagCup = tagType === "ntag_cup";
   const isBrewing = cupStateNumber === 2;
   const isCupping = cupStateNumber === 3;
-  const canCaptureFeedback = cupStateNumber === 1 || cupStateNumber === 3;
-  const isFeedbackLocked = cupStateNumber === 2 && !isFinalMode;
+  const canCaptureFeedback = !isSessionComplete && (cupStateNumber === 1 || cupStateNumber === 3);
+  const isFeedbackLocked = isSessionComplete || (cupStateNumber === 2 && !isFinalMode);
   const showBrewingDone = isBrewing && !isFinalMode;
+  const hasSavedAromaScore = useMemo(
+    () => (savedFeedback.Aroma || []).some((entry) => entry?.score != null),
+    [savedFeedback.Aroma]
+  );
   const isAromaPopulated = useMemo(() => {
-    const hasSavedAromaScore = (savedFeedback.Aroma || []).some((entry) => entry?.score != null);
     return hasSavedAromaScore || feedback.Aroma?.score != null;
-  }, [feedback.Aroma?.score, savedFeedback.Aroma]);
+  }, [feedback.Aroma?.score, hasSavedAromaScore]);
 
   const visibleFields = useMemo(() => {
     if (isFinalMode) {
@@ -837,6 +1007,10 @@ export function CuppingScreen({
       return isFinalSaved ? [] : FEEDBACK_FIELDS;
     }
 
+    if (captureMode === "aroma_only") {
+      return ["Fragrance", "Aroma"];
+    }
+
     if (isNtagCup) {
       return FEEDBACK_FIELDS;
     }
@@ -850,18 +1024,14 @@ export function CuppingScreen({
     }
 
     return [];
-  }, [cupStateNumber, isAromaPopulated, isFinalMode, isFinalSaved, isNtagCup]);
+  }, [captureMode, cupStateNumber, isAromaPopulated, isFinalMode, isFinalSaved, isNtagCup]);
 
   const finalScoreSummary = useMemo(() => {
     const scoresByField = FEEDBACK_FIELDS.reduce((acc, field) => {
-      const finalEntries = (savedFeedback[field] || []).filter(
-        (entry) => entry?.isFinal && entry?.score != null
-      );
-      const latestFinalEntry =
-        finalEntries.length > 0 ? finalEntries[finalEntries.length - 1] : null;
-      acc[field] = unselectedFinalFields[field]
-        ? feedback[field]?.score ?? null
-        : latestFinalEntry?.score ?? feedback[field]?.score ?? null;
+      const savedEntries = (savedFeedback[field] || []).filter((entry) => entry?.score != null);
+      const latestSavedEntry =
+        savedEntries.length > 0 ? savedEntries[savedEntries.length - 1] : null;
+      acc[field] = feedback[field]?.score ?? latestSavedEntry?.score ?? null;
       return acc;
     }, {});
 
@@ -878,7 +1048,6 @@ export function CuppingScreen({
   }, [
     feedback,
     savedFeedback,
-    unselectedFinalFields,
     nonUniformCups,
     defectiveCups,
     defectsCupTotal,
@@ -886,17 +1055,13 @@ export function CuppingScreen({
   ]);
   const isLiveScoreFinal = useMemo(
     () =>
-      FEEDBACK_FIELDS.every((field) => {
-        const finalEntries = (savedFeedback[field] || []).filter((entry) => entry?.isFinal && entry?.score != null);
-        const hasSavedFinalEntry = finalEntries.length > 0;
-        const isFinalSelected =
-          (Boolean(selectedFinalFields[field]) || hasSavedFinalEntry) && !unselectedFinalFields[field];
-        return isFinalSelected && feedback[field]?.score != null;
-      }),
-    [feedback, savedFeedback, selectedFinalFields, unselectedFinalFields]
+      finalScoreSummary &&
+      !hasPendingChanges &&
+      FEEDBACK_FIELDS.every((field) => (savedFeedback[field] || []).some((entry) => entry?.isFinal && entry?.score != null)),
+    [finalScoreSummary, hasPendingChanges, savedFeedback]
   );
   const liveScoreTitle = finalScoreSummary
-    ? `${isLiveScoreFinal ? "Final Score" : "Score"} ${finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION)}`
+    ? `Score ${finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION)}`
     : "Score Pending";
   const cupIndexDisplay = `CUP ${String(cupIndex + 1).padStart(2, "0")} / ${String(cupTotal).padStart(2, "0")}`;
   const scoreDisplay =
@@ -912,30 +1077,60 @@ export function CuppingScreen({
       [
         {
           id: "non-uniform",
-          icon: "≠",
+          iconName: "defect-non-uniform",
           label: "Non-uniform",
           isVisible: nonUniformCupSlots.length > 0,
         },
         {
           id: "moldy",
-          icon: "M",
+          iconName: "defect-mouldy",
           label: "Mouldy",
           isVisible: Boolean(defects.moldy) || (defectCupSlots.moldy || []).length > 0,
         },
         {
           id: "phenolic",
-          icon: "Ph",
+          iconName: "defect-phenolic",
           label: "Phenolic",
           isVisible: Boolean(defects.phenolic) || (defectCupSlots.phenolic || []).length > 0,
         },
         {
           id: "potato",
-          icon: "Po",
+          iconName: "defect-potato",
           label: "Potato",
           isVisible: Boolean(defects.potato) || (defectCupSlots.potato || []).length > 0,
         },
+        {
+          id: "otherBean",
+          iconName: "defect-other-bean",
+          label: "Other",
+          isVisible: Boolean(defects.otherBean) || (defectCupSlots.otherBean || []).length > 0,
+        },
+        {
+          id: "underdeveloped",
+          iconName: "defect-underdeveloped",
+          label: "Underdeveloped",
+          isVisible: Boolean(defects.underdeveloped) || (defectCupSlots.underdeveloped || []).length > 0,
+        },
+        {
+          id: "baked",
+          iconName: "defect-baked",
+          label: "Baked",
+          isVisible: Boolean(defects.baked) || (defectCupSlots.baked || []).length > 0,
+        },
+        {
+          id: "unevenRoast",
+          iconName: "defect-uneven-roast",
+          label: "Uneven roast",
+          isVisible: Boolean(defects.unevenRoast) || (defectCupSlots.unevenRoast || []).length > 0,
+        },
+        {
+          id: "overdeveloped",
+          iconName: "defect-overdeveloped",
+          label: "Overdeveloped",
+          isVisible: Boolean(defects.overdeveloped) || (defectCupSlots.overdeveloped || []).length > 0,
+        },
       ].filter((badge) => badge.isVisible),
-    [defectCupSlots.moldy, defectCupSlots.phenolic, defectCupSlots.potato, defects, nonUniformCupSlots.length]
+    [defectCupSlots, defects, nonUniformCupSlots.length]
   );
 
   useEffect(() => {
@@ -946,18 +1141,22 @@ export function CuppingScreen({
     }, {});
 
     setSavedFeedback(emptyFeedbackByField);
+    setSavedFlavourObservations([]);
+    setIsSavedFeedbackLoaded(false);
     setFeedback(buildInitialFeedbackState());
-    setSelectedFinalFields({});
-    setUnselectedFinalFields({});
     setHasUnsavedChanges(false);
 
     const loadSavedFeedback = async () => {
       if (!sampleId) {
+        if (isMounted) {
+          setIsSavedFeedbackLoaded(true);
+        }
         return;
       }
 
       try {
         const rowsByField = await getSampleFeedback(sampleId);
+        const flavourObservations = await getSampleFlavourObservations(sampleId);
         if (!isMounted) {
           return;
         }
@@ -973,9 +1172,12 @@ export function CuppingScreen({
           next[field] = Array.isArray(rows) ? rows : [];
         });
         setSavedFeedback(next);
+        setSavedFlavourObservations(flavourObservations);
         setFeedback(buildFeedbackStateFromSavedRows(next));
+        setIsSavedFeedbackLoaded(true);
       } catch (error) {
         if (isMounted) {
+          setIsSavedFeedbackLoaded(true);
           setStatusMessage(error?.message || "Could not load saved cupping history.");
         }
       }
@@ -1035,12 +1237,25 @@ export function CuppingScreen({
           moldy: Boolean(latest.moldy),
           phenolic: Boolean(latest.phenolic),
           potato: Boolean(latest.potato),
+          otherBean: Boolean(latest.otherBean),
+          underdeveloped: Boolean(latest.underdeveloped),
+          baked: Boolean(latest.baked),
+          unevenRoast: Boolean(latest.unevenRoast),
+          overdeveloped: Boolean(latest.overdeveloped),
         };
-        const nextDefectCupSlots = {
-          moldy: latest.moldy ? [1] : [],
-          phenolic: latest.phenolic ? [1] : [],
-          potato: latest.potato ? [1] : [],
-        };
+        const nextDefectCupSlots =
+          latest.defectCupSlots && Object.keys(latest.defectCupSlots).length > 0
+            ? latest.defectCupSlots
+            : {
+                moldy: latest.moldy ? [1] : [],
+                phenolic: latest.phenolic ? [1] : [],
+                potato: latest.potato ? [1] : [],
+                otherBean: latest.otherBean ? [1] : [],
+                underdeveloped: latest.underdeveloped ? [1] : [],
+                baked: latest.baked ? [1] : [],
+                unevenRoast: latest.unevenRoast ? [1] : [],
+                overdeveloped: latest.overdeveloped ? [1] : [],
+              };
         const nextNonUniformCupSlots = Array.isArray(latest.nonUniformCupSlots) ? latest.nonUniformCupSlots : [];
         const nextDefectiveCupSlots = Array.isArray(latest.defectiveCupSlots) ? latest.defectiveCupSlots : [];
 
@@ -1073,10 +1288,45 @@ export function CuppingScreen({
   useEffect(() => {
     setIsFinalMode(Boolean(startInFinalMode));
     setIsFinalSaved(Boolean(startInFinalSaved));
-    setSelectedFinalFields({});
-    setUnselectedFinalFields({});
     setHasUnsavedChanges(false);
   }, [sampleId, startInFinalMode, startInFinalSaved]);
+
+  useEffect(() => {
+    if (!usesMockCuppingLayout || !isSavedFeedbackLoaded) {
+      return undefined;
+    }
+
+    if (![1, 3].includes(Number(cupStateNumber))) {
+      return undefined;
+    }
+
+    const scrollTarget = initialScrollTarget || (cupStateNumber === 3 && hasSavedAromaScore ? "Flavour" : "top");
+    const scrollKey = `${sampleId || cupUUID || "sample"}:${cupStateNumber}:${scrollTarget}:${scanRevision || "initial"}`;
+    if (autoScrolledSampleRef.current === scrollKey) {
+      return undefined;
+    }
+    autoScrolledSampleRef.current = scrollKey;
+
+    const scrollToInitialTarget = () => {
+      const measuredY = scrollTarget === "Flavour" ? fieldLayoutYRef.current.Flavour : 0;
+      const y = Number.isFinite(measuredY) ? Math.max(0, measuredY) : 0;
+      scrollRef.current?.scrollTo({ y, animated: false });
+    };
+
+    requestAnimationFrame(scrollToInitialTarget);
+    const timeoutId = setTimeout(scrollToInitialTarget, 220);
+
+    return () => clearTimeout(timeoutId);
+  }, [
+    cupStateNumber,
+    cupUUID,
+    hasSavedAromaScore,
+    initialScrollTarget,
+    isSavedFeedbackLoaded,
+    sampleId,
+    scanRevision,
+    usesMockCuppingLayout,
+  ]);
 
   useEffect(() => {
     const numericElapsed = Number.parseInt(elapsedSeconds, 10);
@@ -1117,11 +1367,7 @@ export function CuppingScreen({
   }, []);
 
   const handleScoreSelect = (field, score) => {
-    const hasSavedFinalEntry = (savedFeedback[field] || []).some((entry) => entry?.isFinal);
-    const isFieldFinalSelected =
-      (Boolean(selectedFinalFields[field]) || hasSavedFinalEntry) && !unselectedFinalFields[field];
-
-    if (!isFieldEnabled(field) || isFieldFinalSelected) {
+    if (!isFieldEnabled(field)) {
       return;
     }
 
@@ -1133,12 +1379,6 @@ export function CuppingScreen({
         score,
       },
     }));
-    if (score == null) {
-      setSelectedFinalFields((prev) => ({
-        ...prev,
-        [field]: false,
-      }));
-    }
   };
 
   const getGroupComments = (group) => {
@@ -1211,39 +1451,6 @@ export function CuppingScreen({
     setDefectiveCupSlots(Array.isArray(slots) ? slots : []);
   };
 
-  const handleToggleFieldFinal = (field) => {
-    if (!isFieldEnabled(field) || (isFinalMode && isFinalSaved)) {
-      return;
-    }
-
-    const hasSavedFinalEntry = (savedFeedback[field] || []).some((entry) => entry?.isFinal);
-    const isCurrentlyFinal =
-      (Boolean(selectedFinalFields[field]) || hasSavedFinalEntry) && !unselectedFinalFields[field];
-    if (!isCurrentlyFinal && feedback[field]?.score == null) {
-      return;
-    }
-
-    setHasUnsavedChanges(true);
-    setSelectedFinalFields((prev) => {
-      const next = { ...prev };
-      if (isCurrentlyFinal) {
-        delete next[field];
-      } else {
-        next[field] = true;
-      }
-      return next;
-    });
-    setUnselectedFinalFields((prev) => {
-      const next = { ...prev };
-      if (isCurrentlyFinal) {
-        next[field] = true;
-      } else {
-        delete next[field];
-      }
-      return next;
-    });
-  };
-
   const focusNoteGroup = (group) => {
     const noteId = getNoteGroupId(group);
     const measuredY = noteLayoutYRef.current[noteId];
@@ -1259,6 +1466,50 @@ export function CuppingScreen({
 
     requestAnimationFrame(scrollToTarget);
     setTimeout(scrollToTarget, 180);
+  };
+
+  const renderScoreSummary = ({ placement = "bottom" } = {}) => {
+    const hasDefectBadges = defectBadges.length > 0;
+    const isDrawerPlacement = placement === "drawer";
+
+    return (
+      <View
+        style={[
+          styles.cuppingScoreSummary,
+          {
+            marginTop: isDrawerPlacement ? spacing.lg : spacing.md,
+            marginBottom: isDrawerPlacement
+              ? spacing.lg
+              : hasDefectBadges
+                ? spacing.xs
+                : spacing.lg,
+          },
+        ]}
+      >
+        <View style={[styles.cuppingFormTitleRow, { gap: 8 * scale }]}>
+          <Text style={styles.cuppingFormTitle}>{liveScoreTitle}</Text>
+          <View
+            style={[
+              styles.infoBadge,
+              {
+                width: 22 * scale,
+                height: 22 * scale,
+                borderRadius: 11 * scale,
+                borderWidth: 2 * scale,
+              },
+            ]}
+          >
+            <AppIcon
+              name="info"
+              role="icon_status"
+              size={14 * scale}
+              style={styles.infoBadgeText}
+            />
+          </View>
+        </View>
+        <DefectBadgeRow badges={defectBadges} scale={scale} />
+      </View>
+    );
   };
 
   const renderCuppingForm = () => {
@@ -1290,30 +1541,8 @@ export function CuppingScreen({
 
     return (
       <View style={styles.cuppingForm}>
-        <View style={[styles.cuppingFormTitleRow, { marginTop: 12 * scale, gap: 8 * scale }]}>
-          <Text style={[styles.cuppingFormTitle, { fontSize: 22 * scale, lineHeight: 28 * scale }]}>
-            {liveScoreTitle}
-          </Text>
-          <View
-            style={[
-              styles.infoBadge,
-              {
-                width: 22 * scale,
-                height: 22 * scale,
-                borderRadius: 11 * scale,
-                borderWidth: 2 * scale,
-              },
-            ]}
-          >
-            <Text style={[styles.infoBadgeText, { fontSize: 14 * scale, lineHeight: 17 * scale }]}>i</Text>
-          </View>
-        </View>
-
         {visibleFields.map((field) => {
-          const finalEntries = (savedFeedback[field] || []).filter((entry) => entry?.isFinal);
           const noteGroup = getNoteGroupForField(field);
-          const isFieldFinalSelected =
-            (Boolean(selectedFinalFields[field]) || finalEntries.length > 0) && !unselectedFinalFields[field];
           const fieldEnabled = isFieldEnabled(field);
           const noteGroupEnabled = noteGroup ? isNoteGroupEnabled(noteGroup) : false;
 
@@ -1322,6 +1551,7 @@ export function CuppingScreen({
               key={field}
               style={styles.cuppingFieldBlock}
               onLayout={(event) => {
+                fieldLayoutYRef.current[field] = event.nativeEvent.layout.y;
                 if (noteGroup) {
                   noteLayoutYRef.current[getNoteGroupId(noteGroup)] = event.nativeEvent.layout.y;
                 }
@@ -1330,41 +1560,71 @@ export function CuppingScreen({
               <CuppingScoreRow
                 title={field}
                 score={feedback[field].score}
-                hasFinalEntry={isFieldFinalSelected}
                 disabled={!fieldEnabled}
                 scale={scale}
                 onScoreSelect={(score) => handleScoreSelect(field, score)}
-                onFinalPress={() => handleToggleFieldFinal(field)}
               />
-              {noteGroup ? (
-                <NotesInput
-                  value={getGroupComments(noteGroup)}
-                  onChangeText={(comments) => handleGroupCommentsChange(noteGroup, comments)}
-                  onFocus={() => focusNoteGroup(noteGroup)}
-                  placeholder="Add notes"
-                  accessibilityLabel={`${noteGroup.fields.join(" and ")} notes`}
-                  disabled={!noteGroupEnabled}
-                  style={[
-                    styles.cuppingNoteInput,
-                    !noteGroupEnabled && styles.cuppingNoteInputDisabled,
-                    {
-                      minHeight: 148 * scale,
-                      borderRadius: 13 * scale,
-                      paddingHorizontal: 15 * scale,
-                      paddingTop: 12 * scale,
-                      paddingBottom: 12 * scale,
-                      fontSize: 18 * scale,
-                      lineHeight: 23 * scale,
-                      marginTop: 1 * scale,
-                      marginBottom: 14 * scale,
-                    },
-                  ]}
-                />
-              ) : null}
+              {noteGroup ? (() => {
+                const groupComments = getGroupComments(noteGroup);
+                const savedObsByKeyword = {};
+                savedFlavourObservations
+                  .filter((o) => observationMatchesFields(o, noteGroup.fields))
+                  .forEach((o) => {
+                    const kw = String(o.keyword || "").toLowerCase();
+                    if (!savedObsByKeyword[kw]) savedObsByKeyword[kw] = o;
+                  });
+                const livePills = tokenizeFlavourKeywords(groupComments)
+                  .filter((t) => t.type === "pill")
+                  .reduce((acc, t) => {
+                    const kw = String(t.keyword || "").toLowerCase();
+                    if (!acc.seen.has(kw)) {
+                      acc.seen.add(kw);
+                      const savedObs = savedObsByKeyword[kw];
+                      const label = savedObs ? formatObservationPillLabel(savedObs) : t.keyword;
+                      acc.pills.push({ keyword: t.keyword, label, colour: t.colour });
+                    }
+                    return acc;
+                  }, { seen: new Set(), pills: [] }).pills;
+                return (
+                  <>
+                    <NotesInput
+                      value={groupComments}
+                      onChangeText={(comments) => handleGroupCommentsChange(noteGroup, comments)}
+                      onFocus={() => focusNoteGroup(noteGroup)}
+                      placeholder={`Add ${noteGroup.label.toLowerCase()}...`}
+                      accessibilityLabel={noteGroup.label}
+                      disabled={!noteGroupEnabled}
+                      style={[
+                        styles.cuppingNoteInput,
+                        !noteGroupEnabled && styles.cuppingNoteInputDisabled,
+                        {
+                          minHeight: 148 * scale,
+                          borderRadius: 13 * scale,
+                          paddingHorizontal: 15 * scale,
+                          paddingTop: 12 * scale,
+                          paddingBottom: 12 * scale,
+                          marginTop: spacing.sm,
+                          marginBottom: livePills.length > 0 ? spacing.sm : (noteGroup.afterField === "Aroma" ? spacing.md : 14 * scale),
+                        },
+                      ]}
+                    />
+                    {livePills.length > 0 ? (
+                      <KeywordPillRow
+                        pills={livePills}
+                        scale={scale}
+                        outline
+                        style={{
+                          marginBottom: noteGroup.afterField === "Aroma" ? spacing.md : 14 * scale,
+                        }}
+                      />
+                    ) : null}
+                  </>
+                );
+              })() : null}
             </View>
           );
         })}
-        <DefectBadgeRow badges={defectBadges} scale={scale} />
+        {renderScoreSummary({ placement: "bottom" })}
       </View>
     );
   };
@@ -1382,15 +1642,13 @@ export function CuppingScreen({
         return acc;
       }, {});
       const finalFieldsToSave = fieldsToPersist.reduce((acc, field) => {
-        const finalEntries = (savedFeedback[field] || []).filter((entry) => entry?.isFinal);
-        const shouldSaveFinal =
-          (Boolean(selectedFinalFields[field]) || finalEntries.length > 0) && !unselectedFinalFields[field];
-        if (shouldSaveFinal && feedback[field]?.score != null) {
+        if (feedback[field]?.score != null) {
           acc[field] = feedback[field];
         }
         return acc;
       }, {});
-      const finalFieldsToClear = fieldsToPersist.filter((field) => Boolean(unselectedFinalFields[field]));
+      const finalFieldsToClear = fieldsToPersist.filter((field) => feedback[field]?.score == null);
+      const finalFieldsToReplace = Object.keys(finalFieldsToSave);
       const emptyFieldsToClear = fieldsToPersist.filter((field) => {
         const entry = feedback[field];
         const isEmpty = entry?.score == null && !String(entry?.comments || "").trim();
@@ -1398,13 +1656,21 @@ export function CuppingScreen({
       });
       const wasCompleteBeforeSave = hasCompleteFinalScoreSet(savedFeedback);
       const nowIso = new Date().toISOString();
+      const flavourObservations = buildFlavourObservationsFromFeedback({
+        feedback,
+        fields: fieldsToPersist,
+        existingObservations: savedFlavourObservations,
+        tempSnapshot: statusDisplay.temp,
+        timeSnapshot: statusDisplay.time,
+        createdAt: nowIso,
+      });
       const nextSavedFeedback = (() => {
         const next = FEEDBACK_FIELDS.reduce((acc, field) => {
           let rows = Array.isArray(savedFeedback[field]) ? [...savedFeedback[field]] : [];
           if (emptyFieldsToClear.includes(field)) {
             rows = [];
           }
-          if (finalFieldsToClear.includes(field)) {
+          if (finalFieldsToClear.includes(field) || finalFieldsToReplace.includes(field)) {
             rows = rows.filter((entry) => !entry?.isFinal);
           }
           acc[field] = rows;
@@ -1467,6 +1733,12 @@ export function CuppingScreen({
           fields: emptyFieldsToClear,
         });
       }
+      if (finalFieldsToReplace.length > 0) {
+        await clearSampleFinalFeedbackFields({
+          sampleId,
+          fields: finalFieldsToReplace,
+        });
+      }
       await saveSampleFeedbackBatch({
         sessionId,
         sampleId,
@@ -1484,13 +1756,35 @@ export function CuppingScreen({
           timeSnapshot: statusDisplay.time,
           isFinal: true,
         });
-        await markSessionCompleteIfAllSamplesComplete(sessionId);
       }
       if (finalFieldsToClear.length > 0) {
         await clearSampleFinalFeedbackFields({
           sampleId,
           fields: finalFieldsToClear,
         });
+      }
+      if (Object.keys(finalFieldsToSave).length > 0 || finalFieldsToClear.length > 0) {
+        await markSessionCompleteIfAllSamplesComplete(sessionId);
+      }
+      const pruneGroups = NOTE_GROUPS.map((noteGroup) => {
+        const keepKeywords = new Set();
+        buildFlavourObservationCommentGroups(feedback, noteGroup.fields).forEach(({ comments }) => {
+          tokenizeFlavourKeywords(comments).forEach((token) => {
+            if (token.type === "pill") {
+              keepKeywords.add(String(token.keyword || "").trim().toLowerCase());
+            }
+          });
+        });
+        return { includeSourceFields: noteGroup.fields, keepKeywords: Array.from(keepKeywords) };
+      });
+      await pruneSampleFlavourObservations({ sampleId, pruneGroups });
+      await saveSampleFlavourObservations({
+        sessionId,
+        sampleId,
+        observations: flavourObservations,
+      });
+      if (flavourObservations.length > 0) {
+        setSavedFlavourObservations((prev) => [...prev, ...flavourObservations]);
       }
       await saveSampleDefectsEntry({
         sessionId,
@@ -1500,12 +1794,13 @@ export function CuppingScreen({
         defectiveCups,
         nonUniformCupSlots,
         defectiveCupSlots,
+        defectCupSlots,
         numberOfCups: defectsCupTotal || cupTotal || 1,
         tempSnapshot: statusDisplay.temp,
         timeSnapshot: statusDisplay.time,
-        isFinal: false,
+        isFinal: true,
       });
-      setStatusMessage("Feedback saved.");
+      setStatusMessage("");
       setSavedFeedback(nextSavedFeedback);
       const shouldNavigateAfterBalloons =
         !stayOnScreen &&
@@ -1515,7 +1810,6 @@ export function CuppingScreen({
       if (!stayOnScreen && !shouldNavigateAfterBalloons) {
         setFeedback((prev) => clearFeedbackFields(prev, fieldsToPersist));
       }
-      setSelectedFinalFields({});
       setIsDefectsDrawerOpen(false);
       setSavedDefectsSignature(currentDefectsSignature);
       setHasUnsavedChanges(false);
@@ -1570,6 +1864,7 @@ export function CuppingScreen({
         defectiveCups,
         nonUniformCupSlots,
         defectiveCupSlots,
+        defectCupSlots,
         numberOfCups: defectsCupTotal || cupTotal || 1,
         tempSnapshot: statusDisplay.temp,
         timeSnapshot: statusDisplay.time,
@@ -1643,6 +1938,7 @@ export function CuppingScreen({
             variant="back"
             onBackPress={onBackPress}
             backAccessibilityLabel="Back"
+            hideBack={isDefectsDrawerOpen}
             sideWidth={112}
             titleContent={
               <CuppingTitleContent
@@ -1651,8 +1947,6 @@ export function CuppingScreen({
                 cupIndex={cupIndex}
                 sampleColour={sampleColour}
                 scale={scale}
-                pagerCurrent={samplePagerIndex}
-                pagerTotal={samplePagerTotal}
               />
             }
             rightContent={<CuppingHeaderTemperature temp={statusDisplay.temp} scale={scale} />}
@@ -1666,7 +1960,7 @@ export function CuppingScreen({
             onBackPress={onBackPress}
             backAccessibilityLabel="Back"
             onRightPress={isFinalMode && isFinalSaved ? handleEditFinalScore : undefined}
-            rightIconText="✎"
+            rightIconName="edit"
             rightAccessibilityLabel="Edit final score"
           />
 
@@ -1712,15 +2006,6 @@ export function CuppingScreen({
         >
           {renderCuppingForm()}
 
-          {isBrewing ? (
-            <View style={styles.noticeCard} accessibilityLabel="Cup brewing notice">
-              <Text style={styles.noticeTitle}>Cup is brewing</Text>
-              <Text style={styles.noticeBody}>
-                This cup is currently in brewing state. Cupping details can be entered once the cup reaches cupping state.
-              </Text>
-            </View>
-          ) : null}
-
           {!isBrewing && !usesMockCuppingLayout ? (
             <View style={styles.defectsDrawer}>
               <Pressable
@@ -1729,9 +2014,7 @@ export function CuppingScreen({
                 accessibilityRole="button"
                 accessibilityLabel={`${isDefectsDrawerOpen ? "Close" : "Open"} defects`}
               >
-                <Text style={styles.defectsDrawerTitle}>
-                  {isDefectsDrawerOpen ? "⌄" : "⌃"} Defects
-                </Text>
+                <DefectsDrawerLabel expanded={isDefectsDrawerOpen} textStyle={styles.defectsDrawerTitle} />
               </Pressable>
               {isDefectsDrawerOpen ? (
                 <View style={styles.defectsDrawerContent}>
@@ -1745,6 +2028,7 @@ export function CuppingScreen({
                     onChangeNonUniformCupSlots={handleChangeNonUniformCupSlots}
                     onChangeDefectiveCupSlots={handleChangeDefectiveCupSlots}
                   />
+                  {renderScoreSummary({ placement: "drawer" })}
                 </View>
               ) : null}
             </View>
@@ -1753,7 +2037,7 @@ export function CuppingScreen({
       </KeyboardAvoidingView>
 
       {usesMockCuppingLayout && isDefectsDrawerOpen ? (
-        <View style={[styles.designCDefectDrawerOverlay, { top: 56 }]}>
+        <View style={[styles.designCDefectDrawerOverlay, { top: 56, bottom: 152 * scale }]}>
           <Pressable
             style={[
               styles.designCDefectSection,
@@ -1766,17 +2050,20 @@ export function CuppingScreen({
             accessibilityRole="button"
             accessibilityLabel="Close defects"
           >
-            <Text style={[styles.designCDefectSectionText, { fontSize: 20 * scale, lineHeight: 25 * scale }]}>
-              ⌄ Defects
-            </Text>
+            <DefectsDrawerLabel
+              expanded
+              scale={scale}
+              textStyle={styles.designCDefectSectionText}
+            />
           </Pressable>
           <ScrollView
+            style={styles.designCDefectDrawerScroll}
             keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
+            showsVerticalScrollIndicator
             contentContainerStyle={{
               paddingTop: 34 * scale,
               paddingHorizontal: 26 * scale,
-              paddingBottom: 18 * scale,
+              paddingBottom: spacing.lg * 4 * scale,
             }}
           >
             <DefectsSection
@@ -1793,6 +2080,7 @@ export function CuppingScreen({
               onChangeNonUniformCupSlots={handleChangeNonUniformCupSlots}
               onChangeDefectiveCupSlots={handleChangeDefectiveCupSlots}
             />
+            {renderScoreSummary({ placement: "drawer" })}
           </ScrollView>
         </View>
       ) : null}
@@ -1807,9 +2095,11 @@ export function CuppingScreen({
                 accessibilityRole="button"
                 accessibilityLabel="Open defects"
               >
-                <Text style={[styles.designCDefectSectionText, { fontSize: 20 * scale, lineHeight: 25 * scale }]}>
-                  ⌃ Defects
-                </Text>
+                <DefectsDrawerLabel
+                  expanded={false}
+                  scale={scale}
+                  textStyle={styles.designCDefectSectionText}
+                />
               </Pressable>
             </View>
           ) : (
@@ -1837,10 +2127,6 @@ export function CuppingScreen({
                 style={[
                   styles.scanButton,
                   { backgroundColor: isDefectsDrawerOpen || hasPendingChanges ? SAVE_GREY : IOS_BLUE },
-                ]}
-                textStyle={[
-                  styles.scanButtonText,
-                  { fontSize: 19 * scale, lineHeight: 23 * scale },
                 ]}
               />
             </View>
@@ -1932,8 +2218,8 @@ const styles = StyleSheet.create({
   },
   cuppingHeaderDot: {},
   cuppingHeaderTitleText: {
-    fontWeight: "700",
-    color: colors.text,
+    ...typography.text_screen_title,
+    lineHeight: 28,
   },
   cuppingHeaderTemp: {
     flexDirection: "row",
@@ -1947,18 +2233,15 @@ const styles = StyleSheet.create({
   cuppingHeaderThermometerStem: {
     position: "absolute",
     top: 1,
-    borderColor: "#3f4852",
+    borderColor: colors.ink,
     backgroundColor: colors.surface,
   },
   cuppingHeaderThermometerBulb: {
-    backgroundColor: "#3f4852",
-    borderColor: "#3f4852",
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
   },
   cuppingHeaderTempText: {
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: colors.text,
+    ...typography.text_screen_title,
   },
   samplePager: {
     flexDirection: "row",
@@ -1967,10 +2250,10 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   samplePagerDot: {
-    backgroundColor: "#cfd4d8",
+    backgroundColor: colors.subtle,
   },
   samplePagerDotActive: {
-    backgroundColor: "#3f4852",
+    backgroundColor: colors.ink,
   },
   hero: {
     paddingTop: 24,
@@ -1978,14 +2261,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   cupIndexText: {
+    ...typography.text_caption,
     textAlign: "center",
-    fontSize: 14,
     fontWeight: "700",
     letterSpacing: 4,
-    color: "#111111",
+    color: colors.ink,
   },
   cupIndexScoreText: {
-    color: "#dc2626",
+    color: colors.danger,
   },
   keyboardWrap: {
     flex: 1,
@@ -2001,30 +2284,32 @@ const styles = StyleSheet.create({
   cuppingForm: {
     gap: 0,
   },
+  cuppingScoreSummary: {},
   cuppingFormTitleRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
   cuppingFormTitle: {
-    fontWeight: "800",
-    color: colors.text,
+    ...typography.text_secondary_metric,
     textAlign: "center",
   },
   infoBadge: {
-    borderColor: "#47515d",
+    borderColor: colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
   infoBadgeText: {
     fontWeight: "800",
-    color: "#47515d",
+    color: colors.ink,
   },
   cuppingFieldBlock: {},
-  cuppingScoreRow: {},
+  cuppingScoreRow: {
+    paddingBottom: spacing.sm,
+  },
   cuppingScoreTitle: {
-    fontWeight: "800",
-    color: "#3f4852",
+    ...typography.text_section_title,
+    lineHeight: 28,
   },
   cuppingScoreControls: {
     flexDirection: "row",
@@ -2032,54 +2317,36 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   cuppingScoreCircle: {
-    borderColor: "#3f4852",
+    borderColor: colors.ink,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surface,
   },
   cuppingScoreCircleSelected: {
-    backgroundColor: "#3f4852",
+    backgroundColor: colors.ink,
+  },
+  cuppingScoreCircleDisabled: {
+    borderColor: colors.muted,
   },
   cuppingScoreText: {
+    ...typography.text_body,
+    lineHeight: 23,
     fontWeight: "600",
-    color: "#3f4852",
+    color: colors.ink,
   },
   cuppingScoreTextSelected: {
-    color: "#ffffff",
+    color: colors.surface,
   },
-  cuppingFinalPill: {
-    borderWidth: 2,
-    borderColor: "#3f4852",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 10,
-    backgroundColor: colors.surface,
-  },
-  cuppingFinalPillSelected: {
-    backgroundColor: "#3f4852",
-    borderColor: "#3f4852",
-  },
-  cuppingFinalPillDisabled: {
-    borderColor: "#b8bec5",
-    opacity: 1,
-  },
-  cuppingFinalText: {
-    fontWeight: "600",
-    color: "#3f4852",
-  },
-  cuppingFinalTextSelected: {
-    color: "#ffffff",
-  },
-  cuppingFinalTextDisabled: {
-    color: "#b8bec5",
+  cuppingScoreTextDisabled: {
+    color: colors.muted,
   },
   cuppingNoteInput: {
-    backgroundColor: "#f4f5f6",
-    borderColor: "#d7dadd",
+    backgroundColor: colors.input,
+    borderColor: colors.quietBorder,
   },
   cuppingNoteInputDisabled: {
-    backgroundColor: "#eef0f2",
-    borderColor: "#d5d8db",
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
     opacity: 0.55,
   },
   defectBadgeRow: {
@@ -2091,22 +2358,25 @@ const styles = StyleSheet.create({
   defectBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#eef0f2",
+    backgroundColor: colors.panel,
     borderWidth: 1,
-    borderColor: "#d5d8db",
+    borderColor: colors.border,
   },
   defectBadgeIcon: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#3f4852",
+    backgroundColor: colors.ink,
   },
   defectBadgeIconText: {
-    color: "#ffffff",
+    color: colors.surface,
     fontWeight: "800",
     letterSpacing: 0,
   },
   defectBadgeText: {
-    color: "#3f4852",
+    ...typography.text_caption,
+    fontSize: 14,
+    lineHeight: 18,
+    color: colors.ink,
     fontWeight: "800",
     letterSpacing: 0,
   },
@@ -2122,15 +2392,14 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   feedbackTitle: {
-    fontSize: 18,
+    ...typography.text_body,
     fontWeight: "700",
-    color: colors.text,
   },
   historyCard: {
     borderWidth: 1,
-    borderColor: "#d9e0ea",
+    borderColor: colors.quietBorder,
     borderRadius: 10,
-    backgroundColor: "#eef2f6",
+    backgroundColor: colors.panel,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.sm,
     gap: 6,
@@ -2141,35 +2410,38 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   historyMeta: {
+    ...typography.text_secondary_body,
     fontSize: 14,
     fontWeight: "700",
-    color: "#1f2937",
+    color: colors.ink,
   },
   historyScoreBadge: {
     minWidth: 26,
     height: 26,
     borderRadius: 6,
-    backgroundColor: "#000000",
+    backgroundColor: colors.ink,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 6,
   },
   historyScoreText: {
-    color: "#ffffff",
+    ...typography.text_secondary_body,
+    color: colors.surface,
     fontSize: 14,
     fontWeight: "700",
   },
   historyBody: {
+    ...typography.text_secondary_body,
     fontSize: 14,
-    color: "#475569",
+    color: colors.inkSoft,
   },
   historyWrap: {
     gap: 8,
   },
   historyTitle: {
-    fontSize: 12,
+    ...typography.text_caption,
     fontWeight: "700",
-    color: "#8a97ac",
+    color: colors.inkSoft,
     textTransform: "uppercase",
     letterSpacing: 2,
   },
@@ -2183,17 +2455,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontWeight: "600",
   },
-  noticeCard: {
-    marginHorizontal: spacing.md,
-    marginTop: spacing.sm,
-    borderWidth: 1,
-    borderColor: "#f5d0a0",
-    backgroundColor: "#fff8ef",
-    borderRadius: 10,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-    gap: 4,
-  },
   statusMessageWrap: {
     marginHorizontal: spacing.md,
     marginTop: spacing.xs,
@@ -2205,15 +2466,15 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
   },
   statusMessageText: {
+    ...typography.text_secondary_body,
     fontSize: 13,
-    color: colors.textMuted,
   },
   defectsDrawer: {
     marginTop: spacing.sm,
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#eef0f2",
+    backgroundColor: colors.panel,
     marginHorizontal: -spacing.md,
   },
   defectsDrawerHeader: {
@@ -2223,15 +2484,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   defectsDrawerTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#3f4852",
+    ...typography.text_section_title,
+  },
+  defectsDrawerLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
   },
   mockBottomDrawer: {
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: colors.border,
-    backgroundColor: "#eef0f2",
+    backgroundColor: colors.panel,
   },
   mockBottomDrawerSpacer: {
     backgroundColor: colors.surface,
@@ -2249,39 +2514,29 @@ const styles = StyleSheet.create({
     zIndex: 15,
     elevation: 15,
   },
+  designCDefectDrawerScroll: {
+    flex: 1,
+  },
   designCDefectSection: {
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#eef0f2",
+    backgroundColor: colors.panel,
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: colors.border,
   },
   designCDefectSectionText: {
-    color: "#3f4852",
-    fontWeight: "800",
+    ...typography.text_section_title,
     letterSpacing: 0,
   },
   mockDefectsDrawerTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#3f4852",
+    ...typography.text_section_title,
   },
   defectsDrawerContent: {
     backgroundColor: colors.surface,
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
-  },
-  noticeTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#8a4b08",
-  },
-  noticeBody: {
-    fontSize: 14,
-    color: "#9a5a12",
-    lineHeight: 20,
   },
   footer: {
     borderTopWidth: 1,
@@ -2302,9 +2557,6 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     backgroundColor: IOS_BLUE,
-  },
-  scanButtonText: {
-    letterSpacing: 1.4,
   },
   balloonLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -2329,10 +2581,10 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   finalisedTitle: {
+    ...typography.text_caption,
     fontSize: 12,
     fontWeight: "700",
     color: "#4b5563",
-    textTransform: "uppercase",
     letterSpacing: 1.2,
   },
   finalisedCard: {

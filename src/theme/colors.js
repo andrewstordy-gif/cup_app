@@ -4,4 +4,13 @@ export const colors = {
   text: "#222222",
   textMuted: "#666666",
   border: "#dddddd",
+  ink: "#3f4852",
+  inkSoft: "#667078",
+  muted: "#b8bec5",
+  subtle: "#cfd4d8",
+  panel: "#eef0f2",
+  input: "#f4f5f6",
+  quietBorder: "#d7dadd",
+  action: "#3478f6",
+  danger: "#dc2626",
 };

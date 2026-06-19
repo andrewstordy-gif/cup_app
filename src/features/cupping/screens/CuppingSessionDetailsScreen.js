@@ -1,16 +1,17 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
+import { AppIcon } from "../../../components/ui/AppIcon";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { typography } from "../../../theme/typography";
 import {
   readAndWriteNdefMinimal,
   readNdefMinimal,
-  writeNdefMetadataOnlyMinimal,
-  writeNdefMinimal,
 } from "../../../services/nfcServiceMinimal";
 import {
   NFC_TAG_TYPES,
@@ -76,7 +77,7 @@ function buildRecoveredSmartCupText2(tag) {
   };
 }
 
-export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
+export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessionId = null }) {
   const [sessionUUID, setSessionUUID] = useState(() => generateSessionUUID());
   const [sessionDisplayId, setSessionDisplayId] = useState(() => formatSessionDisplayId(sessionUUID));
   const [sessionDate, setSessionDate] = useState(() => formatSessionDate(new Date()));
@@ -91,7 +92,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const [sheetCoffeeNameOrigin, setSheetCoffeeNameOrigin] = useState("");
   const [sheetProcess, setSheetProcess] = useState("");
-  const [sheetCupNumber, setSheetCupNumber] = useState(3);
+  const [sheetCupNumber, setSheetCupNumber] = useState(null);
   const [sheetSampleColour, setSheetSampleColour] = useState(SAMPLE_COLOUR_OPTIONS[0].hex);
   const [sheetErrors, setSheetErrors] = useState({});
   const [scanStatusMessage, setScanStatusMessage] = useState("");
@@ -131,7 +132,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         setSessionName("");
         setSessionType("1");
         setSamplesInSession("");
-        setSessionStatus("pending");
+        setSessionStatus("new");
         setSamples([]);
         setShowSessionTypeMenu(false);
         setScanStatusMessage("");
@@ -284,7 +285,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   const handleOpenAddSheet = () => {
     setSheetCoffeeNameOrigin("");
     setSheetProcess("");
-    setSheetCupNumber(3);
+    setSheetCupNumber(null);
     setSheetSampleColour(SAMPLE_COLOUR_OPTIONS[0].hex);
     setSheetErrors({});
     setScanStatusMessage("");
@@ -591,8 +592,16 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         (parsed?.raw?.text4 ? JSON.parse(parsed.raw.text4) : parsed?.text4);
 
       if (doesMetadataMatchExpected(actualMetadata, expectedMetadata)) {
-        setSampleVerificationStatus(sampleId, "verified");
-        setScanStatusMessage(`Cup ${expectedCupUUID} verified successfully.`);
+        const cupState = parsed?.text1?.s ?? parsed?.text1?.state;
+        if (!isNtagCup && cupState !== 1) {
+          setSampleVerificationStatus(sampleId, "pending");
+          setScanStatusMessage(
+            `Cup ${expectedCupUUID} session data verified but NDEF1 state is not ready (s=${cupState ?? "unknown"}). Check the cup hardware.`
+          );
+        } else {
+          setSampleVerificationStatus(sampleId, "verified");
+          setScanStatusMessage(`Cup ${expectedCupUUID} verified successfully.`);
+        }
       } else {
         setSampleVerificationStatus(sampleId, "pending");
         setScanStatusMessage(`Cup ${expectedCupUUID} does not match the expected session data. Please write again.`);
@@ -657,59 +666,62 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
 
     try {
       setScanStatusMessage(`Scan cup ${expectedCupUUID} to rewrite its session data...`);
-      const result = await readNdefMinimal();
-      const parsed = result?.parsed || {};
-      const tag = result?.tag;
-      const tagClassification = classifyNfcTagReadResult(result);
-      const isSmartCupHardware = isSmartCupHardwareTag(tag);
-      const isRepairableSmartCup =
-        isSmartCupHardware &&
-        tagClassification.type !== NFC_TAG_TYPES.SMART_CUP &&
-        canRepairSmartCupNdefShape(tagClassification);
-      if (isSmartCupHardware && tagClassification.type !== NFC_TAG_TYPES.SMART_CUP && !isRepairableSmartCup) {
-        throw new Error("Smart cup records could not be read. Please retry and hold the phone still.");
-      }
-      const isNtagCup =
-        !isSmartCupHardware &&
-        (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
-          tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
-          tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
-
-      if (isNtagCup) {
-        const detectedTagId = normalizeCupUuid(getNfcTagIdentifier(tag));
-        if (!detectedTagId || detectedTagId !== expectedCupUUID) {
-          throw new Error(`Scanned cup ${detectedTagId || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
+      await readAndWriteNdefMinimal(async (result) => {
+        const parsed = result?.parsed || {};
+        const tag = result?.tag;
+        const tagClassification = classifyNfcTagReadResult(result);
+        const isSmartCupHardware = isSmartCupHardwareTag(tag);
+        const isRepairableSmartCup =
+          isSmartCupHardware &&
+          tagClassification.type !== NFC_TAG_TYPES.SMART_CUP &&
+          canRepairSmartCupNdefShape(tagClassification);
+        if (isSmartCupHardware && tagClassification.type !== NFC_TAG_TYPES.SMART_CUP && !isRepairableSmartCup) {
+          throw new Error("Smart cup records could not be read. Please retry and hold the phone still.");
         }
+        const isNtagCup =
+          !isSmartCupHardware &&
+          (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
+            tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
+            tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
 
-        await writeNdefMetadataOnlyMinimal({
-          text4: expectedMetadata,
-        });
-      } else if (tagClassification.type === NFC_TAG_TYPES.SMART_CUP || isRepairableSmartCup) {
-        const detectedCupUUID = normalizeCupUuid(
-          isRepairableSmartCup ? getNfcTagIdentifier(tag) : resolveCupUUIDFromReadResult({ parsed, tag })
-        );
-        if (!detectedCupUUID || detectedCupUUID !== expectedCupUUID) {
-          throw new Error(`Scanned cup ${detectedCupUUID || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
+        if (isNtagCup) {
+          const detectedTagId = normalizeCupUuid(getNfcTagIdentifier(tag));
+          if (!detectedTagId || detectedTagId !== expectedCupUUID) {
+            throw new Error(`Scanned cup ${detectedTagId || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
+          }
+          return {
+            metadataOnly: true,
+            records: { text4: expectedMetadata },
+          };
+        } else if (tagClassification.type === NFC_TAG_TYPES.SMART_CUP || isRepairableSmartCup) {
+          const detectedCupUUID = normalizeCupUuid(
+            isRepairableSmartCup ? getNfcTagIdentifier(tag) : resolveCupUUIDFromReadResult({ parsed, tag })
+          );
+          if (!detectedCupUUID || detectedCupUUID !== expectedCupUUID) {
+            throw new Error(`Scanned cup ${detectedCupUUID || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
+          }
+          return {
+            metadataOnly: false,
+            records: {
+              text1:
+                tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+                  ? { ...parsed?.text1, state: 1 }
+                  : { state: 1 },
+              text2:
+                tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+                  ? parsed?.text2 || {}
+                  : buildRecoveredSmartCupText2(tag),
+              text3:
+                tagClassification.type === NFC_TAG_TYPES.SMART_CUP
+                  ? parsed?.text3 || {}
+                  : RECOVERED_SMART_CUP_TEXT3,
+              text4: expectedMetadata,
+            },
+          };
+        } else {
+          throw new Error("NFC tag format is not recognised yet. Please scan the matching cup or NTAG sticker.");
         }
-
-        await writeNdefMinimal({
-          text1:
-            tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-              ? parsed?.text1 || {}
-              : { state: 1 },
-          text2:
-            tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-              ? parsed?.text2 || {}
-              : buildRecoveredSmartCupText2(tag),
-          text3:
-            tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-              ? parsed?.text3 || {}
-              : RECOVERED_SMART_CUP_TEXT3,
-          text4: expectedMetadata,
-        });
-      } else {
-        throw new Error("NFC tag format is not recognised yet. Please scan the matching cup or NTAG sticker.");
-      }
+      });
 
       setSampleVerificationStatus(sampleId, "pending");
       setScanStatusMessage(`Cup ${expectedCupUUID} rewritten. Please run Check Cup to verify it.`);
@@ -751,7 +763,9 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
     try {
       const result = await saveSessionWithSamples(formState);
       setScanStatusMessage(`Session saved locally (${result.savedSampleCount} samples).`);
-      if (onBackPress) {
+      if (onSaveSuccess) {
+        onSaveSuccess(result.sessionId);
+      } else if (onBackPress) {
         onBackPress();
       }
     } catch (error) {
@@ -818,7 +832,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
   return (
     <View style={styles.screen}>
       <Header
-        title="Session Detials"
+        title={sessionId ? "Session Details" : "New Session"}
         variant="back"
         onBackPress={onBackPress}
         backAccessibilityLabel="Back"
@@ -870,9 +884,11 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
                 <Text style={[styles.dropdownValue, isSessionLocked && styles.dropdownValueDisabled]}>
                   {getSessionTypeLabel(sessionType)}
                 </Text>
-                <Text style={[styles.dropdownChevron, isSessionLocked && styles.dropdownChevronDisabled]}>
-                  {showSessionTypeMenu ? "▴" : "▾"}
-                </Text>
+                <AppIcon
+                  name={showSessionTypeMenu ? "chevron-up" : "chevron-down"}
+                  role="icon_compact"
+                  style={[styles.dropdownChevron, isSessionLocked && styles.dropdownChevronDisabled]}
+                />
               </Pressable>
 
               {showSessionTypeMenu && !isSessionLocked ? (
@@ -947,7 +963,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
               accessibilityLabel="Open add sample sheet"
               style={styles.addButton}
               textStyle={styles.addButtonText}
-              icon={<Text style={styles.addButtonIcon}>＋</Text>}
+              icon={<AppIcon name="add" role="icon_compact" color={colors.text} />}
               iconPosition="left"
             />
           ) : null}
@@ -1000,6 +1016,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         title="Cup Updated"
         message={overwriteDialogMessage}
         okLabel="OK"
+        onDismiss={() => setIsOverwriteDialogVisible(false)}
         onOk={() => setIsOverwriteDialogVisible(false)}
       />
 
@@ -1008,6 +1025,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         title="Cup In Use"
         message={cupBlockedMessage}
         okLabel="OK"
+        onDismiss={() => setIsCupBlockedDialogVisible(false)}
         onOk={() => setIsCupBlockedDialogVisible(false)}
       />
 
@@ -1016,6 +1034,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, sessionId = null }) {
         title="Delete Session?"
         message="This will permanently delete the session and all saved sample feedback stored on this device."
         okLabel="Delete Session"
+        onDismiss={() => setIsDeleteDialogVisible(false)}
         onOk={handleConfirmDelete}
         secondaryLabel="Cancel"
         onSecondary={() => setIsDeleteDialogVisible(false)}
@@ -1041,21 +1060,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   fieldLabel: {
+    ...typography.text_caption,
     fontSize: 13,
     fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   readOnlyValue: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: "#f8f8f8",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: colors.text,
+    ...typography.text_field_auto,
+    letterSpacing: 0,
   },
   dropdownWrap: {
     gap: 6,
@@ -1117,17 +1129,14 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
   uuidValue: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#8a97ac",
+    ...typography.text_field_auto,
+    letterSpacing: 0,
   },
   samplesSection: {
     gap: spacing.sm,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: colors.text,
+    ...typography.text_section_title,
   },
   input: {
     borderWidth: 1,
@@ -1156,14 +1165,9 @@ const styles = StyleSheet.create({
     letterSpacing: 0,
     fontWeight: "600",
   },
-  addButtonIcon: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "700",
-  },
   scanStatusText: {
+    ...typography.text_secondary_body,
     fontSize: 13,
-    color: colors.textMuted,
     marginTop: 2,
   },
   saveButton: {

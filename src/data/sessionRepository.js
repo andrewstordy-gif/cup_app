@@ -71,71 +71,37 @@ function parseCupSlotMask(mask, fallbackCount, maxCups = 5) {
   return Array.from({ length: count }, (_, index) => index + 1);
 }
 
-async function reconcileCompletedSessions(db) {
-  const nowIso = new Date().toISOString();
-  const scoreFieldPlaceholders = CUPPING_SCORE_FIELDS.map(() => "?").join(", ");
-  const requiredFinalFieldCount = CUPPING_SCORE_FIELDS.length;
-  try {
-    await db.runAsync(
-      `
-        UPDATE sessions
-        SET status = 'complete',
-            updated_at = ?
-        WHERE status != 'complete'
-          AND (
-            SELECT COUNT(*)
-            FROM samples sm
-            WHERE sm.session_id = sessions.id
-          ) > 0
-          AND (
-            SELECT COUNT(DISTINCT sfe.sample_id || ':' || sfe.field_name)
-            FROM sample_feedback_entries sfe
-            INNER JOIN samples smf ON smf.id = sfe.sample_id
-            WHERE smf.session_id = sessions.id
-              AND sfe.is_final = 1
-              AND sfe.field_name IN (${scoreFieldPlaceholders})
-          ) >= (
-            SELECT COUNT(*) * ?
-            FROM samples sm2
-            WHERE sm2.session_id = sessions.id
-          )
-      `,
-      [nowIso, ...CUPPING_SCORE_FIELDS, requiredFinalFieldCount]
-    );
-
-    await db.runAsync(
-      `
-        UPDATE sessions
-        SET status = 'pending',
-            updated_at = ?
-        WHERE status = 'complete'
-          AND (
-            SELECT COUNT(*)
-            FROM samples sm
-            WHERE sm.session_id = sessions.id
-          ) > 0
-          AND (
-            SELECT COUNT(DISTINCT sfe.sample_id || ':' || sfe.field_name)
-            FROM sample_feedback_entries sfe
-            INNER JOIN samples smf ON smf.id = sfe.sample_id
-            WHERE smf.session_id = sessions.id
-              AND sfe.is_final = 1
-              AND sfe.field_name IN (${scoreFieldPlaceholders})
-          ) < (
-            SELECT COUNT(*) * ?
-            FROM samples sm2
-            WHERE sm2.session_id = sessions.id
-          )
-      `,
-      [nowIso, ...CUPPING_SCORE_FIELDS, requiredFinalFieldCount]
-    );
-  } catch (error) {
-    const message = String(error?.message || "");
-    if (!message.includes("no such column: is_final")) {
-      throw error;
+function normalizeDefectTypeMasks(value, maxCups = 5) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return Object.entries(source).reduce((acc, [key, slots]) => {
+    const normalizedKey = cleanString(key);
+    if (!normalizedKey) {
+      return acc;
     }
+    const normalizedSlots = normalizeCupSlotList(slots, maxCups);
+    if (normalizedSlots.length > 0) {
+      acc[normalizedKey] = normalizedSlots;
+    }
+    return acc;
+  }, {});
+}
+
+function parseDefectTypeMasks(mask, maxCups = 5) {
+  const normalizedMask = cleanString(mask);
+  if (!normalizedMask) {
+    return {};
+  }
+  try {
+    return normalizeDefectTypeMasks(JSON.parse(normalizedMask), maxCups);
+  } catch {
+    return {};
   }
 }
+
+// Session completion is now manual (user presses "Mark Complete").
+// This function is retained as a no-op so existing call sites compile without changes.
+// eslint-disable-next-line no-unused-vars
+async function reconcileCompletedSessions(_db) {}
 
 const CUPPING_SCORE_FIELDS = [
   "Fragrance",
@@ -188,7 +154,7 @@ export async function saveSessionWithSamples({
   sessionName,
   sessionType,
   samplesInSession = 0,
-  status = "pending",
+  status = "new",
   sessionDate,
   samples,
 }) {
@@ -363,7 +329,7 @@ export async function findPendingSessionByCupUUID({ cupUUID, excludeSessionId } 
             s.updated_at AS updatedAt
           FROM samples sm
           INNER JOIN sessions s ON sm.session_id = s.id
-          WHERE sm.cup_uuid = ? AND s.id != ? AND s.status = 'pending'
+          WHERE sm.cup_uuid = ? AND s.id != ? AND s.status IN ('new', 'pending')
           ORDER BY s.updated_at DESC
           LIMIT 1
         `,
@@ -382,7 +348,7 @@ export async function findPendingSessionByCupUUID({ cupUUID, excludeSessionId } 
             s.updated_at AS updatedAt
           FROM samples sm
           INNER JOIN sessions s ON sm.session_id = s.id
-          WHERE sm.cup_uuid = ? AND s.status = 'pending'
+          WHERE sm.cup_uuid = ? AND s.status IN ('new', 'pending')
           ORDER BY s.updated_at DESC
           LIMIT 1
         `,
@@ -512,7 +478,7 @@ export async function upsertSessionFromCupMetadata({
   sessionType,
   sessionDate,
   samplesInSession,
-  status = "pending",
+  status = "new",
 } = {}) {
   const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
   if (!normalizedSessionUUID) {
@@ -524,7 +490,7 @@ export async function upsertSessionFromCupMetadata({
   const existing = await findSessionBySessionUUID(normalizedSessionUUID);
   const sessionId = cleanString(existing?.id) || normalizedSessionUUID;
   const createdAt = cleanString(existing?.createdAt) || nowIso;
-  const nextStatus = cleanString(existing?.status || status).toLowerCase() || "pending";
+  const nextStatus = cleanString(existing?.status || status).toLowerCase() || "new";
   const nextSessionName = cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
   const nextSessionType =
     getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
@@ -688,7 +654,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     sessionType: metadata?.sessionType ?? metadata?.t,
     sessionDate: metadata?.sessionDate ?? metadata?.d,
     samplesInSession: metadata?.samplesInSession ?? metadata?.i,
-    status: "pending",
+    status: "new",
   });
 
   const sample = await upsertSessionSampleFromCupMetadata({
@@ -702,12 +668,13 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
   });
 
   const db = await getLocalDatabase();
+  // Transition session from new → pending on first cup scan.
   await db.runAsync(
-    `
-      UPDATE sessions
-      SET updated_at = ?
-      WHERE id = ?
-    `,
+    `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
+    [new Date().toISOString(), session.id]
+  );
+  await db.runAsync(
+    `UPDATE sessions SET updated_at = ? WHERE id = ?`,
     [new Date().toISOString(), session.id]
   );
 
@@ -798,7 +765,6 @@ export async function getSessionSampleFinalStatus(sessionId) {
           created_at AS createdAt
         FROM sample_feedback_entries
         WHERE session_id = ?
-          AND is_final = 1
           AND sample_id IN (${placeholders})
         ORDER BY created_at ASC
       `,
@@ -824,7 +790,6 @@ export async function getSessionSampleFinalStatus(sessionId) {
           created_at AS createdAt
         FROM sample_defect_entries
         WHERE session_id = ?
-          AND is_final = 1
           AND sample_id IN (${placeholders})
         ORDER BY created_at ASC
       `,
@@ -896,6 +861,69 @@ export async function getSessionSampleFinalStatus(sessionId) {
   }, {});
 }
 
+export async function activateSession(sessionId) {
+  const normalizedSessionId = cleanString(sessionId);
+  if (!normalizedSessionId) return;
+  const db = await getLocalDatabase();
+  await db.runAsync(
+    `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
+    [new Date().toISOString(), normalizedSessionId]
+  );
+}
+
+export async function resetSessionToPending(sessionId) {
+  const normalizedSessionId = cleanString(sessionId);
+  if (!normalizedSessionId) return { updated: false };
+  const db = await getLocalDatabase();
+  await db.runAsync(
+    `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'complete'`,
+    [new Date().toISOString(), normalizedSessionId]
+  );
+  return { updated: true };
+}
+
+export async function manuallyMarkSessionComplete(sessionId) {
+  const normalizedSessionId = cleanString(sessionId);
+  if (!normalizedSessionId) return { updated: false };
+  const db = await getLocalDatabase();
+  await db.runAsync(
+    `UPDATE sessions SET status = 'complete', updated_at = ? WHERE id = ?`,
+    [new Date().toISOString(), normalizedSessionId]
+  );
+  return { updated: true };
+}
+
+export async function getSessionCompletionSummary(sessionId) {
+  const normalizedSessionId = cleanString(sessionId);
+  if (!normalizedSessionId) return { allComplete: false, incompleteSamples: [] };
+
+  const db = await getLocalDatabase();
+  const sampleRows = await db.getAllAsync(
+    `SELECT id, sample_number AS sampleNumber, coffee_name_origin AS coffeeNameOrigin
+     FROM samples WHERE session_id = ? ORDER BY position_index ASC`,
+    [normalizedSessionId]
+  );
+
+  const statusMap = await getSessionSampleFinalStatus(normalizedSessionId);
+
+  const incomplete = (sampleRows || [])
+    .filter((row) => !statusMap[row.id]?.isComplete)
+    .map((row, idx) => ({
+      sampleId: row.id,
+      name: cleanString(row.coffeeNameOrigin) || `Sample ${Number(row.sampleNumber) || idx + 1}`,
+    }));
+
+  return { allComplete: incomplete.length === 0, incompleteSamples: incomplete };
+}
+
+export async function deleteSampleFromSession(sampleId) {
+  const normalizedSampleId = cleanString(sampleId);
+  if (!normalizedSampleId) throw new Error("sampleId is required.");
+  const db = await getLocalDatabase();
+  await db.runAsync("DELETE FROM samples WHERE id = ?", [normalizedSampleId]);
+  return { deleted: true };
+}
+
 export async function markSessionCompleteIfAllSamplesComplete(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) {
@@ -908,13 +936,23 @@ export async function markSessionCompleteIfAllSamplesComplete(sessionId) {
     return { updated: false, status: null };
   }
 
-  const allComplete = statusEntries.every((entry) => Boolean(entry?.isComplete));
-  if (!allComplete) {
-    return { updated: false, status: "incomplete" };
-  }
-
   const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
+  const allComplete = statusEntries.every((entry) => Boolean(entry?.isComplete));
+  if (!allComplete) {
+    await db.runAsync(
+      `
+        UPDATE sessions
+        SET status = 'pending',
+            updated_at = ?
+        WHERE id = ?
+          AND status = 'complete'
+      `,
+      [nowIso, normalizedSessionId]
+    );
+    return { updated: true, status: "incomplete" };
+  }
+
   await db.runAsync(
     `
       UPDATE sessions
@@ -963,12 +1001,13 @@ export async function findActiveSampleByCupUUID(cupUUID) {
       FROM samples sm
       INNER JOIN sessions s ON sm.session_id = s.id
       WHERE sm.cup_uuid = ?
-        AND s.status IN ('pending', 'ongoing')
+        AND s.status IN ('new', 'pending', 'complete')
       ORDER BY
         CASE s.status
-          WHEN 'ongoing' THEN 0
-          WHEN 'pending' THEN 1
-          ELSE 2
+          WHEN 'pending' THEN 0
+          WHEN 'new' THEN 1
+          WHEN 'complete' THEN 2
+          ELSE 3
         END,
         s.updated_at DESC
       LIMIT 1
@@ -1066,6 +1105,137 @@ export async function getSampleFeedback(sampleId) {
   }, {});
 }
 
+export async function getSampleFlavourObservations(sampleId) {
+  const normalizedSampleId = cleanString(sampleId);
+  if (!normalizedSampleId) {
+    return [];
+  }
+
+  const db = await getLocalDatabase();
+  const rows = await db.getAllAsync(
+    `
+      SELECT
+        keyword,
+        label,
+        colour,
+        temp_c AS tempC,
+        elapsed_seconds AS elapsedSeconds,
+        source_field AS sourceField,
+        created_at AS createdAt
+      FROM sample_flavour_observations
+      WHERE sample_id = ?
+      ORDER BY created_at ASC
+    `,
+    [normalizedSampleId]
+  );
+
+  return (rows || []).map((row) => ({
+    keyword: cleanString(row?.keyword),
+    label: cleanString(row?.label),
+    colour: cleanString(row?.colour),
+    tempC: row?.tempC == null ? null : Number(row.tempC),
+    elapsedSeconds: row?.elapsedSeconds == null ? null : Number(row.elapsedSeconds),
+    sourceField: cleanString(row?.sourceField),
+    createdAt: cleanString(row?.createdAt),
+  }));
+}
+
+export async function saveSampleFlavourObservations({
+  sessionId,
+  sampleId,
+  observations = [],
+} = {}) {
+  const normalizedSessionId = cleanString(sessionId);
+  const normalizedSampleId = cleanString(sampleId);
+  const normalizedObservations = (Array.isArray(observations) ? observations : [])
+    .map((observation) => ({
+      keyword: cleanString(observation?.keyword).toLowerCase(),
+      label: cleanString(observation?.label) || cleanString(observation?.keyword),
+      colour: cleanString(observation?.colour),
+      tempC:
+        observation?.tempC == null || Number.isNaN(Number(observation.tempC))
+          ? null
+          : Math.round(Number(observation.tempC)),
+      elapsedSeconds:
+        observation?.elapsedSeconds == null || Number.isNaN(Number(observation.elapsedSeconds))
+          ? null
+          : Math.max(0, Number.parseInt(observation.elapsedSeconds, 10)),
+      sourceField: cleanString(observation?.sourceField),
+      createdAt: cleanString(observation?.createdAt),
+    }))
+    .filter((observation) => observation.keyword && observation.label);
+
+  if (!normalizedSessionId || !normalizedSampleId || normalizedObservations.length === 0) {
+    return { savedCount: 0 };
+  }
+
+  const db = await getLocalDatabase();
+  const nowIso = new Date().toISOString();
+  let savedCount = 0;
+
+  await db.withTransactionAsync(async () => {
+    for (const observation of normalizedObservations) {
+      await db.runAsync(
+        `
+          INSERT INTO sample_flavour_observations (
+            id, session_id, sample_id, keyword, label, colour, temp_c, elapsed_seconds, source_field, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          generateId(),
+          normalizedSessionId,
+          normalizedSampleId,
+          observation.keyword,
+          observation.label,
+          observation.colour,
+          observation.tempC,
+          observation.elapsedSeconds,
+          observation.sourceField,
+          observation.createdAt || nowIso,
+        ]
+      );
+      savedCount += 1;
+    }
+  });
+
+  return { savedCount };
+}
+
+// Removes stored observations for a sample where the keyword is no longer present in the notes text.
+// pruneGroups: [{ includeSourceFields: string[], keepKeywords: string[] }]
+export async function pruneSampleFlavourObservations({ sampleId, pruneGroups = [] } = {}) {
+  const normalizedSampleId = cleanString(sampleId);
+  if (!normalizedSampleId || !pruneGroups.length) return;
+
+  const db = await getLocalDatabase();
+  const rows = await db.getAllAsync(
+    "SELECT id, keyword, source_field FROM sample_flavour_observations WHERE sample_id = ?",
+    [normalizedSampleId]
+  );
+  if (!rows.length) return;
+
+  const idsToDelete = [];
+  for (const row of rows) {
+    const rowSourceParts = String(row.source_field || "").split(",").map((s) => s.trim());
+    for (const { includeSourceFields, keepKeywords } of pruneGroups) {
+      const overlaps = includeSourceFields.some((f) => rowSourceParts.includes(f));
+      if (!overlaps) continue;
+      const keepSet = new Set((keepKeywords || []).map((k) => String(k).toLowerCase()));
+      if (!keepSet.has(String(row.keyword || "").toLowerCase())) {
+        idsToDelete.push(row.id);
+      }
+      break;
+    }
+  }
+
+  if (idsToDelete.length === 0) return;
+  await db.withTransactionAsync(async () => {
+    for (const id of idsToDelete) {
+      await db.runAsync("DELETE FROM sample_flavour_observations WHERE id = ?", [id]);
+    }
+  });
+}
+
 export async function hasFinalFeedbackForSample(sampleId) {
   const normalizedSampleId = cleanString(sampleId);
   if (!normalizedSampleId) {
@@ -1112,10 +1282,16 @@ export async function getSampleDefects(sampleId) {
           moldy,
           phenolic,
           potato,
+          other_bean AS otherBean,
+          underdeveloped,
+          baked,
+          uneven_roast AS unevenRoast,
+          overdeveloped,
           non_uniform_cups AS nonUniformCups,
           defective_cups AS defectiveCups,
           non_uniform_mask AS nonUniformMask,
           defective_mask AS defectiveMask,
+          defect_type_masks AS defectTypeMasks,
           number_of_cups AS numberOfCups,
           temp_snapshot AS tempSnapshot,
           time_snapshot AS timeSnapshot,
@@ -1129,7 +1305,7 @@ export async function getSampleDefects(sampleId) {
     );
   } catch (error) {
     const message = String(error?.message || "");
-    if (!message.includes("no such column: is_final")) {
+    if (!message.includes("no such column")) {
       throw error;
     }
     rows = await db.getAllAsync(
@@ -1139,10 +1315,16 @@ export async function getSampleDefects(sampleId) {
           moldy,
           phenolic,
           potato,
+          0 AS otherBean,
+          0 AS underdeveloped,
+          0 AS baked,
+          0 AS unevenRoast,
+          0 AS overdeveloped,
           non_uniform_cups AS nonUniformCups,
           defective_cups AS defectiveCups,
           '' AS nonUniformMask,
           '' AS defectiveMask,
+          '' AS defectTypeMasks,
           number_of_cups AS numberOfCups,
           temp_snapshot AS tempSnapshot,
           time_snapshot AS timeSnapshot,
@@ -1163,6 +1345,11 @@ export async function getSampleDefects(sampleId) {
         moldy: Number(row?.moldy) === 1,
         phenolic: Number(row?.phenolic) === 1,
         potato: Number(row?.potato) === 1,
+        otherBean: Number(row?.otherBean) === 1,
+        underdeveloped: Number(row?.underdeveloped) === 1,
+        baked: Number(row?.baked) === 1,
+        unevenRoast: Number(row?.unevenRoast) === 1,
+        overdeveloped: Number(row?.overdeveloped) === 1,
         nonUniformCups: Math.max(0, Number.parseInt(row?.nonUniformCups, 10) || 0),
         defectiveCups: Math.max(0, Number.parseInt(row?.defectiveCups, 10) || 0),
         numberOfCups: Math.max(1, Number.parseInt(row?.numberOfCups, 10) || 1),
@@ -1174,6 +1361,10 @@ export async function getSampleDefects(sampleId) {
         defectiveCupSlots: parseCupSlotMask(
           row?.defectiveMask,
           row?.defectiveCups,
+          Math.max(1, Number.parseInt(row?.numberOfCups, 10) || 1)
+        ),
+        defectCupSlots: parseDefectTypeMasks(
+          row?.defectTypeMasks,
           Math.max(1, Number.parseInt(row?.numberOfCups, 10) || 1)
         ),
         tempSnapshot: cleanString(row?.tempSnapshot),
@@ -1196,11 +1387,12 @@ export async function getSampleDefects(sampleId) {
 export async function saveSampleDefectsEntry({
   sessionId,
   sampleId,
-  defects = { moldy: false, phenolic: false, potato: false },
+  defects = {},
   nonUniformCups = 0,
   defectiveCups = 0,
   nonUniformCupSlots = [],
   defectiveCupSlots = [],
+  defectCupSlots = {},
   numberOfCups = 1,
   tempSnapshot = "",
   timeSnapshot = "",
@@ -1221,16 +1413,18 @@ export async function saveSampleDefectsEntry({
   const defectsId = generateId();
   const normalizedNonUniformCupSlots = normalizeCupSlotList(nonUniformCupSlots, cups);
   const normalizedDefectiveCupSlots = normalizeCupSlotList(defectiveCupSlots, cups);
+  const normalizedDefectCupSlots = normalizeDefectTypeMasks(defectCupSlots, cups);
   const nonUniformCount = normalizedNonUniformCupSlots.length > 0 ? normalizedNonUniformCupSlots.length : nonUniform;
   const defectiveCount = normalizedDefectiveCupSlots.length > 0 ? normalizedDefectiveCupSlots.length : defective;
 
   await db.runAsync(
     `
       INSERT INTO sample_defect_entries (
-        id, session_id, sample_id, is_final, moldy, phenolic, potato,
-        non_uniform_cups, defective_cups, non_uniform_mask, defective_mask,
+        id, session_id, sample_id, is_final, moldy, phenolic, potato, other_bean,
+        underdeveloped, baked, uneven_roast, overdeveloped,
+        non_uniform_cups, defective_cups, non_uniform_mask, defective_mask, defect_type_masks,
         number_of_cups, temp_snapshot, time_snapshot, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       defectsId,
@@ -1240,10 +1434,16 @@ export async function saveSampleDefectsEntry({
       defects?.moldy ? 1 : 0,
       defects?.phenolic ? 1 : 0,
       defects?.potato ? 1 : 0,
+      defects?.otherBean ? 1 : 0,
+      defects?.underdeveloped ? 1 : 0,
+      defects?.baked ? 1 : 0,
+      defects?.unevenRoast ? 1 : 0,
+      defects?.overdeveloped ? 1 : 0,
       nonUniformCount,
       defectiveCount,
       JSON.stringify(normalizedNonUniformCupSlots),
       JSON.stringify(normalizedDefectiveCupSlots),
+      JSON.stringify(normalizedDefectCupSlots),
       cups,
       cleanString(tempSnapshot),
       cleanString(timeSnapshot),

@@ -1,8 +1,10 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { colors } from "../../../theme/colors";
+import { typography } from "../../../theme/typography";
 
 function Block({ title, text }) {
   return (
@@ -47,12 +49,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   blockTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text,
+    ...typography.text_body,
   },
   blockText: {
-    fontSize: 14,
-    color: colors.textMuted,
+    ...typography.text_secondary_body,
   },
 });

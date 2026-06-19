@@ -1,12 +1,40 @@
+export const SESSION_STATUS = {
+  DRAFT:       "draft",
+  PENDING:     "pending",
+  IN_PROGRESS: "in_progress",
+  COMPLETE:    "complete",
+};
+
+export const SESSION_STATUS_OPTIONS = [
+  { key: SESSION_STATUS.DRAFT,       label: "Draft",       description: "Session created, samples not yet ready for cupping." },
+  { key: SESSION_STATUS.PENDING,     label: "Pending",     description: "Samples added and cups prepared, cupping not yet started." },
+  { key: SESSION_STATUS.IN_PROGRESS, label: "In Progress", description: "Cupping underway, scores being entered." },
+  { key: SESSION_STATUS.COMPLETE,    label: "Complete",    description: "All samples scored and marked final." },
+];
+
+export function getSessionStatusLabel(key) {
+  return SESSION_STATUS_OPTIONS.find((o) => o.key === key)?.label || String(key || "");
+}
+
 export const SESSION_TYPE_OPTIONS = [
   { key: 1, label: "Sourcing Decision" },
   { key: 2, label: "Quality Control" },
   { key: 3, label: "Product Development" },
   { key: 4, label: "Training Session" },
-  { key: 5, label: "Other" },
+  { key: 5, label: "Competition" },
+  { key: 6, label: "Other" },
 ];
 
 export const CUP_NUMBER_OPTIONS = [1, 2, 3, 4, 5];
+
+export const CUPPING_MODE_OPTIONS = [
+  { key: "blind", label: "Blind Cupping" },
+  { key: "open", label: "Open Cupping" },
+];
+
+export function getCuppingModeLabel(key) {
+  return CUPPING_MODE_OPTIONS.find((o) => o.key === key)?.label || String(key || "");
+}
 export const PENDING_CONFLICT_ERROR = "PENDING_CUP_CONFLICT";
 export const SAMPLE_COLOUR_OPTIONS = [
   { key: "green", label: "Green", hex: "#00A651" },

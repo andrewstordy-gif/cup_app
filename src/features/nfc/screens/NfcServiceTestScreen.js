@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, TextInput, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { typography } from "../../../theme/typography";
 import {
   readNdefMinimal,
   writeSingleRecordMetadataDiagnosticMinimal,
@@ -818,19 +820,19 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   statusLabel: {
+    ...typography.text_caption,
     fontSize: 12,
     fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   statusText: {
+    ...typography.text_secondary_body,
     fontSize: 15,
     color: colors.text,
   },
   statusMeta: {
+    ...typography.text_secondary_body,
     fontSize: 12,
-    color: colors.textMuted,
   },
   actions: {
     gap: spacing.xs,
@@ -844,9 +846,9 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   cardTitle: {
+    ...typography.text_body,
     fontSize: 14,
     fontWeight: "700",
-    color: colors.text,
   },
   cardBody: {
     fontFamily: "Courier",
@@ -860,9 +862,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   fieldLabel: {
+    ...typography.text_secondary_body,
     fontSize: 12,
-    fontWeight: "600",
-    color: colors.textMuted,
   },
   input: {
     borderWidth: 1,

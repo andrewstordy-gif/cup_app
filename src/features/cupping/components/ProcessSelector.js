@@ -1,5 +1,7 @@
 import React, { useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
+import { AppIcon } from "../../../components/ui/AppIcon";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { getProcessLabel, normalizeProcessKey, PROCESS_OPTIONS } from "../constants/sessionDetails";
@@ -30,7 +32,11 @@ export function ProcessSelector({
         <Text style={[styles.triggerText, !selectedKey && styles.placeholderText, disabled && styles.disabledText]}>
           {selectedLabel}
         </Text>
-        <Text style={[styles.chevron, disabled && styles.disabledText]}>{open ? "▴" : "▾"}</Text>
+        <AppIcon
+          name={open ? "chevron-up" : "chevron-down"}
+          role="icon_compact"
+          color={disabled ? colors.textMuted : undefined}
+        />
       </Pressable>
 
       {open && !disabled ? (
@@ -97,10 +103,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
   },
   disabledText: {
-    color: colors.textMuted,
-  },
-  chevron: {
-    fontSize: 14,
     color: colors.textMuted,
   },
   menu: {

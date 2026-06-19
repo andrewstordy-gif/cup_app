@@ -1,5 +1,8 @@
 import React from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "./TypographyAuditText";
+import { colors } from "../../theme/colors";
+import { typography } from "../../theme/typography";
 
 export function full_page_button({
   label = "Save",
@@ -30,7 +33,7 @@ export function full_page_button({
       ]}
     >
       {loading ? (
-        <ActivityIndicator color="#ffffff" size="small" />
+        <ActivityIndicator color={colors.surface} size="small" />
       ) : (
         <View style={styles.content}>
           {icon && iconPosition === "left" ? <View style={styles.iconLeft}>{icon}</View> : null}
@@ -45,9 +48,9 @@ export function full_page_button({
 const styles = StyleSheet.create({
   button: {
     width: "100%",
-    height: 48,
-    borderRadius: 4,
-    backgroundColor: "#111111",
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.ink,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 16,
@@ -56,7 +59,7 @@ const styles = StyleSheet.create({
     opacity: 0.88,
   },
   buttonDisabled: {
-    backgroundColor: "#7a7a7a",
+    backgroundColor: colors.muted,
   },
   content: {
     flexDirection: "row",
@@ -64,11 +67,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   label: {
-    color: "#ffffff",
-    fontSize: 16,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
+    ...typography.text_button_primary,
   },
   iconLeft: {
     marginRight: 8,

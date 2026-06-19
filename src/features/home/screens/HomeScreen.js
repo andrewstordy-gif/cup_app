@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { Image, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
+import { ScreenFooter, ScreenFooterDual } from "../../../components/ui/ScreenFooter";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { typography } from "../../../theme/typography";
 
 function formatTemperature(temperatureC) {
   const numeric = Number.parseFloat(temperatureC);
@@ -49,6 +52,7 @@ function resolveHomeState(stateLabel) {
 export function HomeScreen({
   onMenuPress,
   onScanCupPress,
+  onAddAromaPress,
   isScanInProgress = false,
   scanStatusMessage = "",
   temperatureC = null,
@@ -93,7 +97,7 @@ export function HomeScreen({
     shouldShowCupTime && isCuppingView && displayedElapsed !== null ? formatDurationLabel(displayedElapsed) : null;
   const ringSegments = 120;
   const activeRingSegments = Math.round(brewingProgress * ringSegments);
-  const scanButtonWidth = width - 52 * scale;
+  const showAddAromaButton = effectiveHomeState.isBrewing && typeof onAddAromaPress === "function";
 
   useEffect(() => {
     setDisplayElapsedState({
@@ -148,8 +152,8 @@ export function HomeScreen({
         <Text style={styles.titleStatusText}>{effectiveStatusMessage}</Text>
       ) : null}
 
-      <View style={[styles.content, { paddingHorizontal: 24 * scale, paddingBottom: 24 * scale }]}>
-        <View style={[styles.heroGroup, { marginTop: -80 * scale }]}>
+      <View style={[styles.content, { paddingHorizontal: 24 * scale }]}>
+        <View style={[styles.heroGroup, { marginTop: -80 * scale }]} pointerEvents="none">
           {brewingTimeLabel ? (
             <View
               style={[
@@ -245,8 +249,6 @@ export function HomeScreen({
                 {
                   marginTop: -166 * scale,
                   marginBottom: 10 * scale,
-                  fontSize: 44 * scale,
-                  lineHeight: 50 * scale,
                 },
               ]}
               accessibilityLabel={`Temperature ${formatTemperature(temperatureC)}`}
@@ -255,46 +257,47 @@ export function HomeScreen({
             </Text>
           ) : null}
 
-          <Text
-            style={[
-              styles.scanInstruction,
-              {
-                marginTop: effectiveHomeState.showTemperature ? 0 : -106 * scale,
-                marginBottom: 18 * scale,
-                paddingHorizontal: 18 * scale,
-                fontSize: 30 * scale,
-                lineHeight: 36 * scale,
-              },
-            ]}
-          >
-            Press scan and hold your phone near the base of the cup.
-          </Text>
         </View>
 
-        <View style={styles.bottomArea}>
-          {shouldShowCupTime && effectiveHomeState.isBrewing ? (
-            <Text style={styles.stateTime} accessibilityLabel={`${stateLabel} time ${timeLabel}`}>
-              {timeLabel}
-            </Text>
-          ) : null}
-          <Pressable
-            onPress={onScanCupPress || (() => {})}
-            disabled={isScanInProgress}
-            accessibilityRole="button"
-            accessibilityLabel="Scan cup"
-            style={({ pressed }) => [
-              styles.scanButton,
-              { width: scanButtonWidth },
-              pressed && !isScanInProgress ? styles.scanButtonPressed : null,
-              isScanInProgress ? styles.scanButtonDisabled : null,
-            ]}
-          >
-            <Text style={[styles.scanButtonText, { fontSize: 19 * scale, lineHeight: 23 * scale }]}>
-              {isScanInProgress ? "Scanning" : "SCAN CUP"}
-            </Text>
-          </Pressable>
-        </View>
       </View>
+
+      {!effectiveHomeState.isBrewing ? (
+        <Text
+          style={[
+            styles.scanInstruction,
+            {
+              paddingHorizontal: 26 * scale,
+              paddingBottom: spacing.md,
+              textAlign: "center",
+            },
+          ]}
+        >
+          Press scan and hold your phone near the base of the cup.
+        </Text>
+      ) : null}
+
+      {showAddAromaButton ? (
+        <ScreenFooterDual
+          primaryLabel={isScanInProgress ? "Scanning" : "SCAN CUP"}
+          onPrimaryPress={onScanCupPress}
+          primaryDisabled={isScanInProgress}
+          primaryLoading={isScanInProgress}
+          primaryAccessibilityLabel="Scan cup"
+          secondaryLabel="ADD AROMA"
+          onSecondaryPress={onAddAromaPress}
+          secondaryDisabled={isScanInProgress}
+          secondaryAccessibilityLabel="Add aroma"
+        />
+      ) : (
+        <ScreenFooter
+          label={isScanInProgress ? "Scanning" : "SCAN CUP"}
+          onPress={onScanCupPress}
+          disabled={isScanInProgress}
+          loading={isScanInProgress}
+          accessibilityLabel="Scan cup"
+          buttonStyle={styles.scanButton}
+        />
+      )}
     </View>
   );
 }
@@ -316,9 +319,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   brewingPercent: {
-    color: ink,
-    fontWeight: "800",
-    letterSpacing: 0,
+    ...typography.text_primary_metric,
     textAlign: "center",
   },
   brewingTimerWrap: {
@@ -364,63 +365,25 @@ const styles = StyleSheet.create({
     backgroundColor: ink,
   },
   temperature: {
-    color: ink,
-    fontWeight: "800",
-    letterSpacing: 0,
+    ...typography.text_primary_metric,
     textAlign: "center",
   },
   scanInstruction: {
+    ...typography.text_body,
     maxWidth: 390,
-    color: colors.textMuted,
-    fontWeight: "800",
     letterSpacing: 0,
     textAlign: "center",
   },
   titleStatusText: {
+    ...typography.text_secondary_body,
     paddingTop: spacing.sm,
     paddingHorizontal: spacing.lg,
-    color: colors.textMuted,
     fontSize: 14,
     lineHeight: 19,
-    fontWeight: "600",
     letterSpacing: 0,
     textAlign: "center",
   },
-  bottomArea: {
-    width: "100%",
-    alignItems: "center",
-    marginTop: 0,
-    gap: spacing.sm,
-  },
-  stateTime: {
-    color: colors.textMuted,
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: "700",
-  },
   scanButton: {
-    minHeight: 56,
-    borderRadius: 28,
-    backgroundColor: "#007AFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  scanButtonPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.98 }],
-  },
-  scanButtonDisabled: {
-    backgroundColor: colors.textMuted,
-    shadowOpacity: 0,
-  },
-  scanButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "800",
-    letterSpacing: 0,
-    textTransform: "uppercase",
+    backgroundColor: colors.action,
   },
 });

@@ -1,5 +1,8 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "./TypographyAuditText";
+import { colors } from "../../theme/colors";
+import { typography } from "../../theme/typography";
 
 const DEFAULT_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
@@ -39,9 +42,9 @@ const styles = StyleSheet.create({
   scoreBar: {
     minHeight: 56,
     borderRadius: 12,
-    backgroundColor: "#eef2f6",
+    backgroundColor: colors.panel,
     borderWidth: 1,
-    borderColor: "#e4e8ee",
+    borderColor: colors.border,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 8,
@@ -65,14 +68,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scoreChipSelected: {
-    backgroundColor: "#111111",
+    backgroundColor: colors.ink,
   },
   scoreText: {
+    ...typography.text_secondary_body,
     fontSize: 14,
     fontWeight: "600",
-    color: "#64748b",
+    color: colors.inkSoft,
   },
   scoreTextSelected: {
-    color: "#ffffff",
+    color: colors.surface,
   },
 });

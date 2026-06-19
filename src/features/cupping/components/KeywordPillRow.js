@@ -1,5 +1,8 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
+import { colors } from "../../../theme/colors";
+import { typography } from "../../../theme/typography";
 
 function getReadableTextColour(backgroundColour) {
   const hex = String(backgroundColour || "").replace("#", "");
@@ -14,18 +17,37 @@ function getReadableTextColour(backgroundColour) {
   return luminance > 0.72 ? "#222222" : "#ffffff";
 }
 
-export function KeywordPillRow({ pills = [], scale = 1, style }) {
+export function KeywordPillRow({ pills = [], scale = 1, outline = false, style }) {
   if (!Array.isArray(pills) || pills.length === 0) {
     return null;
   }
 
   return (
     <View style={[styles.row, { gap: 7 * scale }, style]}>
-      {pills.map((pill) => {
+      {pills.map((pill, index) => {
+        if (outline) {
+          return (
+            <View
+              key={`${pill.keyword || pill.label}-${index}`}
+              style={[
+                styles.pill,
+                styles.pillOutline,
+                {
+                  borderRadius: 15 * scale,
+                  paddingHorizontal: 11 * scale,
+                  paddingVertical: 3 * scale,
+                },
+              ]}
+            >
+              <Text style={styles.textOutline}>{pill.label || pill.keyword}</Text>
+            </View>
+          );
+        }
+
         const backgroundColour = pill.colour || "#3f4852";
         return (
           <View
-            key={`${pill.keyword}-${backgroundColour}`}
+            key={`${pill.keyword || pill.label}-${backgroundColour}-${index}`}
             style={[
               styles.pill,
               {
@@ -39,14 +61,10 @@ export function KeywordPillRow({ pills = [], scale = 1, style }) {
             <Text
               style={[
                 styles.text,
-                {
-                  fontSize: 16 * scale,
-                  lineHeight: 20 * scale,
-                  color: getReadableTextColour(backgroundColour),
-                },
+                { color: getReadableTextColour(backgroundColour) },
               ]}
             >
-              {pill.label || pill.keyword}
+              {pill.label || pill.keyword}{pill.tempC != null ? ` ${Math.round(pill.tempC)}°` : ""}
             </Text>
           </View>
         );
@@ -65,8 +83,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  pillOutline: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   text: {
-    fontWeight: "800",
-    letterSpacing: 0,
+    ...typography.text_secondary_body,
+  },
+  textOutline: {
+    ...typography.text_secondary_body,
+    color: colors.ink,
   },
 });

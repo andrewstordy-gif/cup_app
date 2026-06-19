@@ -1,5 +1,7 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, TextInput, View } from "react-native";
+import { TypographyAuditText as Text } from "./TypographyAuditText";
+import { BackButton, IconButton, MenuButton } from "./IconButton";
 import { colors } from "../../theme/colors";
 import { spacing } from "../../theme/spacing";
 import { typography } from "../../theme/typography";
@@ -13,12 +15,13 @@ export function Header({
   onSearchPress,
   onRightPress,
   rightContent = null,
-  rightIconText = "✎",
+  rightIconName = "edit",
   sideWidth = 48,
   menuAccessibilityLabel = "Open menu",
   backAccessibilityLabel = "Go back",
   searchAccessibilityLabel = "Search",
   rightAccessibilityLabel = "Header action",
+  hideBack = false,
 }) {
   const showBack = variant === "back" || variant === "back-search";
   const showSearchField = variant === "back-search";
@@ -27,25 +30,17 @@ export function Header({
     <View>
       <View style={styles.container}>
         <View style={[styles.left, { width: sideWidth }]}>
-          {showBack ? (
-            <Pressable
-              style={styles.action}
+          {showBack && !hideBack ? (
+            <BackButton
               onPress={onBackPress}
-              accessibilityRole="button"
               accessibilityLabel={backAccessibilityLabel}
-            >
-              <Text style={styles.iconText}>←</Text>
-            </Pressable>
-          ) : (
-            <Pressable
-              style={styles.action}
+            />
+          ) : !showBack ? (
+            <MenuButton
               onPress={onMenuPress}
-              accessibilityRole="button"
               accessibilityLabel={menuAccessibilityLabel}
-            >
-              <Text style={styles.iconText}>☰</Text>
-            </Pressable>
-          )}
+            />
+          ) : null}
         </View>
 
         {titleContent ? (
@@ -60,14 +55,12 @@ export function Header({
           {rightContent ? (
             rightContent
           ) : typeof onRightPress === "function" ? (
-            <Pressable
-              style={styles.action}
+            <IconButton
+              name={rightIconName}
+              role="icon_action"
               onPress={onRightPress}
-              accessibilityRole="button"
               accessibilityLabel={rightAccessibilityLabel}
-            >
-              <Text style={styles.iconText}>{rightIconText}</Text>
-            </Pressable>
+            />
           ) : (
             <View style={styles.spacer} />
           )}
@@ -75,14 +68,13 @@ export function Header({
       </View>
       {showSearchField ? (
         <View style={styles.searchWrap}>
-          <Pressable
-            style={styles.searchIconButton}
+          <IconButton
+            name="search"
+            role="icon_compact"
             onPress={onSearchPress}
-            accessibilityRole="button"
             accessibilityLabel={searchAccessibilityLabel}
-          >
-            <Text style={styles.searchIcon}>⌕</Text>
-          </Pressable>
+            style={styles.searchIconButton}
+          />
           <TextInput placeholder="Search" style={styles.searchInput} />
         </View>
       ) : null}
@@ -112,25 +104,12 @@ const styles = StyleSheet.create({
     ...typography.text_screen_title,
     flex: 1,
     textAlign: "center",
-    fontSize: 18,
     paddingRight: 8,
   },
   titleContent: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-  },
-  action: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  iconText: {
-    color: colors.textMuted,
-    fontSize: 20,
-    lineHeight: 22,
   },
   spacer: {
     width: 40,
@@ -151,10 +130,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: "center",
     justifyContent: "center",
-  },
-  searchIcon: {
-    color: colors.textMuted,
-    fontSize: 18,
   },
   searchInput: {
     flex: 1,

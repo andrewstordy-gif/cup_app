@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
-import { StyleSheet, Text, TextInput, View } from "react-native";
+import { StyleSheet, TextInput, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
@@ -9,6 +10,7 @@ import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { typography } from "../../../theme/typography";
 
 const DEFAULT_FIELDS = {
   triggerTemp: "-",
@@ -381,6 +383,7 @@ export function CupSettingsScreen({ onBackPress }) {
         visible={warning.visible}
         title={warning.title}
         message={warning.message}
+        onDismiss={closeWarning}
         onOk={closeWarning}
         okLabel="OK"
       />
@@ -402,13 +405,12 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   fieldLabel: {
+    ...typography.text_body,
     fontSize: 16,
-    fontWeight: "600",
-    color: colors.text,
   },
   helpText: {
+    ...typography.text_secondary_body,
     fontSize: 14,
-    color: colors.textMuted,
     lineHeight: 20,
   },
   input: {
@@ -459,9 +461,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   statusText: {
+    ...typography.text_secondary_body,
     textAlign: "center",
     fontSize: 14,
-    color: colors.textMuted,
   },
   bottomActionArea: {
     borderTopWidth: 1,

@@ -1,7 +1,9 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { typography } from "../../../theme/typography";
 import { ProcessSelector } from "./ProcessSelector";
 
 export function CoffeeSampleCard({
@@ -232,10 +234,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   uuidLabel: {
+    ...typography.text_caption,
     fontSize: 12,
     fontWeight: "700",
     color: "#8a97ac",
-    textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   uuidValue: {
@@ -263,9 +265,11 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0, 0, 0, 0.16)",
   },
   sampleMetaText: {
+    ...typography.text_caption,
     fontSize: 12,
     fontWeight: "700",
     color: colors.textMuted,
+    letterSpacing: 0.4,
   },
   cupDot: {
     width: 8,
@@ -284,8 +288,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   removeButtonText: {
+    ...typography.text_secondary_body,
     fontSize: 13,
-    fontWeight: "600",
     color: "#d73a49",
   },
   removeButtonTextDisabled: {
@@ -295,10 +299,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   fieldLabel: {
+    ...typography.text_caption,
     fontSize: 13,
     fontWeight: "700",
-    color: colors.textMuted,
-    textTransform: "uppercase",
     letterSpacing: 0.4,
   },
   input: {
@@ -320,6 +323,7 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
   finalScoreText: {
+    ...typography.text_secondary_metric,
     fontSize: 34,
     fontWeight: "800",
     color: "#111111",

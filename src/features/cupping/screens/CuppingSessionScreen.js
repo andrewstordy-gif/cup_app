@@ -1,58 +1,32 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
-import { ScreenContainer } from "../../../components/layout/ScreenContainer";
-import { floating_action_button as FloatingActionButton } from "../../../components/ui/floating_action_button";
+import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
+import { AppIcon } from "../../../components/ui/AppIcon";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { typography } from "../../../theme/typography";
 import { listSessions } from "../../../data/sessionRepository";
 
-const SESSION_FILTER_OPTIONS = [
-  "All",
-  "Sourcing Decision",
-  "Quality Control",
-  "Product Development",
-  "Training Session",
-  "Other",
-];
 
-function SessionFilterRow({ options, selectedOption, onSelect }) {
+function SessionStatusBadge({ status }) {
+  const s = String(status || "").toUpperCase();
+  const isComplete = s === "COMPLETE";
+  const isPending = s === "PENDING";
+  const label = isComplete ? "Complete" : isPending ? "Pending" : "New";
   return (
-    <View style={styles.filterRowWrap}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.filterRowContent}
-      >
-        {options.map((option) => {
-          const selected = selectedOption === option;
-          return (
-            <Pressable
-              key={option}
-              onPress={() => onSelect(option)}
-              style={[styles.filterChip, selected && styles.filterChipSelected]}
-              accessibilityRole="button"
-              accessibilityLabel={`Filter by ${option}`}
-              accessibilityState={{ selected }}
-            >
-              <Text style={[styles.filterChipText, selected && styles.filterChipTextSelected]}>
-                {option}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-    </View>
+    <Text style={isComplete ? styles.statusComplete : styles.statusPending}>
+      {label}
+    </Text>
   );
 }
 
 function CuppingSessionCard({ item, onPress }) {
-  const isComplete = item.status === "COMPLETE";
-
   return (
     <Pressable
       onPress={() => onPress(item)}
-      style={styles.sessionCard}
+      style={({ pressed }) => [styles.sessionCard, pressed && styles.sessionCardPressed]}
       accessibilityRole="button"
       accessibilityLabel={`${item.title}, ${item.status}`}
     >
@@ -60,25 +34,22 @@ function CuppingSessionCard({ item, onPress }) {
         <Text style={styles.sessionTitle} numberOfLines={1}>
           {item.title}
         </Text>
-        <View style={styles.metaRow}>
-          <Text style={styles.sessionCategory}>{item.category}</Text>
-          <Text style={[styles.sessionStatus, isComplete ? styles.statusComplete : styles.statusPending]}>
-            {item.status}
-          </Text>
-        </View>
-        <Text style={styles.sessionDate}>{item.date}</Text>
+        <Text style={styles.sessionCategory}>{item.category}</Text>
+        <SessionStatusBadge status={item.status} />
+        {item.date ? (
+          <Text style={styles.sessionDate}>{item.date}</Text>
+        ) : null}
       </View>
-
-      <Text style={styles.chevron}>›</Text>
+      <AppIcon name="chevron-right" role="icon_navigation" style={styles.chevron} />
     </Pressable>
   );
 }
 
-function Block({ title, text }) {
+function EmptyState({ title, body }) {
   return (
-    <View style={styles.block}>
-      <Text style={styles.blockTitle}>{title}</Text>
-      <Text style={styles.blockText}>{text}</Text>
+    <View style={styles.emptyBlock}>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyBody}>{body}</Text>
     </View>
   );
 }
@@ -89,7 +60,6 @@ export function CuppingSessionScreen({
   onNewSessionPress,
   onSessionPress,
 }) {
-  const [selectedFilter, setSelectedFilter] = useState("All");
   const [sessions, setSessions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -100,13 +70,9 @@ export function CuppingSessionScreen({
     const loadSessions = async () => {
       setIsLoading(true);
       setLoadError("");
-
       try {
         const rows = await listSessions();
-        if (isCancelled) {
-          return;
-        }
-
+        if (isCancelled) return;
         setSessions(
           rows.map((row) => ({
             id: row.id,
@@ -128,65 +94,52 @@ export function CuppingSessionScreen({
     };
 
     loadSessions();
-
-    return () => {
-      isCancelled = true;
-    };
+    return () => { isCancelled = true; };
   }, []);
-
-  const visibleSessions =
-    selectedFilter === "All"
-      ? sessions
-      : sessions.filter((item) => item.category === selectedFilter);
-
-  const handleSessionPress = (item) => {
-    if (onSessionPress) {
-      onSessionPress(item);
-    }
-  };
 
   return (
     <View style={styles.screen}>
       <Header
-        title="Cupping Session"
+        title="Cupping Sessions"
         variant="back-search"
         onBackPress={onBackPress}
         onSearchPress={onSearchPress}
         backAccessibilityLabel="Back"
         searchAccessibilityLabel="Search"
       />
-      <SessionFilterRow
-        options={SESSION_FILTER_OPTIONS}
-        selectedOption={selectedFilter}
-        onSelect={setSelectedFilter}
-      />
-      <ScreenContainer>
-        {visibleSessions.map((session) => (
-          <CuppingSessionCard key={session.id} item={session} onPress={handleSessionPress} />
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContent}
+      >
+        {sessions.map((session) => (
+          <CuppingSessionCard
+            key={session.id}
+            item={session}
+            onPress={onSessionPress || (() => {})}
+          />
         ))}
 
         {loadError ? (
-          <Block title="Load Error" text={loadError} />
+          <EmptyState title="Load error" body={loadError} />
         ) : null}
 
         {!loadError && isLoading ? (
-          <Block title="Loading" text="Loading saved sessions..." />
+          <EmptyState title="Loading" body="Loading saved sessions…" />
         ) : null}
 
-        {!loadError && !isLoading && visibleSessions.length === 0 ? (
-          <Block title="No Sessions" text="No sessions found for the selected filter." />
+        {!loadError && !isLoading && sessions.length === 0 ? (
+          <EmptyState title="No sessions" body="No sessions found for the selected filter." />
         ) : null}
+      </ScrollView>
 
-        <View style={styles.bottomSpacer} />
-      </ScreenContainer>
-
-      <FloatingActionButton
-        label="New Session"
-        onPress={onNewSessionPress || (() => {})}
-        accessibilityLabel="Create new session"
-        leftIcon={<Text style={styles.fabPlus}>＋</Text>}
-        style={styles.fabRight}
-      />
+      <View style={styles.footer}>
+        <FullPageButton
+          label="NEW SESSION"
+          onPress={onNewSessionPress || (() => {})}
+          accessibilityLabel="Create new session"
+        />
+      </View>
     </View>
   );
 }
@@ -196,118 +149,79 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  filterRowWrap: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    backgroundColor: colors.surface,
-    paddingVertical: spacing.sm,
+
+  // Session list
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: 104,
+    gap: spacing.sm,
   },
-  filterRowContent: {
-    paddingHorizontal: spacing.md,
-    gap: spacing.xs,
-  },
-  filterChip: {
-    minHeight: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    backgroundColor: "#f3f4f6",
-    justifyContent: "center",
-    paddingHorizontal: 14,
-  },
-  filterChipSelected: {
-    backgroundColor: "#000000",
-    borderColor: "#000000",
-  },
-  filterChipText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#667085",
-  },
-  filterChipTextSelected: {
-    color: "#ffffff",
-  },
-  block: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 14,
-    gap: 4,
-  },
-  blockTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: colors.text,
-  },
-  blockText: {
-    fontSize: 14,
-    color: colors.textMuted,
-  },
+
+  // Session card
   sessionCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 14,
-    minHeight: 88,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
+    borderRadius: 12,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
+    gap: spacing.sm,
+  },
+  sessionCardPressed: {
+    opacity: 0.8,
   },
   sessionContent: {
     flex: 1,
-    gap: 4,
+    gap: spacing.xs,
   },
   sessionTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: colors.text,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
+    ...typography.text_body,
   },
   sessionCategory: {
-    fontSize: 13,
-    color: "#98a2b3",
-    fontWeight: "600",
-  },
-  sessionStatus: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-  },
-  statusComplete: {
-    color: "#1d2939",
-  },
-  statusPending: {
-    color: "#344054",
+    ...typography.text_secondary_body,
   },
   sessionDate: {
-    fontSize: 12,
-    color: "#98a2b3",
-    fontWeight: "600",
+    ...typography.text_secondary_body,
+    color: colors.muted,
   },
   chevron: {
-    fontSize: 28,
-    color: "#cbd5e1",
-    lineHeight: 28,
-    paddingRight: 4,
+    color: colors.subtle,
   },
-  fabPlus: {
-    color: "#ffffff",
-    fontSize: 18,
-    fontWeight: "700",
+
+  // Status text
+  statusComplete: {
+    ...typography.text_secondary_body,
+    color: colors.ink,
   },
-  fabRight: {
-    alignSelf: "flex-end",
-    marginRight: 16,
+  statusPending: {
+    ...typography.text_secondary_body,
+    color: colors.muted,
   },
-  bottomSpacer: {
-    height: 96,
+
+  // Empty / error state
+  emptyBlock: {
+    paddingVertical: spacing.lg,
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  emptyTitle: {
+    ...typography.text_body,
+  },
+  emptyBody: {
+    ...typography.text_secondary_body,
+    textAlign: "center",
+  },
+
+  // Footer
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    paddingTop: spacing.sm,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
 });

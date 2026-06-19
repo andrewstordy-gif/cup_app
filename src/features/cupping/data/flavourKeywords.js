@@ -132,6 +132,25 @@ function findKeywordMatch(source, keyword) {
   };
 }
 
+function findKeywordMatches(source, keyword) {
+  const matches = [];
+  let cursor = 0;
+
+  while (cursor < source.length) {
+    const match = findKeywordMatch(source.slice(cursor), keyword);
+    if (!match) {
+      break;
+    }
+
+    const start = cursor + match.start;
+    const end = cursor + match.end;
+    matches.push({ start, end });
+    cursor = Math.max(end, cursor + 1);
+  }
+
+  return matches;
+}
+
 function rangesOverlap(a, b) {
   return a.start < b.end && b.start < a.end;
 }
@@ -186,12 +205,13 @@ export function tokenizeFlavourKeywords(text) {
   }
 
   const matches = FLAVOUR_KEYWORDS
-    .map((item, index) => ({
-      item,
-      index,
-      match: findKeywordMatch(source, item.keyword),
-    }))
-    .filter((entry) => entry.match)
+    .flatMap((item, index) =>
+      findKeywordMatches(source, item.keyword).map((match) => ({
+        item,
+        index,
+        match,
+      }))
+    )
     .sort((a, b) => {
       const lengthDiff = b.item.keyword.length - a.item.keyword.length;
       return lengthDiff || a.index - b.index;

@@ -1,5 +1,6 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
+import { TypographyAuditText as Text } from "./TypographyAuditText";
 import { colors } from "../../theme/colors";
 import { spacing } from "../../theme/spacing";
 import { typography } from "../../theme/typography";
@@ -49,18 +50,17 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   tagLine: {
+    ...typography.text_secondary_body,
     fontSize: 13,
-    color: colors.textMuted,
   },
   temperature: {
+    ...typography.text_secondary_metric,
     fontSize: 36,
     lineHeight: 40,
-    fontWeight: "700",
-    color: colors.text,
   },
   stateTime: {
+    ...typography.text_secondary_body,
     fontSize: 13,
-    color: colors.textMuted,
     textTransform: "none",
   },
 });
