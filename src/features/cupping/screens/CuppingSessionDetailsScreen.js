@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Modal, Pressable, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
+import { ScreenFooter, ScreenFooterDual } from "../../../components/ui/ScreenFooter";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { AppIcon } from "../../../components/ui/AppIcon";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
@@ -22,7 +24,9 @@ import {
 import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
+import { CheckSampleScreen } from "../components/CheckSampleScreen";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
+import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
 import {
   buildCompactSessionMetadata,
   CUP_NUMBER_OPTIONS,
@@ -32,12 +36,14 @@ import {
   formatSessionDate,
   formatSessionDisplayId,
   generateSessionUUID,
+  getSessionStatusBadgeLabel,
   getSessionTypeLabel,
+  normalizeCuppingFormKey,
+  normalizeCuppingModeKey,
   normalizeProcessKey,
   normalizePositiveInteger,
   normalizeSessionTypeKey,
   normalizeCupUuid,
-  normalizeSampleColour,
   PENDING_CONFLICT_ERROR,
   resolveCupUUIDFromReadResult,
   SAMPLE_COLOUR_OPTIONS,
@@ -48,6 +54,7 @@ import {
   findPendingSessionByCupUUID,
   getSessionById,
   getSessionSampleFinalStatus,
+  markSessionCompleteIfAllSamplesComplete,
   saveSessionWithSamples,
 } from "../../../data/sessionRepository";
 
@@ -59,6 +66,48 @@ const RECOVERED_SMART_CUP_TEXT3 = {
   maxTime: 3600,
   ledBrightness: 100,
 };
+
+function SessionTypeDropdown({ anchorRect, selected, onSelect, onDismiss, scale }) {
+  if (!anchorRect) return null;
+  return (
+    <Modal visible transparent animationType="none" onRequestClose={onDismiss}>
+      <Pressable style={styles.dropdownBackdrop} onPress={onDismiss} />
+      <View
+        style={[
+          styles.dropdownMenu,
+          { top: anchorRect.y + anchorRect.height, left: anchorRect.x, width: anchorRect.width },
+        ]}
+      >
+        {SESSION_TYPE_OPTIONS.map((option, index) => (
+          <Pressable
+            key={option.key}
+            onPress={() => {
+              onSelect(String(option.key));
+              onDismiss();
+            }}
+            style={[
+              styles.dropdownOption,
+              { paddingVertical: 14 * scale },
+              index < SESSION_TYPE_OPTIONS.length - 1 && styles.dropdownOptionBorder,
+              normalizeSessionTypeKey(selected) === option.key && styles.dropdownOptionSelected,
+            ]}
+            accessibilityRole="menuitem"
+            accessibilityLabel={option.label}
+          >
+            <Text
+              style={[
+                styles.dropdownOptionText,
+                normalizeSessionTypeKey(selected) === option.key && styles.dropdownOptionTextSelected,
+              ]}
+            >
+              {option.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </Modal>
+  );
+}
 
 function canRepairSmartCupNdefShape(tagClassification) {
   return (
@@ -77,44 +126,74 @@ function buildRecoveredSmartCupText2(tag) {
   };
 }
 
-export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessionId = null }) {
+export function CuppingSessionDetailsScreen({
+  onBackPress,
+  onSaveSuccess,
+  onOpenSample,
+  onScanCupForAssessment,
+  quickStartSessionTypeKey,
+  onQuickStartSampleReady,
+  sessionId = null,
+}) {
+  const { width } = useWindowDimensions();
+  const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [sessionUUID, setSessionUUID] = useState(() => generateSessionUUID());
   const [sessionDisplayId, setSessionDisplayId] = useState(() => formatSessionDisplayId(sessionUUID));
   const [sessionDate, setSessionDate] = useState(() => formatSessionDate(new Date()));
   const [sessionName, setSessionName] = useState("");
-  const [sessionType, setSessionType] = useState("1");
+  const [sessionType, setSessionType] = useState(null);
   const [samplesInSession, setSamplesInSession] = useState("");
   const [sessionStatus, setSessionStatus] = useState("pending");
-  const [showSessionTypeMenu, setShowSessionTypeMenu] = useState(false);
+  const sessionTypeRowRef = useRef(null);
+  const [sessionTypeAnchor, setSessionTypeAnchor] = useState(null);
 
   const [samples, setSamples] = useState([]);
 
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const [sheetCoffeeNameOrigin, setSheetCoffeeNameOrigin] = useState("");
   const [sheetProcess, setSheetProcess] = useState("");
-  const [sheetCupNumber, setSheetCupNumber] = useState(null);
-  const [sheetSampleColour, setSheetSampleColour] = useState(SAMPLE_COLOUR_OPTIONS[0].hex);
+  const [sheetCupNumber, setSheetCupNumber] = useState(5);
+  const [isSheetCupNumberDefault, setIsSheetCupNumberDefault] = useState(true);
+  const [sheetCuppingForm, setSheetCuppingForm] = useState(1);
+  const [sheetCuppingMode, setSheetCuppingMode] = useState("blind");
+  const [isSheetCuppingModeDefault, setIsSheetCuppingModeDefault] = useState(true);
   const [sheetErrors, setSheetErrors] = useState({});
+  const [editingSampleId, setEditingSampleId] = useState(null);
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [isNfcWriting, setIsNfcWriting] = useState(false);
   const [verifyingSampleId, setVerifyingSampleId] = useState(null);
   const [rewritingSampleId, setRewritingSampleId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSessionDirty, setIsSessionDirty] = useState(false);
+  const [isCompletingSession, setIsCompletingSession] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [overwriteDialogMessage, setOverwriteDialogMessage] = useState("");
   const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
   const [isCupBlockedDialogVisible, setIsCupBlockedDialogVisible] = useState(false);
   const [cupBlockedMessage, setCupBlockedMessage] = useState("");
+  const [completeSessionMessage, setCompleteSessionMessage] = useState("");
+  const [isCompleteSessionDialogVisible, setIsCompleteSessionDialogVisible] = useState(false);
   const [isDeleteDialogVisible, setIsDeleteDialogVisible] = useState(false);
   const [sampleStatusById, setSampleStatusById] = useState({});
+  const [checkingSampleId, setCheckingSampleId] = useState(null);
+  const [checkSampleStatus, setCheckSampleStatus] = useState("pending");
+  const [isCheckingCup, setIsCheckingCup] = useState(false);
+  const quickStartAddSheetOpenedRef = useRef(false);
+  const pendingQuickStartReadyRef = useRef(null);
+  const pendingCheckSampleOverridesRef = useRef({});
+  const quickStartSessionTypeValue = normalizeSessionTypeKey(quickStartSessionTypeKey);
+  const isQuickStartSession = !sessionId && Boolean(quickStartSessionTypeValue);
   const sampleIdsKey = useMemo(
     () => samples.map((sample) => sample.id).join("|"),
     [samples]
   );
-  const isSessionComplete =
-    sessionStatus === "complete" ||
-    (samples.length > 0 && samples.every((sample) => Boolean(sampleStatusById?.[sample.id]?.isComplete)));
-  const canDeleteSession = Boolean(sessionId);
+  const isSessionComplete = sessionStatus === "complete";
+  const sessionStatusBadgeLabel = getSessionStatusBadgeLabel({
+    samples,
+    sampleStatusById,
+    isSessionComplete,
+  });
+  const canCompleteSession = sessionStatusBadgeLabel === "In Progress";
 
   useEffect(() => {
     let isCancelled = false;
@@ -130,12 +209,14 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
         setSessionDisplayId(formatSessionDisplayId(nextSessionUUID));
         setSessionDate(formatSessionDate(new Date()));
         setSessionName("");
-        setSessionType("1");
+        setSessionType(quickStartSessionTypeValue ? String(quickStartSessionTypeValue) : null);
         setSamplesInSession("");
         setSessionStatus("new");
         setSamples([]);
-        setShowSessionTypeMenu(false);
+        setIsSessionDirty(false);
+        setSessionTypeAnchor(null);
         setScanStatusMessage("");
+        quickStartAddSheetOpenedRef.current = false;
         return;
       }
 
@@ -153,21 +234,26 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
         setSessionType(String(normalizeSessionTypeKey(loaded.sessionType) || 1));
         setSamplesInSession(String(loaded.samplesInSession || ""));
         setSessionStatus(loaded.status || "pending");
+        setIsSessionDirty(false);
         setSamples(
           (loaded.samples || []).map((sample) =>
-            createSample({
-              id: sample.id,
-              coffeeNameOrigin: sample.coffeeNameOrigin,
-              process: sample.process,
-              cupUUID: sample.cupUUID,
-              cupNumber: sample.cupNumber,
-              sampleNumber: sample.sampleNumber,
-              sampleColour: sample.sampleColour,
-              verificationStatus: sample.verificationStatus,
+            ({
+              ...createSample({
+                id: sample.id,
+                coffeeNameOrigin: sample.coffeeNameOrigin,
+                process: sample.process,
+                cupUUID: sample.cupUUID,
+                cupNumber: sample.cupNumber,
+                cuppingForm: sample.cuppingForm,
+                sampleNumber: sample.sampleNumber,
+                sampleColour: sample.sampleColour,
+                verificationStatus: sample.verificationStatus,
+              }),
+              cuppingMode: normalizeCuppingModeKey(sample.cuppingMode),
             })
           )
         );
-        setShowSessionTypeMenu(false);
+        setSessionTypeAnchor(null);
         setScanStatusMessage("Loaded saved session.");
       } catch (error) {
         void logAppError({
@@ -189,7 +275,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
     return () => {
       isCancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, quickStartSessionTypeValue]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -251,6 +337,16 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
   );
   const isSessionLocked = samples.length > 0;
 
+  const openSessionTypeMenu = () => {
+    if (isSessionLocked) {
+      return;
+    }
+
+    sessionTypeRowRef.current?.measure((x, y, w, h, pageX, pageY) => {
+      setSessionTypeAnchor({ x: pageX, y: pageY, width: w, height: h });
+    });
+  };
+
   const handleUpdateSample = (sampleId, field, value) => {
     setSamples((prev) =>
       prev.map((sample) => {
@@ -283,19 +379,58 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
   };
 
   const handleOpenAddSheet = () => {
+    setEditingSampleId(null);
     setSheetCoffeeNameOrigin("");
     setSheetProcess("");
-    setSheetCupNumber(null);
-    setSheetSampleColour(SAMPLE_COLOUR_OPTIONS[0].hex);
+    setSheetCupNumber(5);
+    setIsSheetCupNumberDefault(true);
+    setSheetCuppingForm(1);
+    setSheetCuppingMode("blind");
+    setIsSheetCuppingModeDefault(true);
     setSheetErrors({});
     setScanStatusMessage("");
     setIsAddSheetVisible(true);
   };
 
+  useEffect(() => {
+    if (
+      !isQuickStartSession ||
+      quickStartAddSheetOpenedRef.current ||
+      samples.length > 0 ||
+      isAddSheetVisible
+    ) {
+      return;
+    }
+
+    quickStartAddSheetOpenedRef.current = true;
+    handleOpenAddSheet();
+  }, [isAddSheetVisible, isQuickStartSession, samples.length]);
+
   const handleCloseAddSheet = () => {
     setIsAddSheetVisible(false);
+    setEditingSampleId(null);
     setSheetErrors({});
     setScanStatusMessage("");
+  };
+
+  const handleOpenEditSheet = (sample) => {
+    if (!sample || sampleStatusById?.[sample.id]?.isComplete) {
+      return;
+    }
+
+    setEditingSampleId(sample.id);
+    setSheetCoffeeNameOrigin(sample.coffeeNameOrigin || "");
+    setSheetProcess(sample.process || "");
+    setIsSheetCupNumberDefault(false);
+    setSheetCupNumber(
+      CUP_NUMBER_OPTIONS.includes(Number(sample.cupNumber)) ? Number(sample.cupNumber) : 5
+    );
+    setSheetCuppingForm(normalizeCuppingFormKey(sample.cuppingForm) ?? 1);
+    setSheetCuppingMode(normalizeCuppingModeKey(sample.cuppingMode));
+    setIsSheetCuppingModeDefault(false);
+    setSheetErrors({});
+    setScanStatusMessage("");
+    setIsAddSheetVisible(true);
   };
 
   const validateAddSheet = () => {
@@ -313,12 +448,60 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
       nextErrors.cupNumber = "Cup number must be between 1 and 5.";
     }
 
-    if (!normalizeSampleColour(sheetSampleColour)) {
-      nextErrors.sampleColour = "Sample colour is required.";
+    setSheetErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  };
+
+  const validateEditSheet = () => {
+    const nextErrors = {};
+
+    if (!sheetCoffeeNameOrigin.trim()) {
+      nextErrors.coffeeNameOrigin = "Coffee Name / Origin is required.";
+    }
+
+    if (!normalizeProcessKey(sheetProcess)) {
+      nextErrors.process = "Process is required.";
     }
 
     setSheetErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
+  };
+
+  const handleSaveEditedSample = async () => {
+    if (!editingSampleId || !validateEditSheet()) {
+      return;
+    }
+
+    const editedSampleId = editingSampleId;
+    const overrides = {
+      coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
+      process: String(normalizeProcessKey(sheetProcess)),
+      cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+      cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
+    };
+
+    setIsNfcWriting(true);
+    const didRewriteCup = await handleRewriteSample(editedSampleId, overrides);
+    setIsNfcWriting(false);
+
+    if (!didRewriteCup) {
+      return;
+    }
+
+    handleUpdateSample(editedSampleId, "coffeeNameOrigin", sheetCoffeeNameOrigin.trim());
+    handleUpdateSample(editedSampleId, "process", String(normalizeProcessKey(sheetProcess)));
+    handleUpdateSample(editedSampleId, "cuppingForm", normalizeCuppingFormKey(sheetCuppingForm) ?? 1);
+    handleUpdateSample(editedSampleId, "cuppingMode", normalizeCuppingModeKey(sheetCuppingMode));
+    pendingCheckSampleOverridesRef.current = {
+      ...pendingCheckSampleOverridesRef.current,
+      [editedSampleId]: overrides,
+    };
+    setIsSessionDirty(true);
+    setIsAddSheetVisible(false);
+    setEditingSampleId(null);
+    setSheetErrors({});
+    setCheckingSampleId(editedSampleId);
+    setCheckSampleStatus("pending");
   };
 
   const handleScanCup = async () => {
@@ -326,7 +509,11 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
       return;
     }
 
-    if (!sessionName.trim()) {
+    const effectiveSessionName = isQuickStartSession ? sheetCoffeeNameOrigin.trim() : sessionName.trim();
+    const effectiveSessionType = isQuickStartSession ? String(quickStartSessionTypeValue) : sessionType;
+    const isFirstQuickStartSample = isQuickStartSession && samples.length === 0;
+
+    if (!isQuickStartSession && !effectiveSessionName) {
       setScanStatusMessage("Please enter Session Name before scanning cup.");
       return;
     }
@@ -387,7 +574,11 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
           samplesInSession,
           Math.max(samples.length, sampleNumber)
         );
-        const sampleColour = normalizeSampleColour(sheetSampleColour);
+        const sampleColour =
+          duplicateIndex === -1
+            ? SAMPLE_COLOUR_OPTIONS[samples.length % SAMPLE_COLOUR_OPTIONS.length].hex
+            : samples[duplicateIndex]?.sampleColour ||
+              SAMPLE_COLOUR_OPTIONS[duplicateIndex % SAMPLE_COLOUR_OPTIONS.length].hex;
         const isNtagCup =
           !isSmartCupHardware &&
           (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
@@ -400,8 +591,10 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
           samplesInSession: sessionSampleCount,
           sampleNumber,
           sampleColour,
-          sessionName: sessionName.trim(),
-          sessionType: normalizeSessionTypeKey(sessionType),
+          cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
+          cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+          sessionName: effectiveSessionName,
+          sessionType: normalizeSessionTypeKey(effectiveSessionType),
           sessionDate,
           sessionUUID,
         });
@@ -409,15 +602,19 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
           duplicateIndex === -1
             ? [
                 ...samples,
-                createSample({
-                  coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
-                  process: String(normalizeProcessKey(sheetProcess)),
-                  cupUUID: normalizedDetectedCupUUID,
-                  cupNumber: sheetCupNumber,
-                  sampleNumber,
-                  sampleColour,
-                  verificationStatus: "pending",
-                }),
+                {
+                  ...createSample({
+                    coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
+                    process: String(normalizeProcessKey(sheetProcess)),
+                    cupUUID: normalizedDetectedCupUUID,
+                    cupNumber: sheetCupNumber,
+                    cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+                    sampleNumber,
+                    sampleColour,
+                    verificationStatus: "pending",
+                  }),
+                  cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
+                },
               ]
             : samples.map((sample, index) =>
                 index === duplicateIndex
@@ -427,6 +624,8 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
                       process: String(normalizeProcessKey(sheetProcess)),
                       cupUUID: normalizedDetectedCupUUID,
                       cupNumber: sheetCupNumber,
+                      cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+                      cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
                       sampleNumber,
                       sampleColour,
                       verificationStatus: "pending",
@@ -470,22 +669,38 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
         sessionUUID,
         sessionDisplayId,
         sessionDate,
-        sessionName,
-        sessionType,
+        sessionName: effectiveSessionName,
+        sessionType: effectiveSessionType,
         samplesInSession,
         status: sessionStatus,
         samples: nextSamples,
       });
+      setSessionName(effectiveSessionName);
       setSamples(nextSamples);
+      setIsSessionDirty(true);
 
+      const writtenSample =
+        duplicateIndex !== -1
+          ? nextSamples[duplicateIndex]
+          : nextSamples[nextSamples.length - 1];
       setIsAddSheetVisible(false);
       if (duplicateIndex !== -1) {
-        setOverwriteDialogMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten.`);
-        setIsOverwriteDialogVisible(true);
-        setScanStatusMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten.`);
+        setScanStatusMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten. Check the cup to confirm.`);
       } else {
-        setScanStatusMessage(`Cup ${normalizedDetectedCupUUID} linked successfully and sample added.`);
+        setScanStatusMessage(`Cup ${normalizedDetectedCupUUID} linked. Check the cup to confirm.`);
       }
+      if (
+        isFirstQuickStartSample &&
+        duplicateIndex === -1 &&
+        typeof onQuickStartSampleReady === "function"
+      ) {
+        pendingQuickStartReadyRef.current = {
+          sessionId: sessionUUID,
+          sample: writtenSample,
+        };
+      }
+      setCheckingSampleId(writtenSample?.id || null);
+      setCheckSampleStatus("pending");
     } catch (error) {
       const message = error?.message || "NFC write failed.";
       const normalizedMessage = String(message).toLowerCase();
@@ -508,7 +723,6 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
           sheetCoffeeNameOrigin,
           sheetProcess,
           sheetCupNumber,
-          sheetSampleColour,
         },
       });
       if (isUserCancelled) {
@@ -533,9 +747,13 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
   const handleVerifySample = async (sampleId) => {
     const sample = samples.find((entry) => entry.id === sampleId);
     if (!sample) {
-      return;
+      return false;
     }
 
+    const sampleForMetadata = {
+      ...sample,
+      ...(pendingCheckSampleOverridesRef.current[sampleId] || {}),
+    };
     setVerifyingSampleId(sampleId);
 
     try {
@@ -567,7 +785,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
         setScanStatusMessage(
           `Scanned cup ${detectedCupUUID || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`
         );
-        return;
+        return false;
       }
 
       const expectedSampleNumber = samples.findIndex((entry) => entry.id === sampleId) + 1;
@@ -576,13 +794,15 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
         Math.max(samples.length, expectedSampleNumber)
       );
       const expectedMetadata = buildCompactSessionMetadata({
-        coffeeNameOrigin: sample.coffeeNameOrigin,
-        process: sample.process,
-        cupNumber: sample.cupNumber,
+        coffeeNameOrigin: sampleForMetadata.coffeeNameOrigin,
+        process: sampleForMetadata.process,
+        cupNumber: sampleForMetadata.cupNumber,
         samplesInSession: expectedSamplesInSession,
         sampleNumber: expectedSampleNumber,
-        sampleColour: sample.sampleColour,
-        sessionName,
+        sampleColour: sampleForMetadata.sampleColour,
+        cuppingMode: sampleForMetadata.cuppingMode,
+        cuppingForm: sampleForMetadata.cuppingForm,
+        sessionName: sessionName || pendingQuickStartReadyRef.current?.sample?.coffeeNameOrigin || sampleForMetadata.coffeeNameOrigin,
         sessionType,
         sessionDate,
         sessionUUID,
@@ -598,13 +818,18 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
           setScanStatusMessage(
             `Cup ${expectedCupUUID} session data verified but NDEF1 state is not ready (s=${cupState ?? "unknown"}). Check the cup hardware.`
           );
+          return false;
         } else {
           setSampleVerificationStatus(sampleId, "verified");
           setScanStatusMessage(`Cup ${expectedCupUUID} verified successfully.`);
+          const { [sampleId]: _verifiedOverride, ...remainingOverrides } = pendingCheckSampleOverridesRef.current;
+          pendingCheckSampleOverridesRef.current = remainingOverrides;
+          return true;
         }
       } else {
         setSampleVerificationStatus(sampleId, "pending");
         setScanStatusMessage(`Cup ${expectedCupUUID} does not match the expected session data. Please write again.`);
+        return false;
       }
     } catch (error) {
       const message = error?.message || "Unable to verify cup.";
@@ -632,17 +857,19 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
       } else {
         setScanStatusMessage(message);
       }
+      return false;
     } finally {
       setVerifyingSampleId(null);
     }
   };
 
-  const handleRewriteSample = async (sampleId) => {
+  const handleRewriteSample = async (sampleId, overrides = {}) => {
     const sample = samples.find((entry) => entry.id === sampleId);
     if (!sample) {
-      return;
+      return false;
     }
 
+    const sampleForMetadata = { ...sample, ...overrides };
     const expectedCupUUID = normalizeCupUuid(sample.cupUUID);
     const expectedSampleNumber = samples.findIndex((entry) => entry.id === sampleId) + 1;
     const expectedSamplesInSession = normalizePositiveInteger(
@@ -650,12 +877,14 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
       Math.max(samples.length, expectedSampleNumber)
     );
     const expectedMetadata = buildCompactSessionMetadata({
-      coffeeNameOrigin: sample.coffeeNameOrigin,
-      process: sample.process,
-      cupNumber: sample.cupNumber,
+      coffeeNameOrigin: sampleForMetadata.coffeeNameOrigin,
+      process: sampleForMetadata.process,
+      cupNumber: sampleForMetadata.cupNumber,
       samplesInSession: expectedSamplesInSession,
       sampleNumber: expectedSampleNumber,
-      sampleColour: sample.sampleColour,
+      sampleColour: sampleForMetadata.sampleColour,
+      cuppingMode: sampleForMetadata.cuppingMode,
+      cuppingForm: sampleForMetadata.cuppingForm,
       sessionName,
       sessionType,
       sessionDate,
@@ -725,6 +954,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
 
       setSampleVerificationStatus(sampleId, "pending");
       setScanStatusMessage(`Cup ${expectedCupUUID} rewritten. Please run Check Cup to verify it.`);
+      return true;
     } catch (error) {
       const message = error?.message || "Unable to rewrite cup.";
       const normalizedMessage = String(message).toLowerCase();
@@ -752,8 +982,73 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
       } else {
         setScanStatusMessage(message);
       }
+      return false;
     } finally {
       setRewritingSampleId(null);
+    }
+  };
+
+  const checkedSample = checkingSampleId
+    ? samples.find((entry) => entry.id === checkingSampleId)
+    : null;
+  const checkedSampleIndex = checkedSample
+    ? samples.findIndex((entry) => entry.id === checkedSample.id)
+    : -1;
+  const checkedSampleNumber = Number(checkedSample?.sampleNumber) > 0
+    ? Number(checkedSample.sampleNumber)
+    : checkedSampleIndex + 1;
+
+  const handleCloseCheckSample = () => {
+    if (checkingSampleId) {
+      const { [checkingSampleId]: _closedOverride, ...remainingOverrides } = pendingCheckSampleOverridesRef.current;
+      pendingCheckSampleOverridesRef.current = remainingOverrides;
+    }
+    pendingQuickStartReadyRef.current = null;
+    setCheckingSampleId(null);
+    setCheckSampleStatus("pending");
+    setIsCheckingCup(false);
+  };
+
+  const handleScanToCheckCup = async () => {
+    if (!checkingSampleId) {
+      return;
+    }
+
+    setIsCheckingCup(true);
+    const verified = await handleVerifySample(checkingSampleId);
+    setIsCheckingCup(false);
+
+    if (verified) {
+      const pendingQuickStartReady = pendingQuickStartReadyRef.current;
+      pendingQuickStartReadyRef.current = null;
+      setCheckingSampleId(null);
+      setCheckSampleStatus("pending");
+
+      if (pendingQuickStartReady && typeof onQuickStartSampleReady === "function") {
+        onQuickStartSampleReady(pendingQuickStartReady);
+      }
+      return;
+    }
+
+    setCheckSampleStatus("mismatch");
+  };
+
+  const handleRewriteFromCheckScreen = async () => {
+    if (!checkingSampleId) {
+      return;
+    }
+
+    setIsCheckingCup(true);
+    const rewritten = await handleRewriteSample(
+      checkingSampleId,
+      pendingCheckSampleOverridesRef.current[checkingSampleId] || {}
+    );
+    setIsCheckingCup(false);
+
+    if (rewritten) {
+      setCheckSampleStatus("pending");
+    } else {
+      setCheckSampleStatus("mismatch");
     }
   };
 
@@ -762,6 +1057,7 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
 
     try {
       const result = await saveSessionWithSamples(formState);
+      setIsSessionDirty(false);
       setScanStatusMessage(`Session saved locally (${result.savedSampleCount} samples).`);
       if (onSaveSuccess) {
         onSaveSuccess(result.sessionId);
@@ -785,6 +1081,46 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
       setScanStatusMessage(error?.message || "Save failed.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleCompleteSession = async () => {
+    if (!sessionId) {
+      return;
+    }
+
+    setIsCompletingSession(true);
+
+    try {
+      const result = await markSessionCompleteIfAllSamplesComplete(sessionId);
+      if (result?.status === "incomplete") {
+        setCompleteSessionMessage("All samples must be fully scored before completing this session.");
+        setIsCompleteSessionDialogVisible(true);
+        return;
+      }
+
+      if (result?.status === "complete") {
+        setSessionStatus("complete");
+        setScanStatusMessage("Session completed.");
+      }
+    } catch (error) {
+      const message = error?.message || "Unable to complete session.";
+      void logAppError({
+        screen: "CuppingSessionDetails",
+        route: "Cupping Session Details",
+        flow: "complete_session",
+        friendlyMessage: message,
+        error,
+        context: {
+          sessionUUID,
+          sessionId,
+          sampleCount: samples.length,
+        },
+      });
+      setCompleteSessionMessage(message);
+      setIsCompleteSessionDialogVisible(true);
+    } finally {
+      setIsCompletingSession(false);
     }
   };
 
@@ -829,6 +1165,10 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
     }
   };
 
+  const showScanFooter = sessionStatusBadgeLabel === "Pending" && !isSessionDirty;
+  const showInProgressFooter = canCompleteSession;
+  const footerDisabled = isSaving || isCompletingSession || isDeleting || isNfcWriting;
+
   return (
     <View style={styles.screen}>
       <Header
@@ -836,179 +1176,198 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
         variant="back"
         onBackPress={onBackPress}
         backAccessibilityLabel="Back"
+        debugTag="CuppingSessionDetailsScreen"
       />
 
       <ScreenContainer>
-        <View style={styles.card}>
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>UUID</Text>
-            <Text style={styles.uuidValue} accessibilityLabel="Session UUID">
-              {sessionDisplayId}
-            </Text>
-          </View>
-
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Date</Text>
-            <Text style={styles.readOnlyValue} accessibilityLabel="Session date">
-              {sessionDate}
-            </Text>
-          </View>
-
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Session Name</Text>
+        <View style={[styles.metaList, { gap: 14 * scale }]}>
+          <View style={[styles.metaRow, { paddingBottom: 14 * scale }]}>
+            <Text style={styles.metaLabel}>Session Name</Text>
             <TextInput
               value={sessionName}
               onChangeText={setSessionName}
               placeholder="Enter session name"
-              style={[styles.input, isSessionLocked && styles.inputDisabled]}
+              placeholderTextColor={colors.action}
+              style={[styles.input, { marginTop: 4 * scale }, isSessionLocked && styles.metaInputDisabled]}
               editable={!isSessionLocked}
               selectTextOnFocus={!isSessionLocked}
               accessibilityLabel="Session name"
             />
           </View>
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Session Type</Text>
-            <View style={styles.dropdownWrap}>
-              <Pressable
-                onPress={() => {
-                  if (!isSessionLocked) {
-                    setShowSessionTypeMenu((prev) => !prev);
-                  }
-                }}
-                style={[styles.dropdownTrigger, isSessionLocked && styles.dropdownTriggerDisabled]}
-                accessibilityRole="button"
-                accessibilityLabel={`Session type selector. Current value ${getSessionTypeLabel(sessionType)}`}
-                accessibilityState={{ expanded: showSessionTypeMenu, disabled: isSessionLocked }}
+          <Pressable
+            ref={sessionTypeRowRef}
+            onPress={openSessionTypeMenu}
+            accessibilityRole="button"
+            accessibilityLabel="Select session type"
+            accessibilityState={{ expanded: Boolean(sessionTypeAnchor), disabled: isSessionLocked }}
+            style={[styles.metaRow, { paddingBottom: 14 * scale }]}
+          >
+            <Text style={styles.metaLabel}>Session Type</Text>
+            <View style={[styles.typeRowValue, { marginTop: 4 * scale }]}>
+              <Text
+                style={[
+                  styles.metaValue,
+                  !sessionType && styles.metaValuePlaceholder,
+                  isSessionLocked && styles.metaValueDisabled,
+                ]}
               >
-                <Text style={[styles.dropdownValue, isSessionLocked && styles.dropdownValueDisabled]}>
-                  {getSessionTypeLabel(sessionType)}
-                </Text>
-                <AppIcon
-                  name={showSessionTypeMenu ? "chevron-up" : "chevron-down"}
-                  role="icon_compact"
-                  style={[styles.dropdownChevron, isSessionLocked && styles.dropdownChevronDisabled]}
-                />
-              </Pressable>
-
-              {showSessionTypeMenu && !isSessionLocked ? (
-                <View style={styles.dropdownMenu}>
-                  {SESSION_TYPE_OPTIONS.map((option, index) => {
-                    const selected = normalizeSessionTypeKey(sessionType) === option.key;
-                    return (
-                      <Pressable
-                        key={option.key}
-                        onPress={() => {
-                          setSessionType(String(option.key));
-                          setShowSessionTypeMenu(false);
-                        }}
-                        style={[
-                          styles.dropdownItem,
-                          index === 0 && styles.dropdownItemFirst,
-                          selected && styles.dropdownItemSelected,
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Session type ${option.label}`}
-                        accessibilityState={{ selected }}
-                      >
-                        <Text style={[styles.dropdownItemText, selected && styles.dropdownItemTextSelected]}>
-                          {option.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
+                {sessionType ? getSessionTypeLabel(sessionType) : "Select type"}
+              </Text>
+              <AppIcon
+                name="chevron-down"
+                role="icon_navigation"
+                size={22}
+                color={isSessionLocked ? colors.muted : colors.inkSoft}
+              />
             </View>
-          </View>
+          </Pressable>
 
-          <View style={styles.fieldBlock}>
-            <Text style={styles.fieldLabel}>Samples in Session</Text>
-            <TextInput
-              value={samplesInSession}
-              onChangeText={setSamplesInSession}
-              placeholder="e.g. 5"
-              keyboardType="number-pad"
-              style={[styles.input, isSessionLocked && styles.inputDisabled]}
-              editable={!isSessionLocked}
-              selectTextOnFocus={!isSessionLocked}
-              accessibilityLabel="Samples in session"
-            />
+          <View style={{ paddingBottom: 14 * scale, gap: spacing.sm }}>
+            <Text style={styles.metaValueMuted} accessibilityLabel="Session date">
+              {sessionDate}
+            </Text>
+            <Text style={styles.metaValueMuted} accessibilityLabel="Session UUID">
+              {sessionDisplayId}
+            </Text>
+            <SessionStatusBadge status={sessionStatusBadgeLabel} />
           </View>
         </View>
 
         <View style={styles.samplesSection}>
-          <Text style={styles.sectionTitle}>Coffee Samples</Text>
+          <View style={[styles.samplesHeader, { marginTop: 32 * scale }]}>
+            <Text style={styles.samplesHeading}>SAMPLES</Text>
+          </View>
 
           {samples.map((sample, index) => (
             <CoffeeSampleCard
               key={sample.id}
               sample={sample}
               index={index}
-              onUpdate={handleUpdateSample}
+              scale={scale}
               onRemove={handleRemoveSample}
-              onVerify={handleVerifySample}
-              onRewrite={handleRewriteSample}
-              isVerifying={verifyingSampleId === sample.id}
-              isRewriting={rewritingSampleId === sample.id}
               canRemove={samples.length > 0}
               status={sampleStatusById?.[sample.id]}
+              defaultExpanded={isSessionComplete}
+              onEditSample={showInProgressFooter ? undefined : handleOpenEditSheet}
+              onOpenSample={
+                sample.cupUUID && typeof onOpenSample === "function"
+                  ? () =>
+                      onOpenSample(sample, index, samples.length, {
+                        isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete),
+                      })
+                  : undefined
+              }
             />
           ))}
 
-          {!isSessionComplete ? (
+          {!isSessionComplete && !showInProgressFooter ? (
             <FullPageButton
-              label="Add"
+              label="ADD SAMPLE"
               onPress={handleOpenAddSheet}
               accessibilityLabel="Open add sample sheet"
-              style={styles.addButton}
-              textStyle={styles.addButtonText}
-              icon={<AppIcon name="add" role="icon_compact" color={colors.text} />}
-              iconPosition="left"
+              style={[styles.addSampleButton, { marginTop: 24 * scale }]}
+              textStyle={styles.addSampleButtonText}
             />
           ) : null}
         </View>
 
         {scanStatusMessage ? <Text style={styles.scanStatusText}>{scanStatusMessage}</Text> : null}
 
-        <FullPageButton
-          label="Save"
+      </ScreenContainer>
+
+      {isSessionComplete ? (
+        <View style={styles.uploadFooter}>
+          <Pressable
+            onPress={() => {}}
+            accessibilityRole="button"
+            accessibilityLabel="Upload session"
+            style={({ pressed }) => [
+              styles.uploadButton,
+              pressed && styles.uploadButtonPressed,
+            ]}
+          >
+            <Ionicons name="cloud-upload-outline" size={24} color={colors.surface} />
+          </Pressable>
+        </View>
+      ) : showScanFooter ? (
+        <ScreenFooter
+          label="SCAN CUP"
+          onPress={onScanCupForAssessment}
+          disabled={footerDisabled || typeof onScanCupForAssessment !== "function"}
+          accessibilityLabel="Scan cup for assessment"
+          buttonStyle={styles.scanFooterButton}
+        />
+      ) : showInProgressFooter ? (
+        <ScreenFooterDual
+          primaryLabel="COMPLETE SESSION"
+          onPrimaryPress={handleCompleteSession}
+          primaryLoading={isCompletingSession}
+          primaryDisabled={footerDisabled}
+          primaryAccessibilityLabel="Complete cupping session"
+          primaryStyle={styles.completeButton}
+          primaryTextStyle={styles.completeButtonText}
+          secondaryLabel="SCAN CUP"
+          onSecondaryPress={onScanCupForAssessment}
+          secondaryDisabled={footerDisabled || typeof onScanCupForAssessment !== "function"}
+          secondaryAccessibilityLabel="Scan cup for assessment"
+          secondaryStyle={styles.scanFooterButton}
+          secondaryTextStyle={styles.scanFooterButtonText}
+        />
+      ) : (
+        <ScreenFooter
+          label="SAVE"
           onPress={handleSave}
           loading={isSaving}
-          disabled={isSaving || isDeleting || isNfcWriting}
+          disabled={footerDisabled}
           accessibilityLabel="Save cupping session details"
-          style={styles.saveButton}
         />
+      )}
 
-        {canDeleteSession ? (
-          <FullPageButton
-            label="Delete Session"
-            onPress={() => setIsDeleteDialogVisible(true)}
-            disabled={isSaving || isDeleting || isNfcWriting}
-            loading={isDeleting}
-            accessibilityLabel="Delete cupping session"
-            style={styles.deleteButton}
-            textStyle={styles.deleteButtonText}
-          />
-        ) : null}
-      </ScreenContainer>
+      <Modal
+        visible={Boolean(checkingSampleId)}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={handleCloseCheckSample}
+      >
+        <CheckSampleScreen
+          sampleNumber={checkedSampleNumber}
+          status={checkSampleStatus}
+          loading={isCheckingCup}
+          onScanToCheck={handleScanToCheckCup}
+          onRewrite={handleRewriteFromCheckScreen}
+          onClose={handleCloseCheckSample}
+        />
+      </Modal>
 
       <AddCoffeeSampleSheet
         visible={isAddSheetVisible}
+        mode={editingSampleId ? "edit" : "add"}
         cupUUID=""
         coffeeNameOrigin={sheetCoffeeNameOrigin}
         process={sheetProcess}
         cupNumber={sheetCupNumber}
-        sampleColour={sheetSampleColour}
+        isCupNumberDefault={isSheetCupNumberDefault}
+        cuppingForm={sheetCuppingForm}
+        cuppingMode={sheetCuppingMode}
+        isCuppingModeDefault={isSheetCuppingModeDefault}
         errors={sheetErrors}
         loading={isNfcWriting}
         statusMessage={scanStatusMessage}
         onChangeCoffeeNameOrigin={setSheetCoffeeNameOrigin}
         onChangeProcess={setSheetProcess}
-        onSelectCupNumber={setSheetCupNumber}
-        onSelectSampleColour={setSheetSampleColour}
+        onSelectCupNumber={(value) => {
+          setSheetCupNumber(value);
+          setIsSheetCupNumberDefault(false);
+        }}
+        onSelectCuppingForm={setSheetCuppingForm}
+        onSelectCuppingMode={(value) => {
+          setSheetCuppingMode(value);
+          setIsSheetCuppingModeDefault(false);
+        }}
         onClose={handleCloseAddSheet}
         onScanCup={handleScanCup}
+        onSave={handleSaveEditedSample}
       />
 
       <WarningDialog
@@ -1030,6 +1389,15 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
       />
 
       <WarningDialog
+        visible={isCompleteSessionDialogVisible}
+        title="Complete Session"
+        message={completeSessionMessage}
+        okLabel="OK"
+        onDismiss={() => setIsCompleteSessionDialogVisible(false)}
+        onOk={() => setIsCompleteSessionDialogVisible(false)}
+      />
+
+      <WarningDialog
         visible={isDeleteDialogVisible}
         title="Delete Session?"
         message="This will permanently delete the session and all saved sample feedback stored on this device."
@@ -1038,6 +1406,13 @@ export function CuppingSessionDetailsScreen({ onBackPress, onSaveSuccess, sessio
         onOk={handleConfirmDelete}
         secondaryLabel="Cancel"
         onSecondary={() => setIsDeleteDialogVisible(false)}
+      />
+      <SessionTypeDropdown
+        anchorRect={sessionTypeAnchor}
+        selected={sessionType}
+        onSelect={setSessionType}
+        onDismiss={() => setSessionTypeAnchor(null)}
+        scale={scale}
       />
     </View>
   );
@@ -1048,136 +1423,131 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  card: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    gap: spacing.sm,
+  metaList: {
+    width: "100%",
   },
-  fieldBlock: {
-    gap: 6,
+  metaRow: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.quietBorder,
   },
-  fieldLabel: {
-    ...typography.text_caption,
-    fontSize: 13,
+  metaLabel: {
+    ...typography.text_secondary_body,
     fontWeight: "700",
-    letterSpacing: 0.4,
+    letterSpacing: 0,
   },
-  readOnlyValue: {
+  metaValueMuted: {
     ...typography.text_field_auto,
     letterSpacing: 0,
   },
-  dropdownWrap: {
-    gap: 6,
+  metaValue: {
+    ...typography.text_section_title,
+    letterSpacing: 0,
   },
-  dropdownTrigger: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    minHeight: 44,
-    backgroundColor: "#ffffff",
+  metaValuePlaceholder: {
+    color: colors.action,
+  },
+  metaValueDisabled: {
+    color: colors.muted,
+  },
+  input: {
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 0,
+    color: "#414B53",
+    padding: 0,
+  },
+  metaInputDisabled: {
+    color: colors.muted,
+  },
+  typeRowValue: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  dropdownValue: {
-    fontSize: 15,
-    color: colors.text,
-  },
-  dropdownValueDisabled: {
-    color: colors.textMuted,
-  },
-  dropdownChevron: {
-    fontSize: 16,
-    color: colors.textMuted,
-  },
-  dropdownChevronDisabled: {
-    color: "#9ca3af",
-  },
-  dropdownTriggerDisabled: {
-    backgroundColor: "#f3f4f6",
+  dropdownBackdrop: {
+    ...StyleSheet.absoluteFillObject,
   },
   dropdownMenu: {
+    position: "absolute",
+    backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
-    overflow: "hidden",
+    borderColor: colors.quietBorder,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  dropdownItem: {
-    minHeight: 42,
-    paddingHorizontal: 12,
-    justifyContent: "center",
-    borderTopWidth: 1,
-    borderColor: "#f0f0f0",
+  dropdownOption: {
+    paddingHorizontal: 16,
   },
-  dropdownItemFirst: {
-    borderTopWidth: 0,
+  dropdownOptionBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.quietBorder,
   },
-  dropdownItemSelected: {
-    backgroundColor: "#111111",
+  dropdownOptionSelected: {
+    backgroundColor: colors.panel,
   },
-  dropdownItemText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: colors.textMuted,
-  },
-  dropdownItemTextSelected: {
-    color: "#ffffff",
-  },
-  uuidValue: {
-    ...typography.text_field_auto,
+  dropdownOptionText: {
+    ...typography.text_body,
     letterSpacing: 0,
+  },
+  dropdownOptionTextSelected: {
+    fontWeight: "800",
   },
   samplesSection: {
     gap: spacing.sm,
   },
-  sectionTitle: {
-    ...typography.text_section_title,
+  samplesHeader: {
+    paddingTop: 16,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: colors.text,
+  samplesHeading: {
+    ...typography.text_caption,
   },
-  inputDisabled: {
-    backgroundColor: "#f3f4f6",
-    color: colors.textMuted,
+  addSampleButton: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.muted,
   },
-  addButton: {
-    marginTop: 4,
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-  },
-  addButtonText: {
-    color: colors.text,
-    textTransform: "none",
-    letterSpacing: 0,
-    fontWeight: "600",
+  addSampleButtonText: {
+    color: colors.ink,
   },
   scanStatusText: {
     ...typography.text_secondary_body,
     fontSize: 13,
     marginTop: 2,
   },
-  saveButton: {
-    marginBottom: 12,
+  completeButton: {
+    backgroundColor: colors.ink,
   },
-  deleteButton: {
-    marginBottom: 12,
-    backgroundColor: "#b42318",
+  completeButtonText: {
+    color: colors.surface,
   },
-  deleteButtonText: {
-    color: "#ffffff",
+  scanFooterButton: {
+    backgroundColor: colors.action,
+  },
+  scanFooterButtonText: {
+    color: colors.surface,
+  },
+  uploadFooter: {
+    borderTopWidth: 1,
+    borderTopColor: colors.quietBorder,
+    backgroundColor: colors.surface,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 28,
+    alignItems: "center",
+  },
+  uploadButton: {
+    width: "100%",
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.muted,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  uploadButtonPressed: {
+    opacity: 0.88,
   },
 });

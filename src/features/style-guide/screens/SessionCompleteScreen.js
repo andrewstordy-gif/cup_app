@@ -170,6 +170,7 @@ export function SessionCompleteScreen({ onBackPress }) {
           variant="back"
           onBackPress={onBackPress}
           backAccessibilityLabel="Back to Style Guide"
+          debugTag="SessionCompleteScreen"
         />
         <ScrollView
           showsVerticalScrollIndicator={false}

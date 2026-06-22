@@ -10,6 +10,7 @@ import { typography } from "../../../theme/typography";
 import { iconography } from "../../../theme/iconography";
 import { ScreenFooter, ScreenFooterDual } from "../../../components/ui/ScreenFooter";
 import { SessionPrototypeScreen } from "./SessionPrototypeScreen";
+import { CuppingFormPrototypeScreen } from "./CuppingFormPrototypeScreen";
 import { SessionDraftScreen } from "./SessionDraftScreen";
 import { SessionInProgressScreen } from "./SessionInProgressScreen";
 import { SessionCompleteScreen } from "./SessionCompleteScreen";
@@ -85,6 +86,13 @@ const ICON_STYLES = [
 
 const SCORE_VALUES = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
+const DEFECT_PILL_EXAMPLES = [
+  { key: "phenolic", title: "PHENOLIC" },
+  { key: "potato", title: "POTATO" },
+  { key: "underdeveloped", title: "UNDERDEVELOPED" },
+  { key: "baked", title: "BAKED" },
+];
+
 function TypographyExample({ token, example }) {
   return (
     <View style={styles.example}>
@@ -125,6 +133,46 @@ function IconographyExample({ token, label, names }) {
             accessibilityLabel={`${label} ${name} example`}
           />
         ))}
+      </View>
+    </View>
+  );
+}
+
+function ThermometerIconExample({ scale = 1 }) {
+  return (
+    <View style={styles.iconRow}>
+      <View style={styles.iconDescription}>
+        <Text style={styles.tokenLabel}>cupping_temperature</Text>
+        <Text style={typography.text_secondary_body}>
+          Used in the cupping header to show the live cup temperature. Temperature text uses `text_screen_title`.
+        </Text>
+      </View>
+      <View style={[styles.thermometerRow, { gap: 7 * scale }]}>
+        <View style={[styles.thermometer, { width: 14 * scale, height: 32 * scale }]}>
+          <View
+            style={[
+              styles.thermometerStem,
+              {
+                width: 6 * scale,
+                height: 23 * scale,
+                borderRadius: 3 * scale,
+                borderWidth: 2 * scale,
+              },
+            ]}
+          />
+          <View
+            style={[
+              styles.thermometerBulb,
+              {
+                width: 14 * scale,
+                height: 14 * scale,
+                borderRadius: 7 * scale,
+                borderWidth: 2 * scale,
+              },
+            ]}
+          />
+        </View>
+        <Text style={typography.text_screen_title}>92 °C</Text>
       </View>
     </View>
   );
@@ -417,6 +465,27 @@ function FooterDualDemo({ onBack }) {
   );
 }
 
+function FooterInstructionsDemo({ onBack }) {
+  return (
+    <View style={styles.screen}>
+      <Header title="Footer with Instructions" variant="back" onBackPress={onBack} backAccessibilityLabel="Back to Style Guide" />
+      <ScrollView contentContainerStyle={styles.demoBody}>
+        <Text style={typography.text_body}>
+          Use this when the footer's action depends on a step the user needs to take first, e.g. scanning a
+          cup. The instruction line sits above the button and updates as state changes, telling the user
+          what to do next or what just happened.
+        </Text>
+      </ScrollView>
+      <View style={styles.footerInstructions}>
+        <Text style={styles.footerInstructionsText} accessibilityLabel="Footer instructions: Scan a cup to read settings.">
+          Scan a cup to read settings.
+        </Text>
+        <FullPageButton label="READ SETTINGS" onPress={() => {}} accessibilityLabel="Read settings" style={styles.footerInstructionsButton} />
+      </View>
+    </View>
+  );
+}
+
 export function StyleGuideScreen({ onBackPress }) {
   const { width } = useWindowDimensions();
   const scoreScale = Math.min(Math.max(width / 616, 0.58), 1.05);
@@ -428,10 +497,18 @@ export function StyleGuideScreen({ onBackPress }) {
   if (subScreen === "footer-dual") {
     return <FooterDualDemo onBack={() => setSubScreen(null)} />;
   }
+  if (subScreen === "footer-instructions") {
+    return <FooterInstructionsDemo onBack={() => setSubScreen(null)} />;
+  }
   if (subScreen === "session-prototype") {
     return <SessionPrototypeScreen onBackPress={() => setSubScreen(null)} />;
   }
-
+  if (subScreen === "cupping-form-blind") {
+    return <CuppingFormPrototypeScreen mode="blind" onBackPress={() => setSubScreen(null)} />;
+  }
+  if (subScreen === "cupping-form-open") {
+    return <CuppingFormPrototypeScreen mode="open" onBackPress={() => setSubScreen(null)} />;
+  }
   if (subScreen === "session-draft") {
     return <SessionDraftScreen onBackPress={() => setSubScreen(null)} />;
   }
@@ -453,7 +530,7 @@ export function StyleGuideScreen({ onBackPress }) {
 
   return (
     <View style={styles.screen}>
-      <Header title="Style Guide" variant="back" onBackPress={onBackPress} backAccessibilityLabel="Return home" />
+      <Header title="Style Guide" variant="back" onBackPress={onBackPress} backAccessibilityLabel="Return home" debugTag="StyleGuideScreen" />
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={typography.text_body}>A quiet interface for focused coffee cupping.</Text>
         <Text style={typography.text_secondary_body}>
@@ -491,6 +568,16 @@ export function StyleGuideScreen({ onBackPress }) {
               description="List of cupping sessions as cards."
               onPress={() => setSubScreen("sessions-list")}
             />
+            <FooterLinkRow
+              label="Cupping — Blind"
+              description="Tasting screen with sample identity hidden during scoring."
+              onPress={() => setSubScreen("cupping-form-blind")}
+            />
+            <FooterLinkRow
+              label="Cupping — Open"
+              description="Tasting screen with coffee name visible during scoring."
+              onPress={() => setSubScreen("cupping-form-open")}
+            />
           </View>
         </View>
 
@@ -502,6 +589,20 @@ export function StyleGuideScreen({ onBackPress }) {
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
               {["Draft", "Pending", "In Progress", "Complete"].map(status => (
                 <SessionStatusBadge key={status} status={status} />
+              ))}
+            </View>
+          </View>
+
+          <View style={[styles.exampleList, { marginTop: 16, paddingTop: 16 }]}>
+            <Text style={[styles.tokenLabel, { marginBottom: 8 }]}>Defect Pills</Text>
+            <Text style={[typography.text_secondary_body, { marginBottom: 8 }]}>
+              Used on the session-complete sample card to summarise recorded bean and roast defects.
+            </Text>
+            <View style={styles.defectPillsRow}>
+              {DEFECT_PILL_EXAMPLES.map((defect) => (
+                <View key={defect.key} style={styles.defectPill}>
+                  <Text style={styles.defectPillText}>{defect.title}</Text>
+                </View>
               ))}
             </View>
           </View>
@@ -539,6 +640,7 @@ export function StyleGuideScreen({ onBackPress }) {
                 names={item.names}
               />
             ))}
+            <ThermometerIconExample scale={scoreScale} />
           </View>
         </View>
 
@@ -661,6 +763,11 @@ export function StyleGuideScreen({ onBackPress }) {
               description="Primary + secondary button — use when a second option is available but should not compete."
               onPress={() => setSubScreen("footer-dual")}
             />
+            <FooterLinkRow
+              label="With instructions"
+              description="Adds a status/instruction line above the button — use when the user needs telling what to do next, e.g. Cup Settings."
+              onPress={() => setSubScreen("footer-instructions")}
+            />
           </View>
         </View>
 
@@ -682,6 +789,27 @@ const styles = StyleSheet.create({
   section: {
     gap: spacing.sm,
     paddingTop: spacing.lg,
+  },
+  defectPillsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  defectPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.quietBorder,
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  defectPillText: {
+    ...typography.text_caption,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    color: colors.ink,
   },
   exampleList: {
     borderTopWidth: 1,
@@ -734,6 +862,23 @@ const styles = StyleSheet.create({
   footerLinkList: {
     borderTopWidth: 1,
     borderColor: colors.quietBorder,
+  },
+  footerInstructions: {
+    borderTopWidth: 1,
+    borderTopColor: colors.quietBorder,
+    backgroundColor: colors.surface,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.lg,
+    paddingHorizontal: 26,
+    gap: spacing.sm,
+  },
+  footerInstructionsText: {
+    ...typography.text_secondary_body,
+    textAlign: "center",
+    color: colors.inkSoft,
+  },
+  footerInstructionsButton: {
+    backgroundColor: colors.action,
   },
   footerLinkRow: {
     flexDirection: "row",
@@ -807,6 +952,24 @@ const styles = StyleSheet.create({
   },
   iconDescription: {
     gap: 2,
+  },
+  thermometerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  thermometer: {
+    alignItems: "center",
+    justifyContent: "flex-end",
+  },
+  thermometerStem: {
+    position: "absolute",
+    top: 1,
+    borderColor: colors.ink,
+    backgroundColor: colors.surface,
+  },
+  thermometerBulb: {
+    backgroundColor: colors.ink,
+    borderColor: colors.ink,
   },
   iconList: {
     flexDirection: "row",

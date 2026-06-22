@@ -1,46 +1,61 @@
-import React, { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import AntDesign from "@expo/vector-icons/AntDesign";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
-import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
-import { AppIcon } from "../../../components/ui/AppIcon";
+import { ScreenFooter } from "../../../components/ui/ScreenFooter";
+import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
-import { listSessions } from "../../../data/sessionRepository";
+import {
+  deleteSessionById,
+  getSessionById,
+  getSessionSampleFinalStatus,
+  listSessions,
+} from "../../../data/sessionRepository";
+import { logAppError } from "../../../services/errorLogger";
+import {
+  getSessionDateLabel,
+  getSessionStatusBadgeLabel,
+  getSessionTypeLabel,
+} from "../constants/sessionDetails";
+import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
 
-
-function SessionStatusBadge({ status }) {
-  const s = String(status || "").toUpperCase();
-  const isComplete = s === "COMPLETE";
-  const isPending = s === "PENDING";
-  const label = isComplete ? "Complete" : isPending ? "Pending" : "New";
-  return (
-    <Text style={isComplete ? styles.statusComplete : styles.statusPending}>
-      {label}
-    </Text>
-  );
-}
-
-function CuppingSessionCard({ item, onPress }) {
+function CuppingSessionCard({ item, scale, onPress, onDelete }) {
   return (
     <Pressable
       onPress={() => onPress(item)}
-      style={({ pressed }) => [styles.sessionCard, pressed && styles.sessionCardPressed]}
+      style={({ pressed }) => [
+        styles.sessionCard,
+        { padding: 16 * scale },
+        pressed && styles.sessionCardPressed,
+      ]}
       accessibilityRole="button"
-      accessibilityLabel={`${item.title}, ${item.status}`}
+      accessibilityLabel={`Open session ${item.title}`}
     >
-      <View style={styles.sessionContent}>
+      <View style={styles.cardTop}>
         <Text style={styles.sessionTitle} numberOfLines={1}>
           {item.title}
         </Text>
-        <Text style={styles.sessionCategory}>{item.category}</Text>
-        <SessionStatusBadge status={item.status} />
-        {item.date ? (
-          <Text style={styles.sessionDate}>{item.date}</Text>
-        ) : null}
+        <Pressable
+          onPress={(event) => {
+            event?.stopPropagation?.();
+            onDelete(item);
+          }}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete session ${item.title}`}
+        >
+          <AntDesign name="close" size={18} color={colors.inkSoft} />
+        </Pressable>
       </View>
-      <AppIcon name="chevron-right" role="icon_navigation" style={styles.chevron} />
+      <Text style={styles.sessionCategory}>{item.category}</Text>
+      <View style={styles.cardFooter}>
+        <Text style={styles.sessionDate}>{item.date}</Text>
+        <SessionStatusBadge status={item.statusLabel} />
+      </View>
     </Pressable>
   );
 }
@@ -56,13 +71,17 @@ function EmptyState({ title, body }) {
 
 export function CuppingSessionScreen({
   onBackPress,
-  onSearchPress,
   onNewSessionPress,
   onSessionPress,
 }) {
+  const { width } = useWindowDimensions();
+  const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [sessions, setSessions] = useState([]);
+  const [query, setQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
 
   useEffect(() => {
     let isCancelled = false;
@@ -72,16 +91,30 @@ export function CuppingSessionScreen({
       setLoadError("");
       try {
         const rows = await listSessions();
-        if (isCancelled) return;
-        setSessions(
-          rows.map((row) => ({
-            id: row.id,
-            title: row.sessionName || row.sessionDisplayId || "Untitled Session",
-            category: row.sessionType || "Other",
-            status: String(row.status || "pending").toUpperCase(),
-            date: row.sessionDate || "",
-          }))
+        const sessionRows = await Promise.all(
+          rows.map(async (row) => {
+            const [loadedSession, sampleStatusById] = await Promise.all([
+              getSessionById(row.id),
+              getSessionSampleFinalStatus(row.id),
+            ]);
+            const samples = loadedSession?.samples || [];
+
+            return {
+              id: row.id,
+              title: row.sessionName || row.sessionDisplayId || "Untitled Session",
+              category: getSessionTypeLabel(row.sessionType) || "Other",
+              status: row.status || "new",
+              statusLabel: getSessionStatusBadgeLabel({
+                samples,
+                sampleStatusById,
+                isSessionComplete: String(row.status || "").toLowerCase() === "complete",
+              }),
+              date: getSessionDateLabel(row.sessionDate) || row.sessionDate || "",
+            };
+          })
         );
+        if (isCancelled) return;
+        setSessions(sessionRows);
       } catch (error) {
         if (!isCancelled) {
           setLoadError(error?.message || "Failed to load saved sessions.");
@@ -97,26 +130,105 @@ export function CuppingSessionScreen({
     return () => { isCancelled = true; };
   }, []);
 
+  const filteredSessions = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return sessions;
+    }
+
+    return sessions.filter((session) =>
+      [
+        session.title,
+        session.category,
+        session.statusLabel,
+        session.date,
+      ].some((value) => String(value || "").toLowerCase().includes(normalizedQuery))
+    );
+  }, [query, sessions]);
+
+  const closeDeleteDialog = () => {
+    setDeleteCandidate(null);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteCandidate?.id) {
+      closeDeleteDialog();
+      return;
+    }
+
+    const sessionToDelete = deleteCandidate;
+
+    try {
+      await deleteSessionById(sessionToDelete.id);
+      setSessions((prev) => prev.filter((session) => session.id !== sessionToDelete.id));
+      closeDeleteDialog();
+    } catch (error) {
+      void logAppError({
+        screen: "CuppingSessionScreen",
+        route: "Sessions",
+        flow: "delete_session",
+        friendlyMessage: error?.message || "Delete failed.",
+        error,
+        context: {
+          sessionId: sessionToDelete.id,
+          sessionTitle: sessionToDelete.title,
+        },
+      });
+      closeDeleteDialog();
+      setDeleteErrorMessage(error?.message || "Delete failed.");
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <Header
-        title="Cupping Sessions"
-        variant="back-search"
+        title="Sessions"
+        variant="back"
         onBackPress={onBackPress}
-        onSearchPress={onSearchPress}
         backAccessibilityLabel="Back"
-        searchAccessibilityLabel="Search"
+        debugTag="CuppingSessionScreen"
       />
+
+      <View
+        style={[
+          styles.searchBar,
+          {
+            marginHorizontal: 16 * scale,
+            marginVertical: 12 * scale,
+          },
+        ]}
+      >
+        <Ionicons name="search" size={20} color={colors.inkSoft} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search sessions"
+          placeholderTextColor={colors.inkSoft}
+          style={styles.searchInput}
+          clearButtonMode="while-editing"
+          accessibilityLabel="Search sessions"
+        />
+      </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          {
+            paddingHorizontal: 16 * scale,
+            paddingTop: 16 * scale,
+            paddingBottom: 48 * scale,
+            gap: 12 * scale,
+          },
+        ]}
       >
-        {sessions.map((session) => (
+        {filteredSessions.map((session) => (
           <CuppingSessionCard
             key={session.id}
             item={session}
+            scale={scale}
             onPress={onSessionPress || (() => {})}
+            onDelete={setDeleteCandidate}
           />
         ))}
 
@@ -131,15 +243,41 @@ export function CuppingSessionScreen({
         {!loadError && !isLoading && sessions.length === 0 ? (
           <EmptyState title="No sessions" body="No sessions found for the selected filter." />
         ) : null}
+
+        {!loadError && !isLoading && sessions.length > 0 && filteredSessions.length === 0 ? (
+          <EmptyState title="No matches" body="No sessions match your search." />
+        ) : null}
       </ScrollView>
 
-      <View style={styles.footer}>
-        <FullPageButton
-          label="NEW SESSION"
-          onPress={onNewSessionPress || (() => {})}
-          accessibilityLabel="Create new session"
-        />
-      </View>
+      <ScreenFooter
+        label="ADD SESSION"
+        onPress={onNewSessionPress || (() => {})}
+        accessibilityLabel="Add session"
+      />
+
+      <WarningDialog
+        visible={Boolean(deleteCandidate)}
+        title="Delete Session?"
+        message={
+          deleteCandidate
+            ? `Delete "${deleteCandidate.title}"? This will permanently delete the session and all saved sample feedback stored on this device.`
+            : ""
+        }
+        okLabel="Cancel"
+        onDismiss={closeDeleteDialog}
+        onOk={closeDeleteDialog}
+        secondaryLabel="Delete"
+        onSecondary={handleConfirmDelete}
+      />
+
+      <WarningDialog
+        visible={Boolean(deleteErrorMessage)}
+        title="Delete Failed"
+        message={deleteErrorMessage}
+        okLabel="OK"
+        onDismiss={() => setDeleteErrorMessage("")}
+        onOk={() => setDeleteErrorMessage("")}
+      />
     </View>
   );
 }
@@ -152,53 +290,61 @@ const styles = StyleSheet.create({
 
   // Session list
   listContent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: 104,
-    gap: spacing.sm,
+    flexGrow: 1,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.input,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    ...typography.text_body,
+    color: colors.ink,
+    padding: 0,
+    letterSpacing: 0,
   },
 
   // Session card
   sessionCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.quietBorder,
     borderRadius: 12,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    flexDirection: "row",
-    alignItems: "center",
     gap: spacing.sm,
   },
   sessionCardPressed: {
-    opacity: 0.8,
+    opacity: 0.7,
   },
-  sessionContent: {
-    flex: 1,
-    gap: spacing.xs,
+  cardTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  cardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 2,
   },
   sessionTitle: {
-    ...typography.text_body,
+    ...typography.text_section_title,
+    letterSpacing: 0,
+    flex: 1,
   },
   sessionCategory: {
     ...typography.text_secondary_body,
+    color: colors.inkSoft,
+    letterSpacing: 0,
   },
   sessionDate: {
     ...typography.text_secondary_body,
-    color: colors.muted,
-  },
-  chevron: {
-    color: colors.subtle,
-  },
-
-  // Status text
-  statusComplete: {
-    ...typography.text_secondary_body,
-    color: colors.ink,
-  },
-  statusPending: {
-    ...typography.text_secondary_body,
-    color: colors.muted,
+    color: colors.inkSoft,
+    letterSpacing: 0,
   },
 
   // Empty / error state
@@ -215,13 +361,4 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // Footer
-  footer: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.lg,
-    paddingTop: spacing.sm,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
 });

@@ -61,6 +61,7 @@ export function HomeScreen({
   elapsedSeconds = null,
   brewTimeSeconds = null,
   sampleColour = null,
+  sampleNumber = null,
 }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
@@ -98,6 +99,10 @@ export function HomeScreen({
   const ringSegments = 120;
   const activeRingSegments = Math.round(brewingProgress * ringSegments);
   const showAddAromaButton = effectiveHomeState.isBrewing && typeof onAddAromaPress === "function";
+  const headerTitle =
+    effectiveHomeState.isBrewing && sampleNumber !== null
+      ? String(sampleNumber)
+      : effectiveHomeState.title;
 
   useEffect(() => {
     setDisplayElapsedState({
@@ -143,10 +148,11 @@ export function HomeScreen({
   return (
     <View style={styles.screen}>
       <Header
-        title={effectiveHomeState.title}
+        title={headerTitle}
         variant="menu"
         onMenuPress={onMenuPress}
         menuAccessibilityLabel="Open menu"
+        debugTag="HomeScreen"
       />
       {effectiveStatusMessage ? (
         <Text style={styles.titleStatusText}>{effectiveStatusMessage}</Text>
@@ -164,19 +170,6 @@ export function HomeScreen({
                 },
               ]}
             >
-              {sampleColour ? (
-                <View
-                  style={[
-                    styles.brewingTimerDot,
-                    {
-                      width: 18 * scale,
-                      height: 18 * scale,
-                      borderRadius: 9 * scale,
-                      backgroundColor: sampleColour,
-                    },
-                  ]}
-                />
-              ) : null}
               <Text
                 style={[
                   styles.brewingPercent,
@@ -261,32 +254,21 @@ export function HomeScreen({
 
       </View>
 
-      {!effectiveHomeState.isBrewing ? (
-        <Text
-          style={[
-            styles.scanInstruction,
-            {
-              paddingHorizontal: 26 * scale,
-              paddingBottom: spacing.md,
-              textAlign: "center",
-            },
-          ]}
-        >
-          Press scan and hold your phone near the base of the cup.
-        </Text>
-      ) : null}
-
       {showAddAromaButton ? (
         <ScreenFooterDual
-          primaryLabel={isScanInProgress ? "Scanning" : "SCAN CUP"}
-          onPrimaryPress={onScanCupPress}
+          primaryLabel="ADD AROMA"
+          onPrimaryPress={onAddAromaPress}
           primaryDisabled={isScanInProgress}
-          primaryLoading={isScanInProgress}
-          primaryAccessibilityLabel="Scan cup"
-          secondaryLabel="ADD AROMA"
-          onSecondaryPress={onAddAromaPress}
+          primaryAccessibilityLabel="Add aroma"
+          primaryStyle={styles.addAromaButton}
+          primaryTextStyle={styles.addAromaButtonText}
+          secondaryLabel={isScanInProgress ? "Scanning" : "SCAN CUP"}
+          onSecondaryPress={onScanCupPress}
           secondaryDisabled={isScanInProgress}
-          secondaryAccessibilityLabel="Add aroma"
+          secondaryLoading={isScanInProgress}
+          secondaryAccessibilityLabel="Scan cup"
+          secondaryStyle={styles.scanButton}
+          secondaryTextStyle={styles.scanButtonText}
         />
       ) : (
         <ScreenFooter
@@ -296,6 +278,9 @@ export function HomeScreen({
           loading={isScanInProgress}
           accessibilityLabel="Scan cup"
           buttonStyle={styles.scanButton}
+          instructions={
+            effectiveHomeState.isBrewing ? undefined : "Press scan and hold your phone near the base of the cup."
+          }
         />
       )}
     </View>
@@ -329,7 +314,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 4,
   },
-  brewingTimerDot: {},
   timerSingleLabel: {
     position: "absolute",
     zIndex: 4,
@@ -368,12 +352,6 @@ const styles = StyleSheet.create({
     ...typography.text_primary_metric,
     textAlign: "center",
   },
-  scanInstruction: {
-    ...typography.text_body,
-    maxWidth: 390,
-    letterSpacing: 0,
-    textAlign: "center",
-  },
   titleStatusText: {
     ...typography.text_secondary_body,
     paddingTop: spacing.sm,
@@ -385,5 +363,14 @@ const styles = StyleSheet.create({
   },
   scanButton: {
     backgroundColor: colors.action,
+  },
+  scanButtonText: {
+    color: colors.surface,
+  },
+  addAromaButton: {
+    backgroundColor: colors.muted,
+  },
+  addAromaButtonText: {
+    color: colors.ink,
   },
 });

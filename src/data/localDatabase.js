@@ -5,12 +5,57 @@ const DATABASE_NAME = "cup_user_test.db";
 let dbPromise = null;
 let isMigrated = false;
 
+function readUserVersion(row) {
+  const rawValue = row?.user_version ?? Object.values(row || {})[0];
+  const version = Number.parseInt(rawValue, 10);
+  return Number.isInteger(version) ? version : 0;
+}
+
+async function recomputeSessionProgressStatusForMigration(db, sessionId, currentStatus) {
+  const normalizedSessionId = String(sessionId || "").trim();
+  if (!normalizedSessionId || String(currentStatus || "").toLowerCase() === "complete") {
+    return;
+  }
+
+  const sampleCountRow = await db.getFirstAsync(
+    "SELECT COUNT(*) AS count FROM samples WHERE session_id = ?",
+    [normalizedSessionId]
+  );
+  const sampleCount = Number(sampleCountRow?.count) || 0;
+  const nextStatus = sampleCount === 0 ? "new" : "pending";
+
+  let computedStatus = nextStatus;
+  if (sampleCount > 0) {
+    const feedbackCountRow = await db.getFirstAsync(
+      "SELECT COUNT(*) AS count FROM sample_feedback_entries WHERE session_id = ?",
+      [normalizedSessionId]
+    );
+    const feedbackCount = Number(feedbackCountRow?.count) || 0;
+    computedStatus = feedbackCount > 0 ? "in_progress" : "pending";
+  }
+
+  if (computedStatus !== String(currentStatus || "").toLowerCase()) {
+    await db.runAsync(
+      "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+      [computedStatus, new Date().toISOString(), normalizedSessionId]
+    );
+  }
+}
+
+async function backfillSessionProgressStatuses(db) {
+  const sessions = await db.getAllAsync("SELECT id, status FROM sessions");
+  for (const session of sessions || []) {
+    await recomputeSessionProgressStatusForMigration(db, session?.id, session?.status);
+  }
+}
+
 async function runMigrations(db) {
   if (isMigrated) {
     return;
   }
 
   await db.execAsync("PRAGMA foreign_keys = ON;");
+  const initialUserVersion = readUserVersion(await db.getFirstAsync("PRAGMA user_version;"));
 
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -33,6 +78,8 @@ async function runMigrations(db) {
       session_id TEXT NOT NULL,
       cup_uuid TEXT NOT NULL,
       cup_number INTEGER NOT NULL,
+      cupping_form INTEGER NOT NULL DEFAULT 1,
+      cupping_mode TEXT NOT NULL DEFAULT 'blind',
       sample_number INTEGER NOT NULL DEFAULT 0,
       sample_colour TEXT NOT NULL DEFAULT '',
       coffee_name_origin TEXT NOT NULL,
@@ -232,12 +279,57 @@ async function runMigrations(db) {
   if (!hasSamplesInSessionColumn) {
     await db.execAsync("ALTER TABLE sessions ADD COLUMN samples_in_session INTEGER NOT NULL DEFAULT 0;");
   }
+  // Migrate to new/pending/complete status model once. The in-memory migration
+  // guard resets on cold starts, so persist this legacy rename with user_version.
+  let userVersion = initialUserVersion;
+  if (userVersion < 1) {
+    // Run in this order: rename old 'pending' (setup) → 'new', then old 'active' (in-progress) → 'pending'.
+    await db.execAsync("UPDATE sessions SET status = 'new' WHERE status IS NULL OR status = '';");
+    await db.execAsync("UPDATE sessions SET status = 'new' WHERE status = 'pending';");
+    await db.execAsync("UPDATE sessions SET status = 'pending' WHERE status = 'active';");
+    await db.execAsync("PRAGMA user_version = 1;");
+    userVersion = 1;
+  }
 
-  // Migrate to new/pending/complete status model (idempotent).
-  // Run in this order: rename old 'pending' (setup) → 'new', then old 'active' (in-progress) → 'pending'.
-  await db.execAsync("UPDATE sessions SET status = 'new' WHERE status IS NULL OR status = '';");
-  await db.execAsync("UPDATE sessions SET status = 'new' WHERE status = 'pending';");
-  await db.execAsync("UPDATE sessions SET status = 'pending' WHERE status = 'active';");
+  if (userVersion < 2) {
+    await backfillSessionProgressStatuses(db);
+    await db.execAsync("PRAGMA user_version = 2;");
+    userVersion = 2;
+  }
+
+  if (userVersion < 3) {
+    const sessionColumnsForCuppingMode = await db.getAllAsync("PRAGMA table_info(sessions);");
+    const hasSessionCuppingModeColumn = Array.isArray(sessionColumnsForCuppingMode)
+      ? sessionColumnsForCuppingMode.some((column) => column?.name === "cupping_mode")
+      : false;
+    if (hasSessionCuppingModeColumn) {
+      const sampleColumnsForCuppingMode = await db.getAllAsync("PRAGMA table_info(samples);");
+      const hasSampleCuppingModeColumn = Array.isArray(sampleColumnsForCuppingMode)
+        ? sampleColumnsForCuppingMode.some((column) => column?.name === "cupping_mode")
+        : false;
+      if (!hasSampleCuppingModeColumn) {
+        await db.execAsync("ALTER TABLE samples ADD COLUMN cupping_mode TEXT NOT NULL DEFAULT 'blind';");
+      }
+      await db.execAsync(`
+        UPDATE samples
+        SET cupping_mode = (
+          SELECT sessions.cupping_mode
+          FROM sessions
+          WHERE sessions.id = samples.session_id
+        )
+        WHERE EXISTS (
+          SELECT 1
+          FROM sessions
+          WHERE sessions.id = samples.session_id
+            AND sessions.cupping_mode IS NOT NULL
+            AND sessions.cupping_mode != ''
+        );
+      `);
+      await db.execAsync("ALTER TABLE sessions DROP COLUMN cupping_mode;");
+    }
+    await db.execAsync("PRAGMA user_version = 3;");
+    userVersion = 3;
+  }
 
   const sampleColumns = await db.getAllAsync("PRAGMA table_info(samples);");
   const hasSampleNumberColumn = Array.isArray(sampleColumns)
@@ -251,6 +343,18 @@ async function runMigrations(db) {
     : false;
   if (!hasSampleColourColumn) {
     await db.execAsync("ALTER TABLE samples ADD COLUMN sample_colour TEXT NOT NULL DEFAULT '';");
+  }
+  const hasCuppingFormColumn = Array.isArray(sampleColumns)
+    ? sampleColumns.some((column) => column?.name === "cupping_form")
+    : false;
+  if (!hasCuppingFormColumn) {
+    await db.execAsync("ALTER TABLE samples ADD COLUMN cupping_form INTEGER NOT NULL DEFAULT 1;");
+  }
+  const hasSampleCuppingModeColumn = Array.isArray(sampleColumns)
+    ? sampleColumns.some((column) => column?.name === "cupping_mode")
+    : false;
+  if (!hasSampleCuppingModeColumn) {
+    await db.execAsync("ALTER TABLE samples ADD COLUMN cupping_mode TEXT NOT NULL DEFAULT 'blind';");
   }
 
   isMigrated = true;

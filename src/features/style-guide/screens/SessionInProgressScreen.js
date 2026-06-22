@@ -78,6 +78,7 @@ export function SessionInProgressScreen({ onBackPress }) {
           variant="back"
           onBackPress={onBackPress}
           backAccessibilityLabel="Back to Style Guide"
+          debugTag="SessionInProgressScreen"
         />
         <ScrollView
           showsVerticalScrollIndicator={false}

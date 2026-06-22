@@ -28,7 +28,6 @@ import {
   getSampleDefects,
   getSampleFeedback,
   getSampleFlavourObservations,
-  markSessionCompleteIfAllSamplesComplete,
   saveSampleDefectsEntry,
   saveSampleFeedbackBatch,
   saveSampleFlavourObservations,
@@ -37,6 +36,7 @@ import {
 import { DefectsSection } from "../components/DefectsSection";
 import { KeywordPillRow } from "../components/KeywordPillRow";
 import { tokenizeFlavourKeywords } from "../data/flavourKeywords";
+import { getProcessLabel, normalizeCuppingModeKey } from "../constants/sessionDetails";
 
 const FEEDBACK_FIELDS = [
   "Fragrance",
@@ -429,40 +429,12 @@ function resolveSampleNumber(sampleNumber, cupIndex) {
   return Number.isInteger(index) && index >= 0 ? index + 1 : 1;
 }
 
-function resolveSamplesInSession(samplesInSession) {
-  const explicitSamplesInSession = Number.parseInt(samplesInSession, 10);
-  return Number.isInteger(explicitSamplesInSession) && explicitSamplesInSession > 0
-    ? explicitSamplesInSession
-    : 1;
-}
-
-function CuppingTitleContent({
-  sampleNumber,
-  samplesInSession,
-  cupIndex,
-  sampleColour,
-  scale,
-}) {
+function CuppingTitleContent({ sampleNumber, cupIndex, scale }) {
   const displayNumber = resolveSampleNumber(sampleNumber, cupIndex);
-  const displayTotal = resolveSamplesInSession(samplesInSession);
-  const markerColour = sampleColour || colors.danger;
 
   return (
     <View style={[styles.cuppingHeaderTitleStack, { gap: 2 * scale }]}>
-      <View style={[styles.cuppingHeaderTitle, { gap: 8 * scale }]}>
-        <View
-          style={[
-            styles.cuppingHeaderDot,
-            {
-              width: 14 * scale,
-              height: 14 * scale,
-              borderRadius: 7 * scale,
-              backgroundColor: markerColour,
-            },
-          ]}
-        />
-        <Text style={styles.cuppingHeaderTitleText}>{`${displayNumber}/${displayTotal}`}</Text>
-      </View>
+      <Text style={styles.cuppingHeaderTitleText}>{displayNumber}</Text>
     </View>
   );
 }
@@ -607,46 +579,14 @@ function DefectBadgeRow({ badges = [], scale }) {
       style={[
         styles.defectBadgeRow,
         {
-          paddingHorizontal: 22 * scale,
-          paddingTop: 4 * scale,
-          paddingBottom: 14 * scale,
-          gap: 10 * scale,
+          paddingTop: 14 * scale,
+          gap: 6 * scale,
         },
       ]}
     >
       {badges.map((badge) => (
-        <View
-          key={badge.id}
-          accessibilityLabel={badge.label}
-          style={[
-            styles.defectBadge,
-            {
-              minHeight: 38 * scale,
-              borderRadius: 19 * scale,
-              paddingLeft: 6 * scale,
-              paddingRight: 13 * scale,
-              gap: 6 * scale,
-            },
-          ]}
-        >
-          <View
-            style={[
-              styles.defectBadgeIcon,
-              {
-                width: 27 * scale,
-                height: 27 * scale,
-                borderRadius: 14 * scale,
-              },
-            ]}
-          >
-            <AppIcon
-              name={badge.iconName}
-              role="icon_compact"
-              size={13 * scale}
-              style={styles.defectBadgeIconText}
-            />
-          </View>
-          <Text style={styles.defectBadgeText}>{badge.label}</Text>
+        <View key={badge.id} accessibilityLabel={badge.label} style={styles.defectBadge}>
+          <Text style={styles.defectBadgeText}>{badge.label.toUpperCase()}</Text>
         </View>
       ))}
     </View>
@@ -858,6 +798,9 @@ export function CuppingScreen({
   sampleId = null,
   sampleNumber = null,
   sampleColour = null,
+  cuppingMode = "blind",
+  coffeeNameOrigin = "",
+  process = "",
   startInFinalMode = false,
   startInFinalSaved = false,
   isScanInProgress = false,
@@ -874,6 +817,7 @@ export function CuppingScreen({
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const scrollRef = useRef(null);
   const noteLayoutYRef = useRef({});
+  const noteInputOffsetYRef = useRef({});
   const fieldLayoutYRef = useRef({});
   const autoScrolledSampleRef = useRef(null);
   const balloonAnimations = useRef(BALLOON_CONFIGS.map(() => new Animated.Value(0))).current;
@@ -897,7 +841,12 @@ export function CuppingScreen({
   const [savedDefectsSignature, setSavedDefectsSignature] = useState(() => buildDefectsSignature());
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [coffeeMetaHeight, setCoffeeMetaHeight] = useState(0);
   const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(elapsedSeconds);
+  const normalizedCuppingMode = normalizeCuppingModeKey(cuppingMode);
+  const isOpenCuppingMode = normalizedCuppingMode === "open";
+  const coffeeNameLabel = String(coffeeNameOrigin || "").trim();
+  const processLabel = getProcessLabel(process) || String(process || "").trim();
   const nonUniformCups = nonUniformCupSlots.length;
   const defectiveCups = defectiveCupSlots.length;
   const currentDefectsSignature = useMemo(
@@ -995,12 +944,16 @@ export function CuppingScreen({
       return FEEDBACK_FIELDS;
     }
 
+    if (isSessionComplete) {
+      return FEEDBACK_FIELDS;
+    }
+
     if (canCaptureFeedback) {
       return FEEDBACK_FIELDS;
     }
 
     return cupStateNumber === 2 ? READY_FIELDS : [];
-  }, [canCaptureFeedback, cupStateNumber, isFinalMode]);
+  }, [canCaptureFeedback, cupStateNumber, isFinalMode, isSessionComplete]);
 
   const enabledFields = useMemo(() => {
     if (isFinalMode) {
@@ -1068,8 +1021,8 @@ export function CuppingScreen({
     isLiveScoreFinal && finalScoreSummary
       ? `  |  SCORE ${finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION)}`
       : "";
-  const usesMockCuppingLayout = !isBrewing && (canCaptureFeedback || isFinalMode);
-  const isFieldEnabled = (field) => enabledFields.includes(field);
+  const usesMockCuppingLayout = !isBrewing && (canCaptureFeedback || isFinalMode || isSessionComplete);
+  const isFieldEnabled = (field) => (!isSessionComplete || isFinalMode) && enabledFields.includes(field);
   const getEnabledGroupFields = (group) => group.fields.filter((field) => isFieldEnabled(field));
   const isNoteGroupEnabled = (group) => getEnabledGroupFields(group).length > 0;
   const defectBadges = useMemo(
@@ -1453,19 +1406,45 @@ export function CuppingScreen({
 
   const focusNoteGroup = (group) => {
     const noteId = getNoteGroupId(group);
-    const measuredY = noteLayoutYRef.current[noteId];
-    const fallbackY = noteId === "Fragrance-Aroma" ? 0 : 220 * scale;
-    const targetY = Number.isFinite(measuredY) ? Math.max(0, measuredY - 72 * scale) : fallbackY;
+    const measuredFieldY = noteLayoutYRef.current[noteId];
 
-    const scrollToTarget = () => {
-      scrollRef.current?.scrollTo({
-        y: targetY,
-        animated: true,
-      });
+    if (!usesMockCuppingLayout) {
+      const fallbackY = noteId === "Fragrance-Aroma" ? 0 : 220 * scale;
+      const targetY = Number.isFinite(measuredFieldY) ? Math.max(0, measuredFieldY - 72 * scale) : fallbackY;
+
+      const scrollToTarget = () => {
+        scrollRef.current?.scrollTo({
+          y: targetY,
+          animated: true,
+        });
+      };
+
+      requestAnimationFrame(scrollToTarget);
+      setTimeout(scrollToTarget, 180);
+      return;
+    }
+
+    const measuredInputOffsetY = noteInputOffsetYRef.current[noteId];
+    const measuredInputY =
+      Number.isFinite(measuredFieldY) && Number.isFinite(measuredInputOffsetY)
+        ? measuredFieldY + measuredInputOffsetY
+        : null;
+    const measuredY = Number.isFinite(measuredInputY) ? measuredInputY : measuredFieldY;
+    const focusedNotesTopOffset = isOpenCuppingMode ? 72 * scale : 128 * scale;
+    const targetY = Number.isFinite(measuredY) ? Math.max(0, measuredY - focusedNotesTopOffset) : 0;
+
+    const scrollToTarget = (animated) => {
+      scrollRef.current?.scrollTo({ y: targetY, animated });
     };
 
-    requestAnimationFrame(scrollToTarget);
-    setTimeout(scrollToTarget, 180);
+    // The keyboard's resize animation (and the resulting KeyboardAvoidingView
+    // layout change) can still be in flight when the input is focused, so a
+    // single scroll attempt can be clamped to the pre-resize scroll range.
+    // Retry a few times across the animation window to land correctly.
+    requestAnimationFrame(() => scrollToTarget(false));
+    setTimeout(() => scrollToTarget(false), 120);
+    setTimeout(() => scrollToTarget(true), 280);
+    setTimeout(() => scrollToTarget(true), 420);
   };
 
   const renderScoreSummary = ({ placement = "bottom" } = {}) => {
@@ -1513,7 +1492,7 @@ export function CuppingScreen({
   };
 
   const renderCuppingForm = () => {
-    const showCombinedForm = !isBrewing && (canCaptureFeedback || isFinalMode);
+    const showCombinedForm = !isBrewing && (canCaptureFeedback || isFinalMode || isSessionComplete);
 
     if (!showCombinedForm) {
       return visibleFields.map((field) => (
@@ -1587,27 +1566,33 @@ export function CuppingScreen({
                   }, { seen: new Set(), pills: [] }).pills;
                 return (
                   <>
-                    <NotesInput
-                      value={groupComments}
-                      onChangeText={(comments) => handleGroupCommentsChange(noteGroup, comments)}
-                      onFocus={() => focusNoteGroup(noteGroup)}
-                      placeholder={`Add ${noteGroup.label.toLowerCase()}...`}
-                      accessibilityLabel={noteGroup.label}
-                      disabled={!noteGroupEnabled}
-                      style={[
-                        styles.cuppingNoteInput,
-                        !noteGroupEnabled && styles.cuppingNoteInputDisabled,
-                        {
-                          minHeight: 148 * scale,
-                          borderRadius: 13 * scale,
-                          paddingHorizontal: 15 * scale,
-                          paddingTop: 12 * scale,
-                          paddingBottom: 12 * scale,
-                          marginTop: spacing.sm,
-                          marginBottom: livePills.length > 0 ? spacing.sm : (noteGroup.afterField === "Aroma" ? spacing.md : 14 * scale),
-                        },
-                      ]}
-                    />
+                    <View
+                      onLayout={(event) => {
+                        noteInputOffsetYRef.current[getNoteGroupId(noteGroup)] = event.nativeEvent.layout.y;
+                      }}
+                    >
+                      <NotesInput
+                        value={groupComments}
+                        onChangeText={(comments) => handleGroupCommentsChange(noteGroup, comments)}
+                        onFocus={() => focusNoteGroup(noteGroup)}
+                        placeholder={`Add ${noteGroup.label.toLowerCase()}...`}
+                        accessibilityLabel={noteGroup.label}
+                        disabled={!noteGroupEnabled}
+                        style={[
+                          styles.cuppingNoteInput,
+                          !noteGroupEnabled && styles.cuppingNoteInputDisabled,
+                          {
+                            minHeight: 114 * scale,
+                            borderRadius: 13 * scale,
+                            paddingHorizontal: 15 * scale,
+                            paddingTop: 8 * scale,
+                            paddingBottom: 8 * scale,
+                            marginTop: spacing.sm,
+                            marginBottom: livePills.length > 0 ? spacing.xs : 0,
+                          },
+                        ]}
+                      />
+                    </View>
                     {livePills.length > 0 ? (
                       <KeywordPillRow
                         pills={livePills}
@@ -1763,9 +1748,6 @@ export function CuppingScreen({
           fields: finalFieldsToClear,
         });
       }
-      if (Object.keys(finalFieldsToSave).length > 0 || finalFieldsToClear.length > 0) {
-        await markSessionCompleteIfAllSamplesComplete(sessionId);
-      }
       const pruneGroups = NOTE_GROUPS.map((noteGroup) => {
         const keepKeywords = new Set();
         buildFlavourObservationCommentGroups(feedback, noteGroup.fields).forEach(({ comments }) => {
@@ -1870,8 +1852,6 @@ export function CuppingScreen({
         timeSnapshot: statusDisplay.time,
         isFinal: true,
       });
-      await markSessionCompleteIfAllSamplesComplete(sessionId);
-
       const nowIso = new Date().toISOString();
       setSavedFeedback((prev) => {
         const next = { ...prev };
@@ -1950,6 +1930,7 @@ export function CuppingScreen({
               />
             }
             rightContent={<CuppingHeaderTemperature temp={statusDisplay.temp} scale={scale} />}
+            debugTag="CuppingScreen"
           />
         </View>
       ) : (
@@ -1962,6 +1943,7 @@ export function CuppingScreen({
             onRightPress={isFinalMode && isFinalSaved ? handleEditFinalScore : undefined}
             rightIconName="edit"
             rightAccessibilityLabel="Edit final score"
+            debugTag="CuppingScreen"
           />
 
           <View style={styles.hero}>
@@ -1975,6 +1957,16 @@ export function CuppingScreen({
           <SamplePagerIndicator current={samplePagerIndex} total={samplePagerTotal} scale={scale} />
         </>
       )}
+
+      {usesMockCuppingLayout && isOpenCuppingMode ? (
+        <View
+          style={[styles.coffeeMetaBlock, { paddingHorizontal: 26 * scale }]}
+          onLayout={(event) => setCoffeeMetaHeight(event.nativeEvent.layout.height)}
+        >
+          <Text style={styles.coffeeName}>{coffeeNameLabel}</Text>
+          <Text style={styles.coffeeProcess}>{processLabel}</Text>
+        </View>
+      ) : null}
 
       {statusMessage ? (
         <View style={styles.statusMessageWrap}>
@@ -1993,13 +1985,15 @@ export function CuppingScreen({
             styles.feedbackListContent,
             usesMockCuppingLayout
               ? {
+                  paddingHorizontal: 26 * scale,
+                  paddingTop: spacing.sm,
                   paddingBottom: Math.max(190 * scale, keyboardHeight + 170 * scale),
                 }
               : null,
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets={usesMockCuppingLayout}
+          automaticallyAdjustKeyboardInsets={usesMockCuppingLayout && Platform.OS === "ios"}
           canCancelContentTouches
           directionalLockEnabled
           onScrollBeginDrag={Keyboard.dismiss}
@@ -2019,7 +2013,7 @@ export function CuppingScreen({
               {isDefectsDrawerOpen ? (
                 <View style={styles.defectsDrawerContent}>
                   <DefectsSection
-                    cupTotal={defectsCupTotal || cupTotal}
+                    cupTotal={defectsCupTotal || 1}
                     defects={defects}
                     nonUniformCupSlots={nonUniformCupSlots}
                     defectiveCupSlots={defectiveCupSlots}
@@ -2037,7 +2031,12 @@ export function CuppingScreen({
       </KeyboardAvoidingView>
 
       {usesMockCuppingLayout && isDefectsDrawerOpen ? (
-        <View style={[styles.designCDefectDrawerOverlay, { top: 56, bottom: 152 * scale }]}>
+        <View
+          style={[
+            styles.designCDefectDrawerOverlay,
+            { top: 56 + (isOpenCuppingMode ? coffeeMetaHeight : 0), bottom: 152 * scale },
+          ]}
+        >
           <Pressable
             style={[
               styles.designCDefectSection,
@@ -2069,7 +2068,7 @@ export function CuppingScreen({
             <DefectsSection
               variant="designC"
               scale={scale}
-              cupTotal={defectsCupTotal || cupTotal}
+              cupTotal={defectsCupTotal || 1}
               defects={defects}
               defectCupSlots={defectCupSlots}
               nonUniformCupSlots={nonUniformCupSlots}
@@ -2105,7 +2104,7 @@ export function CuppingScreen({
           ) : (
             <View style={[styles.mockBottomDrawerSpacer, { minHeight: 58 * scale }]} />
           )}
-          {canCaptureFeedback && !isFinalMode ? (
+          {(canCaptureFeedback || isSessionComplete) && !isFinalMode ? (
             <View style={[styles.mockFooter, { paddingHorizontal: 26 * scale }]}>
               <FullPageButton
                 label={isDefectsDrawerOpen || hasPendingChanges ? "Save" : "SCAN CUP"}
@@ -2207,16 +2206,10 @@ const styles = StyleSheet.create({
     elevation: 40,
     backgroundColor: colors.surface,
   },
-  cuppingHeaderTitle: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   cuppingHeaderTitleStack: {
     alignItems: "center",
     justifyContent: "center",
   },
-  cuppingHeaderDot: {},
   cuppingHeaderTitleText: {
     ...typography.text_screen_title,
     lineHeight: 28,
@@ -2242,6 +2235,23 @@ const styles = StyleSheet.create({
   },
   cuppingHeaderTempText: {
     ...typography.text_screen_title,
+  },
+  coffeeMetaBlock: {
+    backgroundColor: colors.surface,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderColor: colors.quietBorder,
+    zIndex: 1,
+  },
+  coffeeName: {
+    ...typography.text_section_title,
+    letterSpacing: 0,
+  },
+  coffeeProcess: {
+    ...typography.text_secondary_body,
+    color: colors.inkSoft,
+    marginTop: 2,
   },
   samplePager: {
     flexDirection: "row",
@@ -2303,7 +2313,9 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: colors.ink,
   },
-  cuppingFieldBlock: {},
+  cuppingFieldBlock: {
+    marginBottom: spacing.sm,
+  },
   cuppingScoreRow: {
     paddingBottom: spacing.sm,
   },
@@ -2360,25 +2372,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.panel,
     borderWidth: 1,
-    borderColor: colors.border,
-  },
-  defectBadgeIcon: {
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.ink,
-  },
-  defectBadgeIconText: {
-    color: colors.surface,
-    fontWeight: "800",
-    letterSpacing: 0,
+    borderColor: colors.quietBorder,
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   defectBadgeText: {
     ...typography.text_caption,
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 11,
+    letterSpacing: 0.3,
     color: colors.ink,
-    fontWeight: "800",
-    letterSpacing: 0,
   },
   feedbackSection: {
     gap: spacing.xs,
@@ -2494,9 +2497,8 @@ const styles = StyleSheet.create({
   },
   mockBottomDrawer: {
     borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.panel,
+    borderColor: colors.quietBorder,
+    backgroundColor: colors.surface,
   },
   mockBottomDrawerSpacer: {
     backgroundColor: colors.surface,
@@ -2521,10 +2523,9 @@ const styles = StyleSheet.create({
     width: "100%",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.panel,
+    backgroundColor: colors.surface,
     borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.quietBorder,
   },
   designCDefectSectionText: {
     ...typography.text_section_title,

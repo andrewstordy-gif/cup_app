@@ -105,6 +105,7 @@ export function SessionsListScreen({ onBackPress, onAddSession }) {
         variant="back"
         onBackPress={onBackPress}
         backAccessibilityLabel="Back to Style Guide"
+        debugTag="SessionsListScreen"
       />
       <View style={[styles.searchBar, { marginHorizontal: 16 * scale, marginVertical: 12 * scale }]}>
         <Ionicons name="search" size={20} color={colors.inkSoft} />

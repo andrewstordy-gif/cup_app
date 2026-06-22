@@ -25,6 +25,7 @@ export function CoffeeLibraryScreen({ onBackPress, onSearchPress }) {
         onSearchPress={onSearchPress}
         backAccessibilityLabel="Back"
         searchAccessibilityLabel="Search"
+        debugTag="CoffeeLibraryScreen"
       />
       <ScreenContainer>
         <Block title="Saved Coffees" text="Burundi Kayanza, Kenya Nyeri, Guatemala Huehuetenango." />

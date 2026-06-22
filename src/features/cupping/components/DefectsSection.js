@@ -7,7 +7,7 @@ import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
 
-const BEAN_DEFECT_OPTIONS = [
+export const BEAN_DEFECT_OPTIONS = [
   {
     key: "moldy",
     title: "MOULDY",
@@ -30,7 +30,7 @@ const BEAN_DEFECT_OPTIONS = [
   },
 ];
 
-const ROAST_DEFECT_OPTIONS = [
+export const ROAST_DEFECT_OPTIONS = [
   {
     key: "underdeveloped",
     title: "UNDERDEVELOPED",
@@ -243,8 +243,7 @@ function SelectedDefectIconRow({ options, defectCupSlots, scale = 1 }) {
     <View style={[styles.selectedDefectIconRow, { marginTop: spacing.sm * scale }]}>
       {visibleOptions.map((option) => (
         <View key={`selected-${option.key}`} style={styles.selectedDefectIcon}>
-          <AppIcon name={DEFECT_ICON_NAMES[option.key]} role="icon_compact" size={14 * scale} />
-          <Text style={styles.selectedDefectIconText}>{formatOptionTitle(option.title)}</Text>
+          <Text style={styles.selectedDefectIconText}>{formatOptionTitle(option.title).toUpperCase()}</Text>
         </View>
       ))}
     </View>
@@ -782,21 +781,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: spacing.xs,
+    gap: 6,
   },
   selectedDefectIcon: {
-    minHeight: 30,
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: colors.quietBorder,
-    backgroundColor: colors.panel,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.sm,
+    backgroundColor: colors.panel,
+    borderWidth: 1,
+    borderColor: colors.quietBorder,
+    borderRadius: 15,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
   },
   selectedDefectIconText: {
-    ...typography.text_secondary_body,
+    ...typography.text_caption,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    color: colors.ink,
   },
   dialogBackdrop: {
     flex: 1,

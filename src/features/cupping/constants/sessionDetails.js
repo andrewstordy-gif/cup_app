@@ -16,6 +16,19 @@ export function getSessionStatusLabel(key) {
   return SESSION_STATUS_OPTIONS.find((o) => o.key === key)?.label || String(key || "");
 }
 
+export function getSessionStatusBadgeLabel({ samples, sampleStatusById, isSessionComplete }) {
+  if (isSessionComplete) {
+    return "Complete";
+  }
+  if ((samples || []).some((sample) => Boolean(sampleStatusById?.[sample.id]?.hasAnyFeedback))) {
+    return "In Progress";
+  }
+  if ((samples || []).length > 0) {
+    return "Pending";
+  }
+  return "Draft";
+}
+
 export const SESSION_TYPE_OPTIONS = [
   { key: 1, label: "Sourcing Decision" },
   { key: 2, label: "Quality Control" },
@@ -23,18 +36,20 @@ export const SESSION_TYPE_OPTIONS = [
   { key: 4, label: "Training Session" },
   { key: 5, label: "Competition" },
   { key: 6, label: "Other" },
+  { key: 7, label: "Quick Cupping" },
 ];
 
-export const CUP_NUMBER_OPTIONS = [1, 2, 3, 4, 5];
+export const CUP_NUMBER_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export const CUPPING_MODE_OPTIONS = [
   { key: "blind", label: "Blind Cupping" },
   { key: "open", label: "Open Cupping" },
 ];
 
-export function getCuppingModeLabel(key) {
-  return CUPPING_MODE_OPTIONS.find((o) => o.key === key)?.label || String(key || "");
-}
+export const CUPPING_FORM_OPTIONS = [
+  { key: 1, label: "SCA CVA" },
+];
+
 export const PENDING_CONFLICT_ERROR = "PENDING_CUP_CONFLICT";
 export const SAMPLE_COLOUR_OPTIONS = [
   { key: "green", label: "Green", hex: "#00A651" },
@@ -96,6 +111,56 @@ export function getSessionTypeLabel(value) {
 
 export function compactSessionTypeValue(value) {
   return normalizeSessionTypeKey(value) ?? String(value || "").trim();
+}
+
+export function normalizeCuppingModeKey(value) {
+  const normalized = normalizeOptionText(value);
+  if (!normalized) {
+    return "blind";
+  }
+  if (normalized === "b") {
+    return "blind";
+  }
+  if (normalized === "o") {
+    return "open";
+  }
+
+  const option = CUPPING_MODE_OPTIONS.find(
+    (entry) =>
+      normalizeOptionText(entry.key) === normalized ||
+      normalizeOptionText(entry.label) === normalized
+  );
+  return option?.key ?? "blind";
+}
+
+export function getCuppingModeLabel(value) {
+  const key = normalizeCuppingModeKey(value);
+  return CUPPING_MODE_OPTIONS.find((entry) => entry.key === key)?.label || String(value || "");
+}
+
+export function compactCuppingModeValue(value) {
+  return normalizeCuppingModeKey(value) === "open" ? "o" : "b";
+}
+
+export function normalizeCuppingFormKey(value) {
+  const numeric = Number(value);
+  if (Number.isInteger(numeric) && CUPPING_FORM_OPTIONS.some((option) => option.key === numeric)) {
+    return numeric;
+  }
+
+  const normalized = normalizeOptionText(value);
+  const option = CUPPING_FORM_OPTIONS.find((entry) => normalizeOptionText(entry.label) === normalized);
+  return option?.key ?? null;
+}
+
+export function getCuppingFormLabel(value) {
+  const key = normalizeCuppingFormKey(value);
+  const option = CUPPING_FORM_OPTIONS.find((entry) => entry.key === key);
+  return option?.label || String(value || "");
+}
+
+export function compactCuppingFormValue(value) {
+  return normalizeCuppingFormKey(value) ?? 1;
 }
 
 export function normalizeProcessKey(value) {
@@ -278,8 +343,8 @@ export function createPendingConflictError(message) {
 export function createSample(data = {}) {
   const parsedCupNumber = Number.parseInt(data.cupNumber, 10);
   const cupNumber = Number.isInteger(parsedCupNumber)
-    ? Math.max(1, Math.min(5, parsedCupNumber))
-    : 3;
+    ? Math.max(1, Math.min(8, parsedCupNumber))
+    : 5;
 
   return {
     id: data.id || generateRecordId(),
@@ -289,6 +354,7 @@ export function createSample(data = {}) {
     cupNumber,
     sampleNumber: normalizePositiveInteger(data.sampleNumber),
     sampleColour: normalizeSampleColour(data.sampleColour),
+    cuppingForm: normalizeCuppingFormKey(data.cuppingForm) ?? 1,
     verificationStatus: data.verificationStatus || "unverified",
   };
 }
@@ -300,6 +366,8 @@ export function buildCompactSessionMetadata({
   samplesInSession,
   sampleNumber,
   sampleColour,
+  cuppingMode,
+  cuppingForm,
   sessionName,
   sessionType,
   sessionDate,
@@ -312,6 +380,8 @@ export function buildCompactSessionMetadata({
     ...(Number.isInteger(Number(samplesInSession)) ? { i: Number(samplesInSession) } : {}),
     ...(Number.isInteger(Number(sampleNumber)) ? { z: Number(sampleNumber) } : {}),
     ...(normalizeSampleColour(sampleColour) ? { k: normalizeSampleColour(sampleColour) } : {}),
+    m: compactCuppingModeValue(cuppingMode),
+    f: compactCuppingFormValue(cuppingForm),
     e: String(sessionName || "").trim(),
     t: compactSessionTypeValue(sessionType),
     d: compactSessionDateValue(sessionDate),
@@ -335,6 +405,10 @@ export function doesMetadataMatchExpected(actual, expected) {
       Number(actual.z ?? actual.sampleNumber ?? 0) === Number(expected.z || 0)) &&
     (expected.k === undefined ||
       normalizeSampleColour(actual.k ?? actual.sampleColour ?? "") === normalizeSampleColour(expected.k ?? "")) &&
+    String(compactCuppingModeValue(actual.m ?? actual.cuppingMode ?? "")) ===
+      String(compactCuppingModeValue(expected.m ?? expected.cuppingMode ?? "")) &&
+    Number(compactCuppingFormValue(actual.f ?? actual.cuppingForm ?? 1)) ===
+      Number(compactCuppingFormValue(expected.f ?? expected.cuppingForm ?? 1)) &&
     String(actual.e || actual.sessionName || "") === String(expected.e || "") &&
     String(compactSessionTypeValue(actual.t ?? actual.sessionType ?? "")) ===
       String(compactSessionTypeValue(expected.t ?? "")) &&

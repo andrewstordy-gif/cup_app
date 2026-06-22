@@ -1,5 +1,5 @@
 import React from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import { StyleSheet, Text as NativeText, TextInput, View } from "react-native";
 import { TypographyAuditText as Text } from "./TypographyAuditText";
 import { BackButton, IconButton, MenuButton } from "./IconButton";
 import { colors } from "../../theme/colors";
@@ -22,9 +22,11 @@ export function Header({
   searchAccessibilityLabel = "Search",
   rightAccessibilityLabel = "Header action",
   hideBack = false,
+  debugTag,
 }) {
   const showBack = variant === "back" || variant === "back-search";
   const showSearchField = variant === "back-search";
+  const shouldShowDebugTag = __DEV__ && typeof debugTag === "string" && debugTag.length > 0;
 
   return (
     <View>
@@ -65,6 +67,11 @@ export function Header({
             <View style={styles.spacer} />
           )}
         </View>
+        {shouldShowDebugTag ? (
+          <NativeText pointerEvents="none" style={styles.debugTag}>
+            {debugTag}
+          </NativeText>
+        ) : null}
       </View>
       {showSearchField ? (
         <View style={styles.searchWrap}>
@@ -91,6 +98,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.sm,
+    position: "relative",
   },
   left: {
     width: 48,
@@ -114,6 +122,15 @@ const styles = StyleSheet.create({
   spacer: {
     width: 40,
     height: 40,
+  },
+  debugTag: {
+    position: "absolute",
+    right: spacing.xs,
+    bottom: 2,
+    fontSize: 13,
+    fontWeight: "700",
+    fontFamily: "monospace",
+    color: colors.inkSoft,
   },
   searchWrap: {
     height: 56,

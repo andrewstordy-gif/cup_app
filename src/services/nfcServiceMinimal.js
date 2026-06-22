@@ -321,6 +321,8 @@ function compactText4Payload(payload) {
   const sessionType = payload.t ?? payload.sessionType;
   const sessionDate = payload.d ?? payload.sessionDate;
   const sessionUUID = payload.u ?? payload.sessionUUID;
+  const cuppingMode = payload.m ?? payload.cuppingMode;
+  const cuppingForm = payload.f ?? payload.cuppingForm;
 
   return {
     ...(coffeeName !== undefined ? { n: coffeeName } : {}),
@@ -333,6 +335,8 @@ function compactText4Payload(payload) {
     ...(sessionType !== undefined ? { t: sessionType } : {}),
     ...(sessionDate !== undefined ? { d: sessionDate } : {}),
     ...(sessionUUID !== undefined ? { u: sessionUUID } : {}),
+    ...(cuppingMode !== undefined ? { m: cuppingMode } : {}),
+    ...(cuppingForm !== undefined ? { f: cuppingForm } : {}),
   };
 }
 

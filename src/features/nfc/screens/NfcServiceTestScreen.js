@@ -637,6 +637,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
         variant="back"
         onBackPress={onBackPress}
         backAccessibilityLabel="Back"
+        debugTag="NfcServiceTestScreen"
       />
 
       <ScreenContainer>

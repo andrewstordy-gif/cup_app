@@ -18,7 +18,7 @@ function Block({ title, text }) {
 export function AccountScreen({ onBackPress }) {
   return (
     <View style={styles.screen}>
-      <Header title="Account" variant="back" onBackPress={onBackPress} backAccessibilityLabel="Back" />
+      <Header title="Account" variant="back" onBackPress={onBackPress} backAccessibilityLabel="Back" debugTag="AccountScreen" />
       <ScreenContainer>
         <Block title="Profile" text="Name, organization, and preferred cupping profile." />
         <Block title="Permissions" text="Manage app access and notifications." />

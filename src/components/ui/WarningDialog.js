@@ -17,6 +17,10 @@ export function WarningDialog({
   secondaryLabel,
   onSecondary,
   variant = "default",
+  secondaryButtonStyle,
+  secondaryButtonTextStyle,
+  okButtonStyle,
+  okButtonTextStyle,
 }) {
   const hasSecondaryAction = Boolean(secondaryLabel && onSecondary);
   const isCuppingChoice = variant === "cupping-choice";
@@ -46,13 +50,18 @@ export function WarningDialog({
                 label={secondaryLabel}
                 onPress={onSecondary}
                 accessibilityLabel={secondaryLabel}
-                style={isCuppingChoice ? styles.cuppingChoicePrimaryButton : styles.secondaryButton}
+                style={[
+                  isCuppingChoice ? styles.cuppingChoicePrimaryButton : styles.secondaryButton,
+                  secondaryButtonStyle,
+                ]}
+                textStyle={[!isCuppingChoice ? styles.secondaryButtonText : null, secondaryButtonTextStyle]}
               />
               <FullPageButton
                 label={okLabel}
                 onPress={onOk}
                 accessibilityLabel={okLabel}
-                style={isCuppingChoice ? styles.cuppingChoiceSecondaryButton : null}
+                style={[isCuppingChoice ? styles.cuppingChoiceSecondaryButton : null, okButtonStyle]}
+                textStyle={okButtonTextStyle}
               />
             </View>
           ) : (
@@ -104,7 +113,10 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   secondaryButton: {
-    backgroundColor: "#4b5563",
+    backgroundColor: colors.muted,
+  },
+  secondaryButtonText: {
+    color: colors.ink,
   },
   cuppingChoiceDialog: {
     borderWidth: 0,

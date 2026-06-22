@@ -1,378 +1,474 @@
-import React from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
+import AntDesign from "@expo/vector-icons/AntDesign";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
+import { AppIcon } from "../../../components/ui/AppIcon";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
-import { ProcessSelector } from "./ProcessSelector";
+import {
+  CUPPING_SCORE_FIELDS,
+  getSampleDefects,
+  getSampleFeedback,
+  getSampleFlavourObservations,
+} from "../../../data/sessionRepository";
+import { EMPTY_SCORES, makeScores } from "../../style-guide/components/SampleCard";
+import { ScoreRow } from "../../style-guide/components/ScoreRow";
+import { getProcessLabel } from "../constants/sessionDetails";
+import { BEAN_DEFECT_OPTIONS, ROAST_DEFECT_OPTIONS } from "./DefectsSection";
+import { KeywordPillRow } from "./KeywordPillRow";
+
+const FRAGRANCE_AROMA_FIELDS = ["Fragrance", "Aroma"];
+const FLAVOUR_FIELDS = ["Flavour", "Aftertaste", "Acidity", "Sweetness", "Mouthfeel", "Overall"];
+
+function getLatestFeedbackEntry(rows) {
+  return Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null;
+}
+
+function buildFeedbackStateFromSavedRows(rowsByField = {}) {
+  return CUPPING_SCORE_FIELDS.reduce((acc, field) => {
+    const latest = getLatestFeedbackEntry(rowsByField[field]);
+    acc[field] = {
+      score: latest?.score ?? null,
+      comments: latest?.comments || "",
+    };
+    return acc;
+  }, {});
+}
+
+function getGroupComments(feedback, fields) {
+  const firstWithComments = fields.find((field) => String(feedback?.[field]?.comments || "").trim());
+  return firstWithComments ? String(feedback?.[firstWithComments]?.comments || "").trim() : "";
+}
+
+function getObservationSourceFields(observation) {
+  return String(observation?.sourceField || "")
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean);
+}
+
+function observationMatchesFields(observation, fields = []) {
+  const sourceFields = getObservationSourceFields(observation);
+  if (sourceFields.length === 0) {
+    return true;
+  }
+
+  const fieldSet = new Set((Array.isArray(fields) ? fields : []).map((field) => String(field).trim()));
+  return sourceFields.some((field) => fieldSet.has(field));
+}
+
+function getLatestDefectEntry(defects) {
+  const finalEntries = Array.isArray(defects?.final) ? defects.final : [];
+  const nonFinalEntries = Array.isArray(defects?.nonFinal) ? defects.nonFinal : [];
+  if (finalEntries.length > 0) {
+    return finalEntries[finalEntries.length - 1];
+  }
+  if (nonFinalEntries.length > 0) {
+    return nonFinalEntries[nonFinalEntries.length - 1];
+  }
+  return null;
+}
+
+function getSelectedDefects(defectEntry, options) {
+  if (!defectEntry) {
+    return [];
+  }
+
+  return options.filter((option) => Boolean(defectEntry?.[option.key]));
+}
+
+function resolveSampleNumber(sampleNumber, index) {
+  const explicitSampleNumber = Number(sampleNumber);
+  if (Number.isInteger(explicitSampleNumber) && explicitSampleNumber > 0) {
+    return explicitSampleNumber;
+  }
+
+  return index + 1;
+}
 
 export function CoffeeSampleCard({
   sample,
   index,
-  onUpdate,
+  scale = 1,
   onRemove,
-  onVerify,
-  onRewrite,
-  isVerifying,
-  isRewriting,
   canRemove,
   status,
+  onOpenSample,
+  onEditSample,
+  defaultExpanded = false,
 }) {
-  const displayCupNumber = Number.isInteger(sample.cupNumber) ? sample.cupNumber : 3;
+  const [expanded, setExpanded] = useState(defaultExpanded);
+  const [detailData, setDetailData] = useState({
+    feedbackRowsByField: null,
+    flavourObservations: [],
+    defects: null,
+    loaded: false,
+  });
   const isComplete = Boolean(status?.isComplete);
   const finalScore = Number.isFinite(Number(status?.finalScore)) ? Number(status.finalScore) : null;
+  const totalScore = status?.finalScore ?? null;
+  const scoresByField = status?.scoresByField || {};
+  const hasScoreBreakdown = Boolean(status?.hasAnyFeedback) || Object.keys(scoresByField).length > 0;
+  const scoreItems = hasScoreBreakdown
+    ? makeScores(CUPPING_SCORE_FIELDS.map((field) => scoresByField[field] ?? null))
+    : EMPTY_SCORES;
   const isLocked = isComplete;
-  const verificationStatus = sample.verificationStatus || "unverified";
-  const isVerified = verificationStatus === "verified";
-  const isPendingVerification = verificationStatus === "pending";
-  const sampleNumber =
-    Number.isInteger(Number(sample.sampleNumber)) && Number(sample.sampleNumber) > 0
-      ? Number(sample.sampleNumber)
-      : index + 1;
-  const sampleColour = sample.sampleColour || "#111111";
+  const removeDisabled = !canRemove || isLocked;
+  const displaySampleNumber = resolveSampleNumber(sample.sampleNumber, index);
+  const canOpenSample = Boolean(sample.cupUUID && typeof onOpenSample === "function");
+  const editDisabled = isLocked || typeof onEditSample !== "function";
+  const feedbackState = detailData.feedbackRowsByField
+    ? buildFeedbackStateFromSavedRows(detailData.feedbackRowsByField)
+    : {};
+  const fragranceAromaNotes = getGroupComments(feedbackState, FRAGRANCE_AROMA_FIELDS);
+  const flavourNotes = getGroupComments(feedbackState, FLAVOUR_FIELDS);
+  const fragranceAromaPills = detailData.flavourObservations.filter((observation) =>
+    observationMatchesFields(observation, FRAGRANCE_AROMA_FIELDS)
+  );
+  const flavourPills = detailData.flavourObservations.filter((observation) =>
+    observationMatchesFields(observation, FLAVOUR_FIELDS)
+  );
+  const latestDefectEntry = getLatestDefectEntry(detailData.defects);
+  const beanDefects = getSelectedDefects(latestDefectEntry, BEAN_DEFECT_OPTIONS);
+  const roastDefects = getSelectedDefects(latestDefectEntry, ROAST_DEFECT_OPTIONS);
+
+  useEffect(() => {
+    if (!expanded || !sample.id || detailData.loaded) {
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const loadExpandedDetails = async () => {
+      try {
+        const [feedbackRowsByField, flavourObservations, defects] = await Promise.all([
+          getSampleFeedback(sample.id),
+          getSampleFlavourObservations(sample.id),
+          getSampleDefects(sample.id),
+        ]);
+
+        if (!isCancelled) {
+          setDetailData({
+            feedbackRowsByField: feedbackRowsByField || {},
+            flavourObservations: Array.isArray(flavourObservations) ? flavourObservations : [],
+            defects,
+            loaded: true,
+          });
+        }
+      } catch {
+        if (!isCancelled) {
+          setDetailData((prev) => ({
+            ...prev,
+            loaded: true,
+          }));
+        }
+      }
+    };
+
+    loadExpandedDetails();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [detailData.loaded, expanded, sample.id]);
+
+  const handleCollapsedPress = () => {
+    if (canOpenSample) {
+      onOpenSample(sample, index);
+      return;
+    }
+
+    setExpanded((value) => !value);
+  };
+  const handleEditPress = (event) => {
+    event?.stopPropagation?.();
+    if (editDisabled) {
+      return;
+    }
+    onEditSample(sample, index);
+  };
+  const handleRemovePress = (event) => {
+    event?.stopPropagation?.();
+    onRemove(sample.id);
+  };
 
   return (
-    <View style={[styles.sampleCard, isLocked && styles.sampleCardLocked]}>
-      <View style={styles.sampleHeader}>
-        <View style={styles.sampleUuidBlock}>
-          <Text style={styles.uuidLabel}>UUID</Text>
-          <Text style={styles.uuidValue} accessibilityLabel={`Sample ${index + 1} cup UUID`}>
-            {sample.cupUUID || "CUP-0000-XXX"}
-          </Text>
-          <View style={styles.sampleMetaRow}>
-            <View style={[styles.sampleColourDot, { backgroundColor: sampleColour }]} />
-            <Text style={styles.sampleMetaText}>Sample {sampleNumber}</Text>
-          </View>
-          <View
-            style={styles.cupDotsRow}
-            accessibilityLabel={`Sample ${index + 1} has ${displayCupNumber} cups`}
-          >
-            {Array.from({ length: displayCupNumber }).map((_, dotIndex) => (
-              <View key={`cup-dot-${dotIndex}`} style={styles.cupDot} />
-            ))}
-          </View>
-        </View>
+    <View style={[styles.card, { marginTop: 16 * scale }]}>
+      <View
+        style={[
+          styles.collapsedBody,
+          {
+            paddingHorizontal: 16 * scale,
+            paddingTop: 18 * scale,
+            paddingBottom: 10 * scale,
+            gap: 12 * scale,
+          },
+        ]}
+      >
         <Pressable
-          onPress={() => onRemove(sample.id)}
-          disabled={!canRemove || isLocked}
-          style={[styles.removeButton, (!canRemove || isLocked) && styles.removeButtonDisabled]}
+          onPress={handleCollapsedPress}
           accessibilityRole="button"
-          accessibilityLabel={`Remove sample ${index + 1}`}
+          accessibilityLabel={
+            canOpenSample ? `Open scoring for sample ${displaySampleNumber}` : `Expand sample ${displaySampleNumber}`
+          }
+          style={[styles.collapsedMain, { gap: 12 * scale }]}
         >
-          <Text style={[styles.removeButtonText, (!canRemove || isLocked) && styles.removeButtonTextDisabled]}>
-            Remove
-          </Text>
+          <View style={styles.topLine}>
+            <View style={[styles.identity, { gap: 8 * scale }]}>
+              <Text style={styles.sampleLabel}>{displaySampleNumber}</Text>
+              {onEditSample ? (
+                <Pressable
+                  onPress={handleEditPress}
+                  disabled={editDisabled}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit sample ${displaySampleNumber}`}
+                  accessibilityState={{ disabled: editDisabled }}
+                  hitSlop={8}
+                  style={styles.editIconButton}
+                >
+                  <AntDesign name="edit" size={16} color={editDisabled ? colors.muted : colors.inkSoft} />
+                </Pressable>
+              ) : null}
+            </View>
+            <Pressable
+              onPress={handleRemovePress}
+              disabled={removeDisabled}
+              style={[styles.removeIconButton, removeDisabled && styles.removeIconButtonDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove sample ${displaySampleNumber}`}
+              hitSlop={12}
+            >
+              <AntDesign name="close" size={18} color={removeDisabled ? colors.muted : colors.inkSoft} />
+            </Pressable>
+          </View>
+
+          <ScoreRow scores={scoreItems} totalScore={totalScore} scale={scale} />
+        </Pressable>
+
+        <Pressable
+          onPress={() => setExpanded((value) => !value)}
+          accessibilityRole="button"
+          accessibilityLabel={expanded ? "Collapse sample" : "Expand sample"}
+          accessibilityState={{ expanded }}
+          style={styles.chevronRow}
+          hitSlop={8}
+        >
+          <AppIcon name={expanded ? "chevron-up" : "chevron-down"} role="icon_navigation" size={22} />
         </Pressable>
       </View>
 
-      {isComplete ? (
-        <View style={styles.completeBadge}>
-          <Text style={styles.completeBadgeText}>Complete</Text>
-        </View>
-      ) : null}
+      {expanded ? (
+        <>
+          <View style={styles.divider} />
 
-      {!isComplete ? (
-        <View
-          style={[
-            styles.verificationBadge,
-            isVerified
-              ? styles.verificationBadgeVerified
-              : isPendingVerification
-                ? styles.verificationBadgePending
-                : styles.verificationBadgeUnverified,
-          ]}
-        >
-          <Text
+          <View
             style={[
-              styles.verificationBadgeText,
-              isVerified
-                ? styles.verificationBadgeTextVerified
-                : isPendingVerification
-                  ? styles.verificationBadgeTextPending
-                  : styles.verificationBadgeTextUnverified,
+              styles.section,
+              { paddingHorizontal: 14 * scale, paddingVertical: 14 * scale, gap: 12 * scale },
             ]}
           >
-            {isVerified ? "Verified" : isPendingVerification ? "Pending Verification" : "Unverified"}
-          </Text>
-        </View>
-      ) : null}
+            <View style={styles.fieldBlock}>
+              <Text style={styles.sectionLabel}>Coffee Name / Origin</Text>
+              <Text style={[styles.sectionValue, { marginTop: 2 * scale }]}>
+                {sample.coffeeNameOrigin || "Coffee not set"}
+              </Text>
+            </View>
 
-      <View style={styles.fieldBlock}>
-        <Text style={styles.fieldLabel}>Coffee Name / Origin</Text>
-        <TextInput
-          value={sample.coffeeNameOrigin}
-          onChangeText={(value) => onUpdate(sample.id, "coffeeNameOrigin", value)}
-          placeholder="e.g. Ethiopia Sidamo"
-          style={[styles.input, isLocked && styles.inputDisabled]}
-          editable={!isLocked}
-          selectTextOnFocus={!isLocked}
-          accessibilityLabel={`Sample ${index + 1} coffee name or origin`}
-        />
-      </View>
+            <View style={styles.fieldBlock}>
+              <Text style={styles.sectionLabel}>Process</Text>
+              <Text style={[styles.sectionValue, { marginTop: 2 * scale }]}>
+                {getProcessLabel(sample.process) || "Process not set"}
+              </Text>
+            </View>
+          </View>
 
-      <View style={styles.fieldBlock}>
-        <Text style={styles.fieldLabel}>Process</Text>
-        <ProcessSelector
-          value={sample.process}
-          onChange={(value) => onUpdate(sample.id, "process", value)}
-          disabled={isLocked}
-          accessibilityLabel={`Sample ${index + 1} process`}
-        />
-      </View>
+          <View style={styles.divider} />
 
-      {isComplete && finalScore != null ? (
-        <View style={styles.finalScoreWrap}>
-          <Text style={styles.finalScoreText}>{finalScore.toFixed(2)}</Text>
-        </View>
-      ) : null}
-
-      {!isComplete ? (
-        <View style={styles.actionsRow}>
-          <Pressable
-            onPress={() => onVerify(sample.id)}
-            disabled={isVerifying || isRewriting}
-            style={[styles.verifyButton, (isVerifying || isRewriting) && styles.verifyButtonDisabled]}
-            accessibilityRole="button"
-            accessibilityLabel={`Check cup ${index + 1}`}
+          <View
+            style={[
+              styles.section,
+              { paddingHorizontal: 14 * scale, paddingVertical: 14 * scale, gap: 16 * scale },
+            ]}
           >
-            <Text
-              style={[styles.verifyButtonText, (isVerifying || isRewriting) && styles.verifyButtonTextDisabled]}
-            >
-              {isVerifying ? "Checking..." : "Check Cup"}
-            </Text>
-          </Pressable>
+            <View>
+              <Text style={styles.sectionLabel}>Fragrance / Aroma Notes</Text>
+              <View style={[styles.notesBox, { borderRadius: 10 * scale, marginTop: 6 * scale }]}>
+                <Text style={styles.notesBoxText}>{fragranceAromaNotes || "No notes saved yet."}</Text>
+              </View>
+              <KeywordPillRow
+                pills={fragranceAromaPills}
+                scale={scale}
+                style={{ marginTop: 8 * scale }}
+              />
+            </View>
+            <View>
+              <Text style={styles.sectionLabel}>Flavour Notes</Text>
+              <View style={[styles.notesBox, { borderRadius: 10 * scale, marginTop: 6 * scale }]}>
+                <Text style={styles.notesBoxText}>{flavourNotes || "No notes saved yet."}</Text>
+              </View>
+              <KeywordPillRow pills={flavourPills} scale={scale} style={{ marginTop: 8 * scale }} />
+            </View>
+          </View>
 
-          <Pressable
-            onPress={() => onRewrite(sample.id)}
-            disabled={isRewriting || isVerifying}
-            style={[styles.rewriteButton, (isRewriting || isVerifying) && styles.rewriteButtonDisabled]}
-            accessibilityRole="button"
-            accessibilityLabel={`Rewrite cup ${index + 1}`}
+          <View style={styles.divider} />
+
+          <View
+            style={[
+              styles.section,
+              { paddingHorizontal: 14 * scale, paddingVertical: 14 * scale, gap: 14 * scale },
+            ]}
           >
-            <Text
-              style={[styles.rewriteButtonText, (isRewriting || isVerifying) && styles.rewriteButtonTextDisabled]}
-            >
-              {isRewriting ? "Rewriting..." : "Rewrite Cup"}
-            </Text>
-          </Pressable>
-        </View>
+            <View>
+              <Text style={styles.sectionLabel}>Coffee Defects</Text>
+              <View style={[styles.defectPillsRow, { gap: 6 * scale, marginTop: 8 * scale }]}>
+                {beanDefects.map((defect) => (
+                  <View
+                    key={defect.key}
+                    style={[
+                      styles.defectPill,
+                      {
+                        borderRadius: 15 * scale,
+                        paddingHorizontal: 10 * scale,
+                        paddingVertical: 4 * scale,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.defectPillText}>{defect.title}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            <View>
+              <Text style={styles.sectionLabel}>Roast Defects</Text>
+              <View style={[styles.defectPillsRow, { gap: 6 * scale, marginTop: 8 * scale }]}>
+                {roastDefects.map((defect) => (
+                  <View
+                    key={defect.key}
+                    style={[
+                      styles.defectPill,
+                      {
+                        borderRadius: 15 * scale,
+                        paddingHorizontal: 10 * scale,
+                        paddingVertical: 4 * scale,
+                      },
+                    ]}
+                  >
+                    <Text style={styles.defectPillText}>{defect.title}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          </View>
+
+          {isComplete && finalScore != null ? (
+            <>
+              <View style={styles.divider} />
+              <View
+                style={[
+                  styles.section,
+                  { paddingHorizontal: 14 * scale, paddingVertical: 14 * scale },
+                ]}
+              >
+                <Text style={styles.sectionLabel}>Final Score</Text>
+                <Text style={[styles.finalScoreText, { marginTop: 2 * scale }]}>{finalScore.toFixed(2)}</Text>
+              </View>
+            </>
+          ) : null}
+        </>
       ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  sampleCard: {
+  card: {
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
+    borderColor: colors.quietBorder,
+    borderRadius: 14,
     backgroundColor: colors.surface,
-    padding: spacing.sm,
-    gap: spacing.sm,
+    overflow: "hidden",
   },
-  sampleCardLocked: {
-    backgroundColor: "#f3f4f6",
-    borderColor: "#d1d5db",
-  },
-  completeBadge: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    backgroundColor: "#ecfdf3",
-    borderWidth: 1,
-    borderColor: "#a7f3d0",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  completeBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#047857",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  verificationBadge: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  verificationBadgeVerified: {
-    backgroundColor: "#ecfdf3",
-    borderColor: "#a7f3d0",
-  },
-  verificationBadgePending: {
-    backgroundColor: "#fff7ed",
-    borderColor: "#fdba74",
-  },
-  verificationBadgeUnverified: {
-    backgroundColor: "#f3f4f6",
-    borderColor: "#d1d5db",
-  },
-  verificationBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  verificationBadgeTextVerified: {
-    color: "#047857",
-  },
-  verificationBadgeTextPending: {
-    color: "#c2410c",
-  },
-  verificationBadgeTextUnverified: {
-    color: "#6b7280",
-  },
-  sampleHeader: {
+  collapsedBody: {},
+  collapsedMain: {},
+  topLine: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  sampleUuidBlock: {
-    gap: 2,
-    flex: 1,
-  },
-  uuidLabel: {
-    ...typography.text_caption,
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#8a97ac",
-    letterSpacing: 0.4,
-  },
-  uuidValue: {
-    fontSize: 14,
-    fontWeight: "500",
-    color: "#8a97ac",
-  },
-  cupDotsRow: {
+  identity: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    marginTop: 6,
   },
-  sampleMetaRow: {
-    flexDirection: "row",
+  sampleLabel: {
+    ...typography.text_section_title,
+    letterSpacing: 0,
+  },
+  editIconButton: {
+    minWidth: 28,
+    minHeight: 28,
     alignItems: "center",
-    gap: 6,
-    marginTop: 4,
+    justifyContent: "center",
   },
-  sampleColourDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "rgba(0, 0, 0, 0.16)",
+  removeIconButton: {
+    minWidth: 32,
+    minHeight: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sampleMetaText: {
+  removeIconButtonDisabled: {
+    opacity: 0.6,
+  },
+  chevronRow: {
+    alignItems: "center",
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.quietBorder,
+  },
+  section: {},
+  sectionLabel: {
     ...typography.text_caption,
-    fontSize: 12,
-    fontWeight: "700",
-    color: colors.textMuted,
-    letterSpacing: 0.4,
-  },
-  cupDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-    backgroundColor: "#111111",
-  },
-  removeButton: {
-    borderWidth: 1,
-    borderColor: "#d73a49",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  removeButtonDisabled: {
-    borderColor: colors.border,
-  },
-  removeButtonText: {
-    ...typography.text_secondary_body,
-    fontSize: 13,
-    color: "#d73a49",
-  },
-  removeButtonTextDisabled: {
-    color: colors.textMuted,
+    color: colors.inkSoft,
+    letterSpacing: 0.3,
   },
   fieldBlock: {
-    gap: 6,
+    gap: spacing.xs,
   },
-  fieldLabel: {
-    ...typography.text_caption,
-    fontSize: 13,
-    fontWeight: "700",
-    letterSpacing: 0.4,
+  sectionValue: {
+    ...typography.text_body,
+    fontSize: 16,
+    letterSpacing: 0,
   },
-  input: {
+  notesBox: {
+    backgroundColor: colors.panel,
+    padding: 12,
+  },
+  notesBoxText: {
+    ...typography.text_secondary_body,
+    letterSpacing: 0,
+  },
+  defectPillsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  defectPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.panel,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: "#ffffff",
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: colors.text,
+    borderColor: colors.quietBorder,
   },
-  inputDisabled: {
-    backgroundColor: "#f3f4f6",
-    color: colors.textMuted,
-  },
-  finalScoreWrap: {
-    marginTop: 2,
-    paddingTop: 4,
+  defectPillText: {
+    ...typography.text_caption,
+    fontSize: 11,
+    letterSpacing: 0.3,
+    color: colors.ink,
   },
   finalScoreText: {
     ...typography.text_secondary_metric,
-    fontSize: 34,
     fontWeight: "800",
-    color: "#111111",
+    color: colors.ink,
     letterSpacing: 0.2,
-  },
-  actionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  verifyButton: {
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: "#111111",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#ffffff",
-  },
-  verifyButtonDisabled: {
-    borderColor: colors.border,
-  },
-  verifyButtonText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#111111",
-  },
-  verifyButtonTextDisabled: {
-    color: colors.textMuted,
-  },
-  rewriteButton: {
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: "#c2410c",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: "#fff7ed",
-  },
-  rewriteButtonDisabled: {
-    borderColor: colors.border,
-    backgroundColor: "#f3f4f6",
-  },
-  rewriteButtonText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#c2410c",
-  },
-  rewriteButtonTextDisabled: {
-    color: colors.textMuted,
   },
 });

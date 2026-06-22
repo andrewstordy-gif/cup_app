@@ -2,6 +2,8 @@ import { getLocalDatabase } from "./localDatabase";
 import {
   getSessionDateLabel,
   getSessionTypeLabel,
+  normalizeCuppingFormKey,
+  normalizeCuppingModeKey,
   normalizePositiveInteger,
   normalizeSampleColour,
 } from "../features/cupping/constants/sessionDetails";
@@ -22,10 +24,10 @@ function normalizeCupUuid(value) {
 function coerceCupNumber(value) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed)) {
-    return 3;
+    return 5;
   }
 
-  return Math.max(1, Math.min(5, parsed));
+  return Math.max(1, Math.min(8, parsed));
 }
 
 function cleanString(value) {
@@ -44,7 +46,7 @@ function formatSessionDateFallback(date) {
   }).format(date);
 }
 
-function normalizeCupSlotList(value, maxCups = 5) {
+function normalizeCupSlotList(value, maxCups = 8) {
   const limit = Math.max(1, Number.parseInt(maxCups, 10) || 1);
   const list = Array.isArray(value) ? value : [];
   const parsed = list
@@ -53,7 +55,7 @@ function normalizeCupSlotList(value, maxCups = 5) {
   return Array.from(new Set(parsed)).sort((a, b) => a - b);
 }
 
-function parseCupSlotMask(mask, fallbackCount, maxCups = 5) {
+function parseCupSlotMask(mask, fallbackCount, maxCups = 8) {
   const normalizedMask = cleanString(mask);
   if (normalizedMask) {
     try {
@@ -71,7 +73,7 @@ function parseCupSlotMask(mask, fallbackCount, maxCups = 5) {
   return Array.from({ length: count }, (_, index) => index + 1);
 }
 
-function normalizeDefectTypeMasks(value, maxCups = 5) {
+function normalizeDefectTypeMasks(value, maxCups = 8) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return Object.entries(source).reduce((acc, [key, slots]) => {
     const normalizedKey = cleanString(key);
@@ -86,7 +88,7 @@ function normalizeDefectTypeMasks(value, maxCups = 5) {
   }, {});
 }
 
-function parseDefectTypeMasks(mask, maxCups = 5) {
+function parseDefectTypeMasks(mask, maxCups = 8) {
   const normalizedMask = cleanString(mask);
   if (!normalizedMask) {
     return {};
@@ -103,7 +105,59 @@ function parseDefectTypeMasks(mask, maxCups = 5) {
 // eslint-disable-next-line no-unused-vars
 async function reconcileCompletedSessions(_db) {}
 
-const CUPPING_SCORE_FIELDS = [
+async function recomputeSessionProgressStatusWithDb(db, sessionId) {
+  const normalizedSessionId = cleanString(sessionId);
+  if (!normalizedSessionId) {
+    return null;
+  }
+
+  const session = await db.getFirstAsync(
+    "SELECT status FROM sessions WHERE id = ? LIMIT 1",
+    [normalizedSessionId]
+  );
+  if (!session) {
+    return null;
+  }
+
+  const currentStatus = cleanString(session.status).toLowerCase();
+  if (currentStatus === "complete") {
+    return "complete";
+  }
+
+  const sampleCountRow = await db.getFirstAsync(
+    "SELECT COUNT(*) AS count FROM samples WHERE session_id = ?",
+    [normalizedSessionId]
+  );
+  const sampleCount = Number(sampleCountRow?.count) || 0;
+  let nextStatus = sampleCount > 0 ? "pending" : "new";
+
+  if (sampleCount > 0) {
+    const feedbackCountRow = await db.getFirstAsync(
+      "SELECT COUNT(*) AS count FROM sample_feedback_entries WHERE session_id = ?",
+      [normalizedSessionId]
+    );
+    const feedbackCount = Number(feedbackCountRow?.count) || 0;
+    if (feedbackCount > 0) {
+      nextStatus = "in_progress";
+    }
+  }
+
+  if (nextStatus !== currentStatus) {
+    await db.runAsync(
+      "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?",
+      [nextStatus, new Date().toISOString(), normalizedSessionId]
+    );
+  }
+
+  return nextStatus;
+}
+
+export async function recomputeSessionProgressStatus(sessionId) {
+  const db = await getLocalDatabase();
+  return recomputeSessionProgressStatusWithDb(db, sessionId);
+}
+
+export const CUPPING_SCORE_FIELDS = [
   "Fragrance",
   "Aroma",
   "Flavour",
@@ -168,6 +222,8 @@ export async function saveSessionWithSamples({
       id: cleanString(sample?.id) || generateId(),
       cupUUID: normalizeCupUuid(sample?.cupUUID),
       cupNumber: coerceCupNumber(sample?.cupNumber),
+      cuppingForm: normalizeCuppingFormKey(sample?.cuppingForm) ?? 1,
+      cuppingMode: normalizeCuppingModeKey(sample?.cuppingMode),
       sampleNumber: normalizePositiveInteger(sample?.sampleNumber, index + 1),
       sampleColour: normalizeSampleColour(sample?.sampleColour),
       coffeeNameOrigin: cleanString(sample?.coffeeNameOrigin),
@@ -236,10 +292,12 @@ export async function saveSessionWithSamples({
       await db.runAsync(
         `
           INSERT INTO samples (
-            id, session_id, cup_uuid, cup_number, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, session_id, cup_uuid, cup_number, cupping_form, cupping_mode, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(session_id, cup_uuid) DO UPDATE SET
             cup_number = excluded.cup_number,
+            cupping_form = excluded.cupping_form,
+            cupping_mode = excluded.cupping_mode,
             sample_number = excluded.sample_number,
             sample_colour = excluded.sample_colour,
             coffee_name_origin = excluded.coffee_name_origin,
@@ -252,6 +310,8 @@ export async function saveSessionWithSamples({
           sessionId,
           sample.cupUUID,
           sample.cupNumber,
+          sample.cuppingForm,
+          sample.cuppingMode,
           sample.sampleNumber,
           sample.sampleColour,
           sample.coffeeNameOrigin,
@@ -274,6 +334,8 @@ export async function saveSessionWithSamples({
       `DELETE FROM samples WHERE session_id = ? AND cup_uuid NOT IN (${placeholders})`,
       [sessionId, ...keepCupUuids]
     );
+
+    await recomputeSessionProgressStatusWithDb(db, sessionId);
   });
 
   return {
@@ -329,7 +391,7 @@ export async function findPendingSessionByCupUUID({ cupUUID, excludeSessionId } 
             s.updated_at AS updatedAt
           FROM samples sm
           INNER JOIN sessions s ON sm.session_id = s.id
-          WHERE sm.cup_uuid = ? AND s.id != ? AND s.status IN ('new', 'pending')
+          WHERE sm.cup_uuid = ? AND s.id != ? AND s.status IN ('new', 'pending', 'in_progress')
           ORDER BY s.updated_at DESC
           LIMIT 1
         `,
@@ -348,7 +410,7 @@ export async function findPendingSessionByCupUUID({ cupUUID, excludeSessionId } 
             s.updated_at AS updatedAt
           FROM samples sm
           INNER JOIN sessions s ON sm.session_id = s.id
-          WHERE sm.cup_uuid = ? AND s.status IN ('new', 'pending')
+          WHERE sm.cup_uuid = ? AND s.status IN ('new', 'pending', 'in_progress')
           ORDER BY s.updated_at DESC
           LIMIT 1
         `,
@@ -422,6 +484,8 @@ export async function getSessionById(sessionId) {
         id,
         cup_uuid AS cupUUID,
         cup_number AS cupNumber,
+        cupping_form AS cuppingForm,
+        cupping_mode AS cuppingMode,
         sample_number AS sampleNumber,
         sample_colour AS sampleColour,
         coffee_name_origin AS coffeeNameOrigin,
@@ -455,6 +519,8 @@ export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) 
         session_id AS sessionId,
         cup_uuid AS cupUUID,
         cup_number AS cupNumber,
+        cupping_form AS cuppingForm,
+        cupping_mode AS cuppingMode,
         sample_number AS sampleNumber,
         sample_colour AS sampleColour,
         coffee_name_origin AS coffeeNameOrigin,
@@ -551,6 +617,8 @@ export async function upsertSessionSampleFromCupMetadata({
   coffeeNameOrigin,
   process,
   cupNumber,
+  cuppingForm,
+  cuppingMode,
   sampleNumber,
   sampleColour,
 } = {}) {
@@ -584,6 +652,8 @@ export async function upsertSessionSampleFromCupMetadata({
   const sampleId = cleanString(existing?.id) || generateId();
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextCupNumber = coerceCupNumber(cupNumber ?? existing?.cupNumber);
+  const nextCuppingForm = normalizeCuppingFormKey(cuppingForm ?? existing?.cuppingForm) ?? 1;
+  const nextCuppingMode = normalizeCuppingModeKey(cuppingMode ?? existing?.cuppingMode);
   const nextSampleNumber = normalizePositiveInteger(
     sampleNumber,
     Number(existing?.sampleNumber) || nextCupIndex + 1
@@ -597,10 +667,12 @@ export async function upsertSessionSampleFromCupMetadata({
   await db.runAsync(
     `
       INSERT INTO samples (
-        id, session_id, cup_uuid, cup_number, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, session_id, cup_uuid, cup_number, cupping_form, cupping_mode, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id, cup_uuid) DO UPDATE SET
         cup_number = excluded.cup_number,
+        cupping_form = excluded.cupping_form,
+        cupping_mode = excluded.cupping_mode,
         sample_number = excluded.sample_number,
         sample_colour = excluded.sample_colour,
         coffee_name_origin = excluded.coffee_name_origin,
@@ -613,6 +685,8 @@ export async function upsertSessionSampleFromCupMetadata({
       normalizedSessionId,
       normalizedCupUUID,
       nextCupNumber,
+      nextCuppingForm,
+      nextCuppingMode,
       nextSampleNumber,
       nextSampleColour,
       nextCoffeeNameOrigin,
@@ -623,11 +697,15 @@ export async function upsertSessionSampleFromCupMetadata({
     ]
   );
 
+  await recomputeSessionProgressStatusWithDb(db, normalizedSessionId);
+
   return {
     id: sampleId,
     sessionId: normalizedSessionId,
     cupUUID: normalizedCupUUID,
     cupNumber: nextCupNumber,
+    cuppingForm: nextCuppingForm,
+    cuppingMode: nextCuppingMode,
     sampleNumber: nextSampleNumber,
     sampleColour: nextSampleColour,
     coffeeNameOrigin: nextCoffeeNameOrigin,
@@ -663,6 +741,8 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     coffeeNameOrigin: metadata?.coffeeName ?? metadata?.n,
     process: metadata?.coffeeProcess ?? metadata?.p,
     cupNumber: metadata?.cupNumber ?? metadata?.y,
+    cuppingForm: metadata?.cuppingForm ?? metadata?.f,
+    cuppingMode: metadata?.cuppingMode ?? metadata?.m,
     sampleNumber: metadata?.sampleNumber ?? metadata?.z,
     sampleColour: metadata?.sampleColour ?? metadata?.k,
   });
@@ -698,6 +778,8 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     sampleId: sample.id,
     cupUUID: sample.cupUUID,
     cupNumber: sample.cupNumber,
+    cuppingForm: sample.cuppingForm,
+    cuppingMode: sample.cuppingMode,
     sampleNumber: sample.sampleNumber,
     sampleColour: sample.sampleColour,
     coffeeNameOrigin: sample.coffeeNameOrigin,
@@ -830,14 +912,17 @@ export async function getSessionSampleFinalStatus(sessionId) {
   });
 
   return sampleIds.reduce((acc, sampleId) => {
-    const finalScoresByField = latestScoresBySample[sampleId] || null;
+    const finalScoresByField = latestScoresBySample[sampleId] || {};
+    const hasAnyFeedback = Object.keys(finalScoresByField).length > 0;
     const isComplete =
-      Boolean(finalScoresByField) &&
+      hasAnyFeedback &&
       CUPPING_SCORE_FIELDS.every((field) => finalScoresByField[field] !== undefined);
     if (!isComplete) {
       acc[sampleId] = {
         isComplete: false,
         finalScore: null,
+        scoresByField: finalScoresByField,
+        hasAnyFeedback,
       };
       return acc;
     }
@@ -856,6 +941,8 @@ export async function getSessionSampleFinalStatus(sessionId) {
         defectiveCups: defects.defectiveCups,
         numberOfCups: defects.numberOfCups,
       }),
+      scoresByField: finalScoresByField,
+      hasAnyFeedback,
     };
     return acc;
   }, {});
@@ -920,7 +1007,14 @@ export async function deleteSampleFromSession(sampleId) {
   const normalizedSampleId = cleanString(sampleId);
   if (!normalizedSampleId) throw new Error("sampleId is required.");
   const db = await getLocalDatabase();
+  const sample = await db.getFirstAsync(
+    "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
+    [normalizedSampleId]
+  );
   await db.runAsync("DELETE FROM samples WHERE id = ?", [normalizedSampleId]);
+  if (sample?.sessionId) {
+    await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
+  }
   return { deleted: true };
 }
 
@@ -988,6 +1082,8 @@ export async function findActiveSampleByCupUUID(cupUUID) {
         sm.id AS sampleId,
         sm.cup_uuid AS cupUUID,
         sm.cup_number AS cupNumber,
+        sm.cupping_form AS cuppingForm,
+        sm.cupping_mode AS cuppingMode,
         sm.sample_number AS sampleNumber,
         sm.sample_colour AS sampleColour,
         sm.coffee_name_origin AS coffeeNameOrigin,
@@ -1001,12 +1097,13 @@ export async function findActiveSampleByCupUUID(cupUUID) {
       FROM samples sm
       INNER JOIN sessions s ON sm.session_id = s.id
       WHERE sm.cup_uuid = ?
-        AND s.status IN ('new', 'pending', 'complete')
+        AND s.status IN ('new', 'pending', 'in_progress', 'complete')
       ORDER BY
         CASE s.status
-          WHEN 'pending' THEN 0
-          WHEN 'new' THEN 1
-          WHEN 'complete' THEN 2
+          WHEN 'in_progress' THEN 0
+          WHEN 'pending' THEN 1
+          WHEN 'new' THEN 2
+          WHEN 'complete' THEN 3
           ELSE 3
         END,
         s.updated_at DESC
@@ -1024,6 +1121,8 @@ export async function findActiveSampleByCupUUID(cupUUID) {
     cupIndex: Number(row.cupIndex) || 0,
     cupTotal: Number(row.cupTotal) || 1,
     cupNumber: Number(row.cupNumber) || 3,
+    cuppingForm: normalizeCuppingFormKey(row.cuppingForm) ?? 1,
+    cuppingMode: normalizeCuppingModeKey(row.cuppingMode),
     sampleNumber: Number(row.sampleNumber) || null,
     sampleColour: row.sampleColour || null,
   };
@@ -1520,6 +1619,10 @@ export async function saveSampleFeedbackBatch({
     }
   });
 
+  if (savedCount > 0) {
+    await recomputeSessionProgressStatusWithDb(db, normalizedSessionId);
+  }
+
   return { savedCount };
 }
 
@@ -1534,6 +1637,10 @@ export async function clearSampleFeedbackFields({ sampleId, fields = [], isFinal
   }
 
   const db = await getLocalDatabase();
+  const sample = await db.getFirstAsync(
+    "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
+    [normalizedSampleId]
+  );
   const placeholders = normalizedFields.map(() => "?").join(", ");
   const finalClause = isFinal === null ? "" : " AND is_final = ?";
   const params = [normalizedSampleId, ...normalizedFields];
@@ -1551,7 +1658,12 @@ export async function clearSampleFeedbackFields({ sampleId, fields = [], isFinal
     params
   );
 
-  return { clearedCount: Number(result?.changes) || 0 };
+  const clearedCount = Number(result?.changes) || 0;
+  if (clearedCount > 0 && sample?.sessionId) {
+    await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
+  }
+
+  return { clearedCount };
 }
 
 export async function clearSampleFinalFeedbackFields({ sampleId, fields = [] } = {}) {
@@ -1565,6 +1677,10 @@ export async function clearSampleFinalFeedbackFields({ sampleId, fields = [] } =
   }
 
   const db = await getLocalDatabase();
+  const sample = await db.getFirstAsync(
+    "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
+    [normalizedSampleId]
+  );
   const placeholders = normalizedFields.map(() => "?").join(", ");
   const result = await db.runAsync(
     `
@@ -1576,5 +1692,10 @@ export async function clearSampleFinalFeedbackFields({ sampleId, fields = [] } =
     [normalizedSampleId, ...normalizedFields]
   );
 
-  return { clearedCount: Number(result?.changes) || 0 };
+  const clearedCount = Number(result?.changes) || 0;
+  if (clearedCount > 0 && sample?.sessionId) {
+    await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
+  }
+
+  return { clearedCount };
 }

@@ -34,16 +34,10 @@ import {
 } from "../data/sessionRepository";
 
 // Map session status to the route name used by AppNavigator.
-function sessionStatusToRoute(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "complete") return "Complete Session";
-  if (s === "pending") return "Pending Session";
-  return "New Session";
-}
-
 const DRAWER_WIDTH = 300;
 const DRAWER_ANIMATION_MS = 220;
 const BREWING_STATE = 2;
+const QUICK_CUPPING_SESSION_TYPE_KEY = 7;
 const SCAN_COOLDOWN_MS = 1200;
 const HOME_WRITE_HANDOFF_MS = 700;
 const WRITE_BLOCK_FLAG = "__CUPPING_READ_ONLY_NFC_WRITE_BLOCK__";
@@ -76,13 +70,15 @@ export function AppNavigator() {
   const [homeElapsedSeconds, setHomeElapsedSeconds] = useState(null);
   const [homeBrewTimeSeconds, setHomeBrewTimeSeconds] = useState(null);
   const [homeSampleColour, setHomeSampleColour] = useState(null);
+  const [homeSampleNumber, setHomeSampleNumber] = useState(null);
   const [isScanInProgress, setIsScanInProgress] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState("");
   const [warningVisible, setWarningVisible] = useState(false);
   const [warningTitle, setWarningTitle] = useState("Notice");
   const [warningMessage, setWarningMessage] = useState("");
   const [sleepDialogVisible, setSleepDialogVisible] = useState(false);
-  const [notInSessionDialogVisible, setNotInSessionDialogVisible] = useState(false);
+  const [isCupCompleteSessionDialogVisible, setIsCupCompleteSessionDialogVisible] = useState(false);
+  const [isQuickCuppingPending, setIsQuickCuppingPending] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const lastScanAtRef = useRef(0);
   const nfcActionTokenRef = useRef(0);
@@ -90,12 +86,18 @@ export function AppNavigator() {
   const scanInProgressRef = useRef(false);
   const warningVisibleRef = useRef(false);
   const sleepDialogVisibleRef = useRef(false);
-  const notInSessionDialogVisibleRef = useRef(false);
+  const pendingCompleteSessionRouteRef = useRef("Home");
   const anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     globalThis[WRITE_BLOCK_FLAG] = route === "Cupping";
   }, [route]);
+
+  useEffect(() => {
+    if (selectedSessionId) {
+      setIsQuickCuppingPending(false);
+    }
+  }, [selectedSessionId]);
 
   const showWarning = (title, message) => {
     warningVisibleRef.current = true;
@@ -310,7 +312,7 @@ export function AppNavigator() {
       nfcLaunchGuardRef.current ||
       warningVisibleRef.current ||
       sleepDialogVisibleRef.current ||
-      notInSessionDialogVisibleRef.current
+      isCupCompleteSessionDialogVisible
     ) {
       return;
     }
@@ -343,6 +345,14 @@ export function AppNavigator() {
           throw new Error("Could not read NTAG identifier.");
         }
 
+        if (resolveCupState(parsed) === 0) {
+          addFlowEvent(flowEvents, `NTAG_STATE_SLEEPING id=${tagId}`);
+          setScanStatusMessage("Cup is sleeping.");
+          sleepDialogVisibleRef.current = true;
+          setSleepDialogVisible(true);
+          return;
+        }
+
         const metadata = tagClassification.metadataPayload;
         const importedSample = metadata
           ? await resolveActiveSampleFromCupMetadata({
@@ -354,8 +364,8 @@ export function AppNavigator() {
         if (!activeSample) {
           addFlowEvent(flowEvents, `NTAG_NO_ACTIVE_SAMPLE id=${tagId}`);
           setScanStatusMessage("NTAG cup is not associated with a cupping session.");
-          notInSessionDialogVisibleRef.current = true;
-          setNotInSessionDialogVisible(true);
+          sleepDialogVisibleRef.current = true;
+          setSleepDialogVisible(true);
           return;
         }
 
@@ -366,6 +376,7 @@ export function AppNavigator() {
         setHomeBrewTimeSeconds(null);
         setHomeStateLabel("Cupping");
         setHomeSampleColour(activeSample.sampleColour || metadata?.sampleColour || metadata?.k || null);
+        setHomeSampleNumber(activeSample.sampleNumber || null);
         if (activeSample.sessionId && activeSample.sessionStatus !== "complete") {
           await activateSession(activeSample.sessionId);
         }
@@ -387,6 +398,9 @@ export function AppNavigator() {
           cupTotal: activeSample.cupTotal,
           sampleNumber: activeSample.sampleNumber,
           sampleColour: activeSample.sampleColour,
+          cuppingMode: activeSample.cuppingMode || "blind",
+          coffeeNameOrigin: activeSample.coffeeNameOrigin || "",
+          process: activeSample.coffeeProcess || "",
           defectsCupTotal: ntagCupNumber || activeSample.cupNumber || 1,
           startInFinalMode: false,
           startInFinalSaved: false,
@@ -402,9 +416,16 @@ export function AppNavigator() {
           },
         });
         setScanStatusMessage("");
-        const ntagReturnRoute = activeSample.sessionId
-          ? (activeSample.sessionStatus === "complete" ? "Complete Session" : "Pending Session")
-          : "Home";
+        const ntagReturnRoute = activeSample.sessionId ? "Cupping Session Details" : "Home";
+        if (activeSample.sessionId) {
+          setSelectedSessionId(activeSample.sessionId);
+        }
+        if (activeSample.sessionStatus === "complete") {
+          pendingCompleteSessionRouteRef.current = ntagReturnRoute;
+          setIsCupCompleteSessionDialogVisible(true);
+          addFlowEvent(flowEvents, `PROMPT_COMPLETE_SESSION_NTAG id=${tagId}`);
+          return;
+        }
         goToCupping(ntagReturnRoute);
         addFlowEvent(flowEvents, `ROUTE_NTAG_CUPPING id=${tagId}`);
         return;
@@ -457,6 +478,7 @@ export function AppNavigator() {
         addFlowEvent(flowEvents, `NO_SESSION_MODE state=${String(cupState)}`);
         setSelectedCupContext(null);
         setHomeSampleColour(null);
+        setHomeSampleNumber(null);
         setRoute("Home");
         if (cupState === BREWING_STATE) {
           setHomeStateLabel("Brewing");
@@ -473,8 +495,8 @@ export function AppNavigator() {
       if (!activeSample) {
         addFlowEvent(flowEvents, `NO_ACTIVE_SAMPLE uuid=${cupUUID}`);
         setScanStatusMessage("Cup is not associated with a cupping session.");
-        notInSessionDialogVisibleRef.current = true;
-        setNotInSessionDialogVisible(true);
+        sleepDialogVisibleRef.current = true;
+        setSleepDialogVisible(true);
         return;
       }
       const cupStatus = {
@@ -484,6 +506,7 @@ export function AppNavigator() {
       };
       const ndefCupNumber = resolveCupNumberFromText4(parsed);
       setHomeSampleColour(activeSample.sampleColour || null);
+      setHomeSampleNumber(activeSample.sampleNumber || null);
 
       if (activeSample.sessionId && activeSample.sessionStatus !== "complete") {
         await activateSession(activeSample.sessionId);
@@ -501,6 +524,9 @@ export function AppNavigator() {
         cupTotal: activeSample.cupTotal,
         sampleNumber: activeSample.sampleNumber,
         sampleColour: activeSample.sampleColour,
+        cuppingMode: activeSample.cuppingMode || "blind",
+        coffeeNameOrigin: activeSample.coffeeNameOrigin || "",
+        process: activeSample.coffeeProcess || "",
         defectsCupTotal: ndefCupNumber || activeSample.cupNumber || 1,
         elapsedSeconds,
         brewTimeSeconds,
@@ -523,9 +549,16 @@ export function AppNavigator() {
       } else {
         setScanStatusMessage("");
       }
-      const ndefReturnRoute = activeSample.sessionId
-        ? (activeSample.sessionStatus === "complete" ? "Complete Session" : "Pending Session")
-        : "Home";
+      const ndefReturnRoute = activeSample.sessionId ? "Cupping Session Details" : "Home";
+      if (activeSample.sessionId) {
+        setSelectedSessionId(activeSample.sessionId);
+      }
+      if (activeSample.sessionStatus === "complete") {
+        pendingCompleteSessionRouteRef.current = ndefReturnRoute;
+        setIsCupCompleteSessionDialogVisible(true);
+        addFlowEvent(flowEvents, `PROMPT_COMPLETE_SESSION_NDEF uuid=${cupUUID}`);
+        return;
+      }
       goToCupping(ndefReturnRoute);
       addFlowEvent(flowEvents, `ROUTE_CUPPING uuid=${cupUUID}`);
     } catch (error) {
@@ -593,6 +626,7 @@ export function AppNavigator() {
       setHomeElapsedSeconds(null);
       setHomeBrewTimeSeconds(null);
       setHomeSampleColour(null);
+      setHomeSampleNumber(null);
       setScanStatusMessage("");
       setSelectedCupContext(null);
     }
@@ -601,81 +635,19 @@ export function AppNavigator() {
 
   const handleAddCupToSessionFromSleepDialog = () => {
     sleepDialogVisibleRef.current = false;
-    notInSessionDialogVisibleRef.current = false;
     setSleepDialogVisible(false);
-    setNotInSessionDialogVisible(false);
+    setIsQuickCuppingPending(false);
     setSelectedSessionId(null);
     setRoute("Cupping Session");
   };
 
-  const handleUseWithoutSessionFromSleepDialog = async () => {
+  const handleStartQuickCuppingFromSleepDialog = () => {
     sleepDialogVisibleRef.current = false;
-    notInSessionDialogVisibleRef.current = false;
     setSleepDialogVisible(false);
-    setNotInSessionDialogVisible(false);
-    setIsScanInProgress(true);
-    scanInProgressRef.current = true;
-    setScanStatusMessage("Scan cup to wake it and set no-session mode...");
-    try {
-      await delay(HOME_WRITE_HANDOFF_MS);
-      await writeNdefMinimal({
-        text1: { state: 1 },
-        text2: {},
-        text3: {},
-        text4: { sessionUUID: "NO-SESSION" },
-      });
-      setHomeStateLabel("Ready");
-      setSelectedCupContext(null);
-      setRoute("Home");
-      setScanStatusMessage("Cup set to READY in no-session mode.");
-    } catch (error) {
-      const message = error?.message || "Could not wake cup.";
-      await playNfcFailureFeedback(error);
-      setScanStatusMessage(message);
-      logHomeError({
-        flow: "home_use_without_session_sleep",
-        friendlyMessage: message,
-        error,
-      });
-      showWarning("Wake Failed", message);
-    } finally {
-      scanInProgressRef.current = false;
-      setIsScanInProgress(false);
-    }
-  };
-
-  const handleUseWithoutSessionFromNotInSessionDialog = async () => {
-    notInSessionDialogVisibleRef.current = false;
-    setNotInSessionDialogVisible(false);
-    setIsScanInProgress(true);
-    scanInProgressRef.current = true;
-    setScanStatusMessage("Scan cup to set no-session mode...");
-    try {
-      await delay(HOME_WRITE_HANDOFF_MS);
-      await writeNdefMinimal({
-        text1: { state: 1 },
-        text2: {},
-        text3: {},
-        text4: { sessionUUID: "NO-SESSION" },
-      });
-      setHomeStateLabel("Ready");
-      setSelectedCupContext(null);
-      setRoute("Home");
-      setScanStatusMessage("Cup set to READY in no-session mode.");
-    } catch (error) {
-      const message = error?.message || "Could not update cup.";
-      await playNfcFailureFeedback(error);
-      setScanStatusMessage(message);
-      logHomeError({
-        flow: "home_use_without_session_not_in_session",
-        friendlyMessage: message,
-        error,
-      });
-      showWarning("Update Failed", message);
-    } finally {
-      scanInProgressRef.current = false;
-      setIsScanInProgress(false);
-    }
+    setIsQuickCuppingPending(true);
+    setSelectedSessionId(null);
+    setSelectedCupContext(null);
+    setRoute("Cupping Session Details");
   };
 
   const handleResetCupToOffFromMenu = async () => {
@@ -696,6 +668,7 @@ export function AppNavigator() {
       setHomeStateLabel("Off");
       setHomeTimeLabel("00:00");
       setHomeSampleColour(null);
+      setHomeSampleNumber(null);
       setScanStatusMessage("Cup reset to OFF.");
     } catch (error) {
       const message = error?.message || "Could not reset cup.";
@@ -733,6 +706,7 @@ export function AppNavigator() {
       setHomeElapsedSeconds(0);
       setHomeBrewTimeSeconds(null);
       setHomeSampleColour(null);
+      setHomeSampleNumber(null);
       setScanStatusMessage("Cup switched to BREWING.");
     } catch (error) {
       const message = error?.message || "Could not switch cup to brewing.";
@@ -802,30 +776,31 @@ export function AppNavigator() {
     };
   }, [selectedCupContext?.sessionId]);
 
-  const buildContextFromSessionSample = (sample, index, total) => {
+  const buildContextFromSessionSample = (sample, index, total, options = {}) => {
     if (!sample) {
       return null;
     }
 
     const runtime = sampleRuntimeById[sample.id] || {};
-    const cupStateNumber = runtime.cupStateNumber ?? 3;
-    const cupStatus =
-      runtime.cupStatus ||
-      (cupStateNumber === BREWING_STATE
-        ? { state: "BREWING", temp: "N/A", time: "00:00" }
-        : { state: "CUPPING", temp: "N/A", time: "00:00" });
+    const cupStateNumber = options.cupStateNumber ?? 3;
+    const isSessionComplete =
+      options.isSessionComplete ?? selectedCupContext?.isSessionComplete ?? sample.sessionStatus === "complete";
+    const cupStatus = options.cupStatus || { state: "CUPPING", temp: "N/A", time: "00:00" };
 
     return {
       cupUUID: sample.cupUUID,
-      tagType: runtime.tagType || null,
+      tagType: runtime.tagType || NFC_TAG_TYPES.NTAG_CUP,
       cupStateNumber,
       cupStatus,
-      sessionId: selectedCupContext?.sessionId || sample.sessionId,
+      sessionId: options.sessionId || selectedCupContext?.sessionId || sample.sessionId,
       sampleId: sample.id,
       cupIndex: index,
       cupTotal: total,
       sampleNumber: Number(sample.sampleNumber) || index + 1,
       sampleColour: sample.sampleColour || null,
+      cuppingMode: sample.cuppingMode || "blind",
+      coffeeNameOrigin: sample.coffeeNameOrigin || "",
+      process: sample.process || "",
       defectsCupTotal: Number(sample.cupNumber) || 1,
       elapsedSeconds: runtime.elapsedSeconds ?? null,
       brewTimeSeconds: runtime.brewTimeSeconds ?? null,
@@ -833,6 +808,7 @@ export function AppNavigator() {
       captureMode: null,
       startInFinalMode: false,
       startInFinalSaved: false,
+      isSessionComplete: Boolean(isSessionComplete),
     };
   };
 
@@ -871,6 +847,43 @@ export function AppNavigator() {
     goToCupping(route); // return to whichever session screen launched this
   };
 
+  const handleSessionDetailsSampleOpen = (sample, index = 0, total = 1, options = {}) => {
+    const context = buildContextFromSessionSample(sample, index, total, {
+      sessionId: selectedSessionId,
+      isSessionComplete: Boolean(options.isSessionComplete),
+    });
+    if (!context) {
+      return;
+    }
+
+    setSelectedCupContext(context);
+    setScanStatusMessage("");
+    goToCupping("Cupping Session Details");
+  };
+
+  const handleQuickStartSampleReady = ({ sessionId, sample } = {}) => {
+    setIsQuickCuppingPending(false);
+
+    if (!sessionId || !sample) {
+      return;
+    }
+
+    const context = buildContextFromSessionSample(sample, 0, 1, {
+      sessionId,
+      isSessionComplete: false,
+      cupStateNumber: 1,
+      cupStatus: { state: "READY", temp: "N/A", time: "00:00" },
+    });
+    if (!context) {
+      return;
+    }
+
+    setSelectedSessionId(sessionId);
+    setSelectedCupContext(context);
+    setScanStatusMessage("");
+    goToCupping("Cupping Session Details");
+  };
+
   const content = useMemo(() => {
     if (route === "Cupping") {
       return (
@@ -889,6 +902,9 @@ export function AppNavigator() {
           cupTotal={selectedCupContext?.cupTotal}
           sampleNumber={selectedCupContext?.sampleNumber}
           sampleColour={selectedCupContext?.sampleColour}
+          cuppingMode={selectedCupContext?.cuppingMode}
+          coffeeNameOrigin={selectedCupContext?.coffeeNameOrigin}
+          process={selectedCupContext?.process}
           defectsCupTotal={selectedCupContext?.defectsCupTotal}
           sessionId={selectedCupContext?.sessionId}
           sampleId={selectedCupContext?.sampleId}
@@ -915,12 +931,14 @@ export function AppNavigator() {
           onBackPress={() => setRoute("Home")}
           onSearchPress={() => {}}
           onNewSessionPress={() => {
+            setIsQuickCuppingPending(false);
             setSelectedSessionId(null);
             setRoute("Cupping Session Details");
           }}
           onSessionPress={(session) => {
+            setIsQuickCuppingPending(false);
             setSelectedSessionId(session?.id || null);
-            setRoute(sessionStatusToRoute(session?.status));
+            setRoute("Cupping Session Details");
           }}
         />
       );
@@ -928,12 +946,23 @@ export function AppNavigator() {
     if (route === "Cupping Session Details") {
       return (
         <CuppingSessionDetailsScreen
-          onBackPress={() => setRoute("Cupping Session")}
-          onSaveSuccess={async (savedSessionId) => {
-            setSelectedSessionId(savedSessionId);
-            const saved = await getSessionById(savedSessionId);
-            setRoute(sessionStatusToRoute(saved?.status));
+          onBackPress={() => {
+            setIsQuickCuppingPending(false);
+            setRoute("Cupping Session");
           }}
+          onSaveSuccess={(savedSessionId) => {
+            setIsQuickCuppingPending(false);
+            setSelectedSessionId(savedSessionId);
+            setRoute("Cupping Session Details");
+          }}
+          onOpenSample={handleSessionDetailsSampleOpen}
+          onScanCupForAssessment={() =>
+            scanCupForAssessment({ statusPrefix: "Scan cup to start assessment..." })
+          }
+          quickStartSessionTypeKey={
+            isQuickCuppingPending ? QUICK_CUPPING_SESSION_TYPE_KEY : undefined
+          }
+          onQuickStartSampleReady={handleQuickStartSampleReady}
           sessionId={selectedSessionId}
         />
       );
@@ -1020,6 +1049,7 @@ export function AppNavigator() {
         elapsedSeconds={homeElapsedSeconds}
         brewTimeSeconds={homeBrewTimeSeconds}
         sampleColour={homeSampleColour}
+        sampleNumber={homeSampleNumber}
       />
     );
   }, [
@@ -1036,6 +1066,7 @@ export function AppNavigator() {
     homeElapsedSeconds,
     homeBrewTimeSeconds,
     homeSampleColour,
+    homeSampleNumber,
   ]);
 
   const drawerTranslateX = anim.interpolate({
@@ -1125,23 +1156,32 @@ export function AppNavigator() {
         }}
         secondaryLabel="Add cup to session"
         onSecondary={handleAddCupToSessionFromSleepDialog}
+        secondaryButtonStyle={styles.sleepDialogCharcoalButton}
         okLabel="Quick cupping"
-        onOk={handleUseWithoutSessionFromSleepDialog}
+        onOk={handleStartQuickCuppingFromSleepDialog}
+        okButtonStyle={styles.sleepDialogGreyButton}
+        okButtonTextStyle={styles.sleepDialogGreyButtonText}
         variant="cupping-choice"
       />
 
       <WarningDialog
-        visible={notInSessionDialogVisible}
-        title="Cup Not in Session"
-        message="This cup is not associated with a cupping session."
+        visible={isCupCompleteSessionDialogVisible}
+        title=""
+        message="This session is already complete. What would you like to do with this cup?"
         onDismiss={() => {
-          notInSessionDialogVisibleRef.current = false;
-          setNotInSessionDialogVisible(false);
+          setIsCupCompleteSessionDialogVisible(false);
         }}
-        secondaryLabel="Add cup to session"
-        onSecondary={handleAddCupToSessionFromSleepDialog}
-        okLabel="Use without session"
-        onOk={handleUseWithoutSessionFromNotInSessionDialog}
+        secondaryLabel="Reset Cup to OFF"
+        onSecondary={() => {
+          setIsCupCompleteSessionDialogVisible(false);
+          handleResetCupToOffFromMenu();
+        }}
+        okLabel="Stay in Session"
+        onOk={() => {
+          setIsCupCompleteSessionDialogVisible(false);
+          goToCupping(pendingCompleteSessionRouteRef.current);
+        }}
+        variant="cupping-choice"
       />
 
       <WarningDialog
@@ -1166,6 +1206,15 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: colors.background,
+  },
+  sleepDialogCharcoalButton: {
+    backgroundColor: colors.ink,
+  },
+  sleepDialogGreyButton: {
+    backgroundColor: colors.muted,
+  },
+  sleepDialogGreyButtonText: {
+    color: colors.ink,
   },
   content: {
     flex: 1,

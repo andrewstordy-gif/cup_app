@@ -55,7 +55,8 @@ export function NotesInput({
         placeholderTextColor={colors.inkSoft}
         multiline
         editable={!disabled}
-        inputAccessoryViewID={Platform.OS === "ios" ? accessoryId : undefined}
+        inputAccessoryViewID={Platform.OS === "ios" && !disabled ? accessoryId : undefined}
+        pointerEvents={disabled ? "none" : "auto"}
         returnKeyType="default"
         blurOnSubmit={false}
         style={[styles.input, disabled && styles.inputDisabled, style]}

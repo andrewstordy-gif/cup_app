@@ -1,5 +1,11 @@
 # CUP App UI Instructions
 
+## Changelog
+
+After completing any task that changes code or docs, add an entry to `CHANGELOG.md` under today's date (`## [YYYY-MM-DD] — <agent name>`), describing what changed and why. If today's date section already exists, append to it instead of creating a duplicate. This applies to both Claude Code and Codex.
+
+**If you are Codex**: this file (`AGENTS.md`) is your primary source of instructions for this repo — read it in full before starting any task, and follow the changelog rule above without being asked.
+
 Before creating or modifying any user-facing UI, read:
 
 - `docs/UI_STYLE_GUIDE.md`

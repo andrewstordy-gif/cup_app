@@ -703,6 +703,7 @@ export function ActiveSessionScreen({
         onBackPress={onBackPress}
         backAccessibilityLabel="Back"
         hideBack={!!expandedCupId}
+        debugTag={`ActiveSessionScreen:${mode}`}
       />
 
       <ScrollView

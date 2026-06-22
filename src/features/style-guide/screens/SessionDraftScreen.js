@@ -90,6 +90,7 @@ const CUPPING_FORM_OPTIONS = [
 ];
 
 function AddSampleDrawer({ scale, onClose, coffeeNameOrigin, onChangeCoffeeNameOrigin, process, onChangeProcess, cupNumber, onSelectCupNumber }) {
+  const { height: windowHeight } = useWindowDimensions();
   const processRowRef = useRef(null);
   const [processAnchor, setProcessAnchor] = useState(null);
   const [cuppingForm, setCuppingForm] = useState(null);
@@ -207,25 +208,41 @@ function AddSampleDrawer({ scale, onClose, coffeeNameOrigin, onChangeCoffeeNameO
       {cupCountAnchor ? (
         <Modal visible transparent animationType="none" onRequestClose={() => setCupCountAnchor(null)}>
           <Pressable style={styles.dropdownBackdrop} onPress={() => setCupCountAnchor(null)} />
-          <View style={[styles.dropdownMenu, { top: cupCountAnchor.y + cupCountAnchor.height, left: cupCountAnchor.x, width: cupCountAnchor.width }]}>
-            {[1,2,3,4,5,6,7,8,9].map((option, index) => (
-              <Pressable
-                key={option}
-                onPress={() => { onSelectCupNumber(option); setCupCountAnchor(null); }}
-                style={[
-                  styles.dropdownOption,
-                  { paddingVertical: 14 * scale },
-                  index < 8 && styles.dropdownOptionBorder,
-                  cupNumber === option && styles.dropdownOptionSelected,
-                ]}
-                accessibilityRole="menuitem"
-                accessibilityLabel={String(option)}
-              >
-                <Text style={[styles.dropdownOptionText, cupNumber === option && styles.dropdownOptionTextSelected]}>
-                  {option}
-                </Text>
-              </Pressable>
-            ))}
+          <View
+            style={[
+              styles.dropdownMenu,
+              {
+                top: cupCountAnchor.y + cupCountAnchor.height,
+                left: cupCountAnchor.x,
+                width: cupCountAnchor.width,
+                maxHeight: Math.max(120, windowHeight - (cupCountAnchor.y + cupCountAnchor.height) - 24),
+              },
+            ]}
+          >
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              contentContainerStyle={styles.dropdownScrollContent}
+            >
+              {[1,2,3,4,5,6,7,8].map((option, index) => (
+                <Pressable
+                  key={option}
+                  onPress={() => { onSelectCupNumber(option); setCupCountAnchor(null); }}
+                  style={[
+                    styles.dropdownOption,
+                    { paddingVertical: 14 * scale },
+                    index < 7 && styles.dropdownOptionBorder,
+                    cupNumber === option && styles.dropdownOptionSelected,
+                  ]}
+                  accessibilityRole="menuitem"
+                  accessibilityLabel={String(option)}
+                >
+                  <Text style={[styles.dropdownOptionText, cupNumber === option && styles.dropdownOptionTextSelected]}>
+                    {option}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
           </View>
         </Modal>
       ) : null}
@@ -337,6 +354,7 @@ export function SessionDraftScreen({ onBackPress }) {
           variant="back"
           onBackPress={onBackPress}
           backAccessibilityLabel="Back to Style Guide"
+          debugTag="SessionDraftScreen"
           rightContent={
             !isDraft ? (
               <Pressable
@@ -650,6 +668,12 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
+  },
+  dropdownMenuScrollable: {
+    maxHeight: 280,
+  },
+  dropdownScrollContent: {
+    paddingBottom: 64,
   },
   dropdownOption: {
     paddingHorizontal: 16,

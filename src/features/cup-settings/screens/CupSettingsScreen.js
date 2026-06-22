@@ -1,8 +1,7 @@
 import React, { useMemo, useState } from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import { ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
-import { ScreenContainer } from "../../../components/layout/ScreenContainer";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { readNdefMinimal, writeNdefMinimal } from "../../../services/nfcServiceMinimal";
@@ -33,7 +32,7 @@ const FALLBACK_SETTINGS_FIELDS = {
 const VALIDATION_RULES = {
   triggerTemp: { min: 0, max: 100, label: "Trigger Temp" },
   maxWaterTemp: { min: 0, max: 100, label: "Max Water Temp" },
-  maxCupTemp: { min: 0, max: 100, label: "Max Cup Temp" },
+  maxCupTemp: { min: 0, max: 100, label: "Max Cupping Temp" },
   ledBrightnessPercent: { min: 0, max: 100, label: "LED Brightness" },
 };
 
@@ -128,17 +127,23 @@ function SettingsField({
   accessibilityLabel,
   error,
   disabled = false,
+  scale,
 }) {
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <Text style={styles.helpText}>{helpText}</Text>
+      <Text style={[styles.helpText, { marginTop: 2 * scale }]}>{helpText}</Text>
       <TextInput
         value={value}
         onChangeText={onChangeText}
         keyboardType="number-pad"
         editable={!disabled}
-        style={[styles.input, disabled ? styles.inputDisabled : null, error ? styles.inputError : null]}
+        style={[
+          styles.input,
+          { borderRadius: 10 * scale, marginTop: spacing.sm },
+          disabled && styles.inputDisabled,
+          error && styles.inputError,
+        ]}
         accessibilityLabel={accessibilityLabel}
       />
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -153,20 +158,27 @@ function BrewTimeField({
   onChangeSeconds,
   error,
   disabled = false,
+  scale,
 }) {
   return (
     <View style={styles.fieldBlock}>
       <Text style={styles.fieldLabel}>Brew Time</Text>
-      <Text style={styles.helpText}>
+      <Text style={[styles.helpText, { marginTop: 2 * scale }]}>
         The brewing time before the crust is broken (SCA specifies 3-5 min)
       </Text>
-      <View style={styles.timeRow}>
+      <View style={[styles.timeRow, { marginTop: spacing.sm, gap: spacing.xs }]}>
         <TextInput
           value={minutesValue}
           onChangeText={onChangeMinutes}
           keyboardType="number-pad"
           editable={!disabled}
-          style={[styles.timeInput, disabled ? styles.inputDisabled : null, error ? styles.inputError : null]}
+          style={[
+            styles.input,
+            styles.timeInput,
+            { borderRadius: 10 * scale },
+            disabled && styles.inputDisabled,
+            error && styles.inputError,
+          ]}
           accessibilityLabel="Brew Time minutes input"
           maxLength={2}
         />
@@ -176,7 +188,13 @@ function BrewTimeField({
           onChangeText={onChangeSeconds}
           keyboardType="number-pad"
           editable={!disabled}
-          style={[styles.timeInput, disabled ? styles.inputDisabled : null, error ? styles.inputError : null]}
+          style={[
+            styles.input,
+            styles.timeInput,
+            { borderRadius: 10 * scale },
+            disabled && styles.inputDisabled,
+            error && styles.inputError,
+          ]}
           accessibilityLabel="Brew Time seconds input"
           maxLength={2}
         />
@@ -187,6 +205,8 @@ function BrewTimeField({
 }
 
 export function CupSettingsScreen({ onBackPress }) {
+  const { width } = useWindowDimensions();
+  const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [fields, setFields] = useState(DEFAULT_FIELDS);
   const [fieldErrors, setFieldErrors] = useState({});
   const [statusMessage, setStatusMessage] = useState("Scan a cup to read settings.");
@@ -317,8 +337,14 @@ export function CupSettingsScreen({ onBackPress }) {
 
   return (
     <View style={styles.screen}>
-      <Header title="Cup Settings" variant="back" onBackPress={onBackPress} backAccessibilityLabel="Back" />
-      <ScreenContainer>
+      <Header title="Cup Settings" variant="back" onBackPress={onBackPress} backAccessibilityLabel="Back" debugTag="CupSettingsScreen" />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.body,
+          { paddingHorizontal: 26 * scale, paddingTop: 24 * scale, paddingBottom: 48 * scale, gap: spacing.lg },
+        ]}
+      >
         <SettingsField
           label="Trigger Temp"
           helpText="The temp the sensor must read to start the brewing stage"
@@ -327,6 +353,7 @@ export function CupSettingsScreen({ onBackPress }) {
           accessibilityLabel="Trigger Temp input"
           error={fieldErrors.triggerTemp}
           disabled={mode !== "write"}
+          scale={scale}
         />
         <SettingsField
           label="Max Water Temp"
@@ -336,6 +363,7 @@ export function CupSettingsScreen({ onBackPress }) {
           accessibilityLabel="Max Water Temp input"
           error={fieldErrors.maxWaterTemp}
           disabled={mode !== "write"}
+          scale={scale}
         />
         <BrewTimeField
           minutesValue={fields.brewMinutes}
@@ -344,15 +372,17 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeSeconds={(value) => handleFieldChange("brewSeconds", value)}
           error={fieldErrors.brewTime}
           disabled={mode !== "write"}
+          scale={scale}
         />
         <SettingsField
-          label="Max Cup Temp"
+          label="Max Cupping Temp"
           helpText="The temp the coffee must cool to before liquoring begins (SCA specifies 70°C)"
           value={fields.maxCupTemp}
           onChangeText={(value) => handleFieldChange("maxCupTemp", value)}
-          accessibilityLabel="Max Cup Temp input"
+          accessibilityLabel="Max Cupping Temp input"
           error={fieldErrors.maxCupTemp}
           disabled={mode !== "write"}
+          scale={scale}
         />
         <SettingsField
           label="LED Brightness"
@@ -362,11 +392,11 @@ export function CupSettingsScreen({ onBackPress }) {
           accessibilityLabel="LED Brightness percent input"
           error={fieldErrors.ledBrightnessPercent}
           disabled={mode !== "write"}
+          scale={scale}
         />
-        <View style={styles.scrollSpacer} />
-      </ScreenContainer>
+      </ScrollView>
 
-      <View style={styles.bottomActionArea}>
+      <View style={[styles.footer, { paddingHorizontal: 26 * scale }]}>
         <Text style={styles.statusText} accessibilityLabel={`Cup settings status: ${statusMessage}`}>
           {statusMessage}
         </Text>
@@ -375,7 +405,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onPress={handlePrimaryAction}
           loading={isSyncing}
           accessibilityLabel={mode === "write" ? "Write cup settings" : "Read cup settings"}
-          style={styles.syncButton}
+          style={styles.scanButton}
         />
       </View>
 
@@ -396,85 +426,68 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
+  body: {
+    flexGrow: 1,
+  },
   fieldBlock: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: spacing.md,
-    gap: spacing.xs,
+    gap: 0,
   },
   fieldLabel: {
-    ...typography.text_body,
-    fontSize: 16,
+    ...typography.text_section_title,
+    letterSpacing: 0,
   },
   helpText: {
     ...typography.text_secondary_body,
-    fontSize: 14,
-    lineHeight: 20,
+    color: colors.inkSoft,
   },
   input: {
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: colors.surface,
-    color: colors.text,
-    fontSize: 16,
+    borderColor: colors.quietBorder,
+    backgroundColor: colors.input,
+    color: colors.ink,
+    ...typography.text_body,
     paddingHorizontal: spacing.sm,
     paddingVertical: 10,
   },
   inputDisabled: {
-    backgroundColor: colors.background,
-    color: colors.textMuted,
+    backgroundColor: colors.panel,
+    color: colors.muted,
   },
   timeRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
   },
   timeInput: {
     width: 72,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 10,
-    backgroundColor: colors.surface,
-    color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 10,
     textAlign: "center",
   },
   timeSeparator: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: colors.text,
+    ...typography.text_section_title,
+    letterSpacing: 0,
     marginHorizontal: 2,
   },
   inputError: {
-    borderColor: "#b91c1c",
+    borderColor: colors.danger,
   },
   errorText: {
-    fontSize: 13,
-    color: "#b91c1c",
-  },
-  syncButton: {
+    ...typography.text_secondary_body,
+    color: colors.danger,
     marginTop: spacing.xs,
   },
   statusText: {
     ...typography.text_secondary_body,
     textAlign: "center",
-    fontSize: 14,
+    color: colors.inkSoft,
   },
-  bottomActionArea: {
+  scanButton: {
+    backgroundColor: colors.action,
+  },
+  footer: {
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.background,
-    paddingHorizontal: spacing.lg,
+    borderTopColor: colors.quietBorder,
+    backgroundColor: colors.surface,
     paddingTop: spacing.sm,
     paddingBottom: spacing.lg,
     gap: spacing.sm,
-  },
-  scrollSpacer: {
-    height: spacing.xl,
   },
 });
