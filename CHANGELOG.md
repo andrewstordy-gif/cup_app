@@ -24,6 +24,7 @@ Each entry should include the date, the agent that made the change, and a short 
 - `app.json`: linked the app to the new EAS project `@andrewstordy/cup` so production iOS builds can be submitted through the EAS/TestFlight path.
 - `README.md`: documented the TestFlight release account guardrail: use Apple ID `andrewstordy@gmail.com`, do not use the cached `andrew@ikawacoffee.com` session, and stop if EAS/App Store Connect routes the release through IKAWA LTD.
 - `app.json`, `ios/cup/Info.plist`, and `ios/cup.xcodeproj/project.pbxproj`: bumped the iOS build number from `2` to `3` after App Store Connect rejected a duplicate build-number submission.
+- `app.json`, `ios/cup/Info.plist`, and `ios/cup.xcodeproj/project.pbxproj`: bumped the iOS build number from `3` to `4` after confirming App Store Connect already had an older build `3`.
 
 ## [2026-06-23] — Claude Code
 
