@@ -23,6 +23,7 @@ Each entry should include the date, the agent that made the change, and a short 
 - `scripts/virtual-nfc-robustness-check.js`: updated the metadata verification check so legacy sample-colour differences are treated as ignored, matching the new sample-colour-free cup metadata contract.
 - `app.json`: linked the app to the new EAS project `@andrewstordy/cup` so production iOS builds can be submitted through the EAS/TestFlight path.
 - `README.md`: documented the TestFlight release account guardrail: use Apple ID `andrewstordy@gmail.com`, do not use the cached `andrew@ikawacoffee.com` session, and stop if EAS/App Store Connect routes the release through IKAWA LTD.
+- `app.json`, `ios/cup/Info.plist`, and `ios/cup.xcodeproj/project.pbxproj`: bumped the iOS build number from `2` to `3` after App Store Connect rejected a duplicate build-number submission.
 
 ## [2026-06-23] — Claude Code
 
