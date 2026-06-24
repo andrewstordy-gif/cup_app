@@ -5,7 +5,6 @@ import {
   normalizeCuppingFormKey,
   normalizeCuppingModeKey,
   normalizePositiveInteger,
-  normalizeSampleColour,
 } from "../features/cupping/constants/sessionDetails";
 
 function generateId() {
@@ -225,7 +224,6 @@ export async function saveSessionWithSamples({
       cuppingForm: normalizeCuppingFormKey(sample?.cuppingForm) ?? 1,
       cuppingMode: normalizeCuppingModeKey(sample?.cuppingMode),
       sampleNumber: normalizePositiveInteger(sample?.sampleNumber, index + 1),
-      sampleColour: normalizeSampleColour(sample?.sampleColour),
       coffeeNameOrigin: cleanString(sample?.coffeeNameOrigin),
       process: cleanString(sample?.process),
       positionIndex: index,
@@ -292,14 +290,13 @@ export async function saveSessionWithSamples({
       await db.runAsync(
         `
           INSERT INTO samples (
-            id, session_id, cup_uuid, cup_number, cupping_form, cupping_mode, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            id, session_id, cup_uuid, cup_number, cupping_form, cupping_mode, sample_number, coffee_name_origin, process, position_index, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(session_id, cup_uuid) DO UPDATE SET
             cup_number = excluded.cup_number,
             cupping_form = excluded.cupping_form,
             cupping_mode = excluded.cupping_mode,
             sample_number = excluded.sample_number,
-            sample_colour = excluded.sample_colour,
             coffee_name_origin = excluded.coffee_name_origin,
             process = excluded.process,
             position_index = excluded.position_index,
@@ -313,7 +310,6 @@ export async function saveSessionWithSamples({
           sample.cuppingForm,
           sample.cuppingMode,
           sample.sampleNumber,
-          sample.sampleColour,
           sample.coffeeNameOrigin,
           sample.process,
           sample.positionIndex,
@@ -487,7 +483,6 @@ export async function getSessionById(sessionId) {
         cupping_form AS cuppingForm,
         cupping_mode AS cuppingMode,
         sample_number AS sampleNumber,
-        sample_colour AS sampleColour,
         coffee_name_origin AS coffeeNameOrigin,
         process,
         position_index AS positionIndex
@@ -522,7 +517,6 @@ export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) 
         cupping_form AS cuppingForm,
         cupping_mode AS cuppingMode,
         sample_number AS sampleNumber,
-        sample_colour AS sampleColour,
         coffee_name_origin AS coffeeNameOrigin,
         process,
         position_index AS cupIndex,
@@ -620,7 +614,6 @@ export async function upsertSessionSampleFromCupMetadata({
   cuppingForm,
   cuppingMode,
   sampleNumber,
-  sampleColour,
 } = {}) {
   const normalizedSessionId = cleanString(sessionId);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
@@ -658,8 +651,6 @@ export async function upsertSessionSampleFromCupMetadata({
     sampleNumber,
     Number(existing?.sampleNumber) || nextCupIndex + 1
   );
-  const nextSampleColour =
-    normalizeSampleColour(sampleColour) || normalizeSampleColour(existing?.sampleColour);
   const nextCoffeeNameOrigin =
     cleanString(coffeeNameOrigin) || cleanString(existing?.coffeeNameOrigin);
   const nextProcess = cleanString(process) || cleanString(existing?.process);
@@ -667,14 +658,13 @@ export async function upsertSessionSampleFromCupMetadata({
   await db.runAsync(
     `
       INSERT INTO samples (
-        id, session_id, cup_uuid, cup_number, cupping_form, cupping_mode, sample_number, sample_colour, coffee_name_origin, process, position_index, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, session_id, cup_uuid, cup_number, cupping_form, cupping_mode, sample_number, coffee_name_origin, process, position_index, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(session_id, cup_uuid) DO UPDATE SET
         cup_number = excluded.cup_number,
         cupping_form = excluded.cupping_form,
         cupping_mode = excluded.cupping_mode,
         sample_number = excluded.sample_number,
-        sample_colour = excluded.sample_colour,
         coffee_name_origin = excluded.coffee_name_origin,
         process = excluded.process,
         position_index = excluded.position_index,
@@ -688,7 +678,6 @@ export async function upsertSessionSampleFromCupMetadata({
       nextCuppingForm,
       nextCuppingMode,
       nextSampleNumber,
-      nextSampleColour,
       nextCoffeeNameOrigin,
       nextProcess,
       nextCupIndex,
@@ -707,7 +696,6 @@ export async function upsertSessionSampleFromCupMetadata({
     cuppingForm: nextCuppingForm,
     cuppingMode: nextCuppingMode,
     sampleNumber: nextSampleNumber,
-    sampleColour: nextSampleColour,
     coffeeNameOrigin: nextCoffeeNameOrigin,
     process: nextProcess,
     cupIndex: nextCupIndex,
@@ -744,7 +732,6 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     cuppingForm: metadata?.cuppingForm ?? metadata?.f,
     cuppingMode: metadata?.cuppingMode ?? metadata?.m,
     sampleNumber: metadata?.sampleNumber ?? metadata?.z,
-    sampleColour: metadata?.sampleColour ?? metadata?.k,
   });
 
   const db = await getLocalDatabase();
@@ -781,7 +768,6 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     cuppingForm: sample.cuppingForm,
     cuppingMode: sample.cuppingMode,
     sampleNumber: sample.sampleNumber,
-    sampleColour: sample.sampleColour,
     coffeeNameOrigin: sample.coffeeNameOrigin,
     coffeeProcess: sample.process,
     cupIndex: Number(sample.cupIndex) || 0,
@@ -1085,7 +1071,6 @@ export async function findActiveSampleByCupUUID(cupUUID) {
         sm.cupping_form AS cuppingForm,
         sm.cupping_mode AS cuppingMode,
         sm.sample_number AS sampleNumber,
-        sm.sample_colour AS sampleColour,
         sm.coffee_name_origin AS coffeeNameOrigin,
         sm.process AS coffeeProcess,
         sm.position_index AS cupIndex,
@@ -1124,7 +1109,6 @@ export async function findActiveSampleByCupUUID(cupUUID) {
     cuppingForm: normalizeCuppingFormKey(row.cuppingForm) ?? 1,
     cuppingMode: normalizeCuppingModeKey(row.cuppingMode),
     sampleNumber: Number(row.sampleNumber) || null,
-    sampleColour: row.sampleColour || null,
   };
 }
 

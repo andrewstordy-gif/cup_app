@@ -81,7 +81,6 @@ async function runMigrations(db) {
       cupping_form INTEGER NOT NULL DEFAULT 1,
       cupping_mode TEXT NOT NULL DEFAULT 'blind',
       sample_number INTEGER NOT NULL DEFAULT 0,
-      sample_colour TEXT NOT NULL DEFAULT '',
       coffee_name_origin TEXT NOT NULL,
       process TEXT NOT NULL,
       position_index INTEGER NOT NULL,
@@ -331,18 +330,24 @@ async function runMigrations(db) {
     userVersion = 3;
   }
 
+  if (userVersion < 4) {
+    const sampleColumnsForSampleColour = await db.getAllAsync("PRAGMA table_info(samples);");
+    const hasSampleColourColumn = Array.isArray(sampleColumnsForSampleColour)
+      ? sampleColumnsForSampleColour.some((column) => column?.name === "sample_colour")
+      : false;
+    if (hasSampleColourColumn) {
+      await db.execAsync("ALTER TABLE samples DROP COLUMN sample_colour;");
+    }
+    await db.execAsync("PRAGMA user_version = 4;");
+    userVersion = 4;
+  }
+
   const sampleColumns = await db.getAllAsync("PRAGMA table_info(samples);");
   const hasSampleNumberColumn = Array.isArray(sampleColumns)
     ? sampleColumns.some((column) => column?.name === "sample_number")
     : false;
   if (!hasSampleNumberColumn) {
     await db.execAsync("ALTER TABLE samples ADD COLUMN sample_number INTEGER NOT NULL DEFAULT 0;");
-  }
-  const hasSampleColourColumn = Array.isArray(sampleColumns)
-    ? sampleColumns.some((column) => column?.name === "sample_colour")
-    : false;
-  if (!hasSampleColourColumn) {
-    await db.execAsync("ALTER TABLE samples ADD COLUMN sample_colour TEXT NOT NULL DEFAULT '';");
   }
   const hasCuppingFormColumn = Array.isArray(sampleColumns)
     ? sampleColumns.some((column) => column?.name === "cupping_form")

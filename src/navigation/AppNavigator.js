@@ -12,9 +12,9 @@ import { CupSettingsScreen } from "../features/cup-settings/screens/CupSettingsS
 import { AccountScreen } from "../features/account/screens/AccountScreen";
 import { StyleGuideScreen } from "../features/style-guide/screens/StyleGuideScreen";
 import { WarningDialog } from "../components/ui/WarningDialog";
-import { AppIcon } from "../components/ui/AppIcon";
 import { CloseButton } from "../components/ui/IconButton";
 import { colors } from "../theme/colors";
+import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
 import { readNdefMinimal, writeNdefMinimal } from "../services/nfcServiceMinimal";
 import {
@@ -22,6 +22,7 @@ import {
   classifyNfcTagReadResult,
   getNfcTagIdentifier,
   isSmartCupHardwareTag,
+  looksLikeSmartCupUuid,
 } from "../services/nfcTagClassifier";
 import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
 import { logAppError } from "../services/errorLogger";
@@ -43,13 +44,9 @@ const HOME_WRITE_HANDOFF_MS = 700;
 const WRITE_BLOCK_FLAG = "__CUPPING_READ_ONLY_NFC_WRITE_BLOCK__";
 
 const MENU_ITEMS = [
-  { key: "new-session", label: "New Session", route: "Cupping Session Details", clearSessionId: true },
+  { key: "account", label: "Profile", route: "Account" },
   { key: "cupping-sessions", label: "Cupping Sessions", route: "Cupping Session" },
   { key: "cup-settings", label: "Cup Settings", route: "Cup Settings" },
-  { key: "reset-cup-off", label: "Reset Cup to OFF", action: "reset-cup-off" },
-  { key: "switch-cup-brewing", label: "Switch Cup to BREWING", action: "switch-cup-brewing" },
-  { key: "style-guide", label: "Style Guide", route: "Style Guide" },
-  { key: "nfc-test", label: "NFC Test", route: "NFC Test" },
 ];
 
 export function AppNavigator() {
@@ -69,7 +66,6 @@ export function AppNavigator() {
   const [homeTimeLabel, setHomeTimeLabel] = useState("00:00");
   const [homeElapsedSeconds, setHomeElapsedSeconds] = useState(null);
   const [homeBrewTimeSeconds, setHomeBrewTimeSeconds] = useState(null);
-  const [homeSampleColour, setHomeSampleColour] = useState(null);
   const [homeSampleNumber, setHomeSampleNumber] = useState(null);
   const [isScanInProgress, setIsScanInProgress] = useState(false);
   const [scanStatusMessage, setScanStatusMessage] = useState("");
@@ -375,7 +371,6 @@ export function AppNavigator() {
         setHomeElapsedSeconds(null);
         setHomeBrewTimeSeconds(null);
         setHomeStateLabel("Cupping");
-        setHomeSampleColour(activeSample.sampleColour || metadata?.sampleColour || metadata?.k || null);
         setHomeSampleNumber(activeSample.sampleNumber || null);
         if (activeSample.sessionId && activeSample.sessionStatus !== "complete") {
           await activateSession(activeSample.sessionId);
@@ -397,7 +392,6 @@ export function AppNavigator() {
           cupIndex: activeSample.cupIndex,
           cupTotal: activeSample.cupTotal,
           sampleNumber: activeSample.sampleNumber,
-          sampleColour: activeSample.sampleColour,
           cuppingMode: activeSample.cuppingMode || "blind",
           coffeeNameOrigin: activeSample.coffeeNameOrigin || "",
           process: activeSample.coffeeProcess || "",
@@ -477,7 +471,6 @@ export function AppNavigator() {
       if (!activeSample && noSessionMode) {
         addFlowEvent(flowEvents, `NO_SESSION_MODE state=${String(cupState)}`);
         setSelectedCupContext(null);
-        setHomeSampleColour(null);
         setHomeSampleNumber(null);
         setRoute("Home");
         if (cupState === BREWING_STATE) {
@@ -505,7 +498,6 @@ export function AppNavigator() {
         time: formatTime(elapsedSeconds),
       };
       const ndefCupNumber = resolveCupNumberFromText4(parsed);
-      setHomeSampleColour(activeSample.sampleColour || null);
       setHomeSampleNumber(activeSample.sampleNumber || null);
 
       if (activeSample.sessionId && activeSample.sessionStatus !== "complete") {
@@ -523,7 +515,6 @@ export function AppNavigator() {
         cupIndex: activeSample.cupIndex,
         cupTotal: activeSample.cupTotal,
         sampleNumber: activeSample.sampleNumber,
-        sampleColour: activeSample.sampleColour,
         cuppingMode: activeSample.cuppingMode || "blind",
         coffeeNameOrigin: activeSample.coffeeNameOrigin || "",
         process: activeSample.coffeeProcess || "",
@@ -625,7 +616,6 @@ export function AppNavigator() {
       setHomeTimeLabel("00:00");
       setHomeElapsedSeconds(null);
       setHomeBrewTimeSeconds(null);
-      setHomeSampleColour(null);
       setHomeSampleNumber(null);
       setScanStatusMessage("");
       setSelectedCupContext(null);
@@ -667,7 +657,6 @@ export function AppNavigator() {
       });
       setHomeStateLabel("Off");
       setHomeTimeLabel("00:00");
-      setHomeSampleColour(null);
       setHomeSampleNumber(null);
       setScanStatusMessage("Cup reset to OFF.");
     } catch (error) {
@@ -705,7 +694,6 @@ export function AppNavigator() {
       setHomeTimeLabel("00:00");
       setHomeElapsedSeconds(0);
       setHomeBrewTimeSeconds(null);
-      setHomeSampleColour(null);
       setHomeSampleNumber(null);
       setScanStatusMessage("Cup switched to BREWING.");
     } catch (error) {
@@ -786,10 +774,11 @@ export function AppNavigator() {
     const isSessionComplete =
       options.isSessionComplete ?? selectedCupContext?.isSessionComplete ?? sample.sessionStatus === "complete";
     const cupStatus = options.cupStatus || { state: "CUPPING", temp: "N/A", time: "00:00" };
+    const fallbackTagType = looksLikeSmartCupUuid(sample.cupUUID) ? null : NFC_TAG_TYPES.NTAG_CUP;
 
     return {
       cupUUID: sample.cupUUID,
-      tagType: runtime.tagType || NFC_TAG_TYPES.NTAG_CUP,
+      tagType: runtime.tagType || fallbackTagType,
       cupStateNumber,
       cupStatus,
       sessionId: options.sessionId || selectedCupContext?.sessionId || sample.sessionId,
@@ -797,7 +786,6 @@ export function AppNavigator() {
       cupIndex: index,
       cupTotal: total,
       sampleNumber: Number(sample.sampleNumber) || index + 1,
-      sampleColour: sample.sampleColour || null,
       cuppingMode: sample.cuppingMode || "blind",
       coffeeNameOrigin: sample.coffeeNameOrigin || "",
       process: sample.process || "",
@@ -901,7 +889,6 @@ export function AppNavigator() {
           cupIndex={selectedCupContext?.cupIndex}
           cupTotal={selectedCupContext?.cupTotal}
           sampleNumber={selectedCupContext?.sampleNumber}
-          sampleColour={selectedCupContext?.sampleColour}
           cuppingMode={selectedCupContext?.cuppingMode}
           coffeeNameOrigin={selectedCupContext?.coffeeNameOrigin}
           process={selectedCupContext?.process}
@@ -1026,7 +1013,13 @@ export function AppNavigator() {
       return <CoffeeLibraryScreen onBackPress={() => setRoute("Home")} onSearchPress={() => {}} />;
     }
     if (route === "Cup Settings") {
-      return <CupSettingsScreen onBackPress={() => setRoute("Home")} />;
+      return (
+        <CupSettingsScreen
+          onBackPress={() => setRoute("Home")}
+          onResetCupToOff={handleResetCupToOffFromMenu}
+          onSwitchCupToBrewing={handleSwitchCupToBrewingFromMenu}
+        />
+      );
     }
     if (route === "Account") {
       return <AccountScreen onBackPress={() => setRoute("Home")} />;
@@ -1048,7 +1041,6 @@ export function AppNavigator() {
         timeLabel={homeTimeLabel}
         elapsedSeconds={homeElapsedSeconds}
         brewTimeSeconds={homeBrewTimeSeconds}
-        sampleColour={homeSampleColour}
         sampleNumber={homeSampleNumber}
       />
     );
@@ -1065,7 +1057,6 @@ export function AppNavigator() {
     homeTimeLabel,
     homeElapsedSeconds,
     homeBrewTimeSeconds,
-    homeSampleColour,
     homeSampleNumber,
   ]);
 
@@ -1108,37 +1099,20 @@ export function AppNavigator() {
               {MENU_ITEMS.map((item) => (
                 <Pressable
                   key={item.key}
-                  style={[styles.drawerItem, item.key === "nfc-test" ? styles.hiddenDrawerItem : null]}
+                  style={({ pressed }) => [styles.drawerItem, pressed && styles.drawerItemPressed]}
                   onPress={() => {
-                    if (item.action === "reset-cup-off") {
-                      handleResetCupToOffFromMenu();
-                      return;
-                    }
-                    if (item.action === "switch-cup-brewing") {
-                      handleSwitchCupToBrewingFromMenu();
-                      return;
-                    }
                     if (item.setSessionId) {
                       setSelectedSessionId(selectedCupContext?.sessionId || null);
-                    }
-                    if (item.clearSessionId) {
-                      setSelectedSessionId(null);
                     }
                     navigate(item.route);
                   }}
                   accessibilityRole="button"
                   accessibilityLabel={`Open ${item.label}`}
                 >
-                  <Text
-                    style={[styles.drawerItemText, item.key === "nfc-test" ? styles.hiddenDrawerItemText : null]}
-                  >
-                    {item.label}
-                  </Text>
-                  <AppIcon
-                    name="chevron-right"
-                    role="icon_compact"
-                    style={[styles.drawerChevron, item.key === "nfc-test" ? styles.hiddenDrawerItemText : null]}
-                  />
+                  <View style={styles.drawerItemMeta}>
+                    <Text style={styles.drawerItemText}>{item.label}</Text>
+                  </View>
+                  <Text style={styles.drawerChevron}>›</Text>
                 </Pressable>
               ))}
             </View>
@@ -1246,12 +1220,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 18,
+    paddingTop: 18,
     paddingBottom: 18,
+    backgroundColor: colors.panel,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.quietBorder,
   },
   drawerTitle: {
-    ...typography.text_screen_title,
+    ...typography.text_section_title,
   },
   closeButton: {
     width: 36,
@@ -1260,33 +1236,32 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   drawerList: {
-    paddingHorizontal: 12,
-    paddingTop: 16,
-    gap: 6,
+    paddingHorizontal: 18,
+    borderTopWidth: 1,
+    borderColor: colors.quietBorder,
   },
   drawerItem: {
     minHeight: 52,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
+    gap: spacing.sm,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderColor: colors.quietBorder,
+  },
+  drawerItemPressed: {
+    opacity: 0.6,
+  },
+  drawerItemMeta: {
+    flex: 1,
+    gap: 2,
   },
   drawerItemText: {
     ...typography.text_body,
-    fontSize: 17,
-  },
-  hiddenDrawerItem: {
-    borderColor: "#ffffff",
-    backgroundColor: "#ffffff",
-  },
-  hiddenDrawerItemText: {
-    color: "#ffffff",
   },
   drawerChevron: {
+    ...typography.text_body,
+    color: colors.inkSoft,
     fontSize: 20,
   },
 });

@@ -193,6 +193,9 @@ function normalizeText2Payload(payload) {
   const time = payload.time ?? payload.m ?? payload.tm ?? payload.ti;
   const battery = payload.battery ?? payload.b;
   const uuid = payload.UUID ?? payload.uuid ?? payload.u;
+  // "v" (firmware version) was added to NDEF2 under cup firmware >=0.3.0.
+  // Optional/nullable — cups on older firmware simply omit it.
+  const firmwareVersion = payload.firmwareVersion ?? payload.v;
 
   return {
     ...payload,
@@ -200,6 +203,7 @@ function normalizeText2Payload(payload) {
     ...(time !== undefined ? { time } : {}),
     ...(battery !== undefined ? { battery } : {}),
     ...(uuid !== undefined ? { UUID: uuid, uuid } : {}),
+    ...(firmwareVersion !== undefined ? { firmwareVersion } : {}),
   };
 }
 
@@ -236,7 +240,6 @@ function normalizeText4Payload(payload) {
   const cupNumber = payload.cupNumber ?? payload.y;
   const samplesInSession = payload.samplesInSession ?? payload.i;
   const sampleNumber = payload.sampleNumber ?? payload.z;
-  const sampleColour = payload.sampleColour ?? payload.k;
   const sessionName = payload.sessionName ?? payload.e;
   const sessionType = payload.sessionType ?? payload.t;
   const sessionDate = payload.sessionDate ?? payload.d;
@@ -249,7 +252,6 @@ function normalizeText4Payload(payload) {
     ...(cupNumber !== undefined ? { cupNumber } : {}),
     ...(samplesInSession !== undefined ? { samplesInSession } : {}),
     ...(sampleNumber !== undefined ? { sampleNumber } : {}),
-    ...(sampleColour !== undefined ? { sampleColour } : {}),
     ...(sessionName !== undefined ? { sessionName } : {}),
     ...(sessionType !== undefined ? { sessionType } : {}),
     ...(sessionDate !== undefined ? { sessionDate } : {}),
@@ -316,7 +318,6 @@ function compactText4Payload(payload) {
   const cupNumber = payload.y ?? payload.cupNumber;
   const samplesInSession = payload.i ?? payload.samplesInSession;
   const sampleNumber = payload.z ?? payload.sampleNumber;
-  const sampleColour = payload.k ?? payload.sampleColour;
   const sessionName = payload.e ?? payload.sessionName;
   const sessionType = payload.t ?? payload.sessionType;
   const sessionDate = payload.d ?? payload.sessionDate;
@@ -330,7 +331,6 @@ function compactText4Payload(payload) {
     ...(cupNumber !== undefined ? { y: cupNumber } : {}),
     ...(samplesInSession !== undefined ? { i: samplesInSession } : {}),
     ...(sampleNumber !== undefined ? { z: sampleNumber } : {}),
-    ...(sampleColour !== undefined ? { k: sampleColour } : {}),
     ...(sessionName !== undefined ? { e: sessionName } : {}),
     ...(sessionType !== undefined ? { t: sessionType } : {}),
     ...(sessionDate !== undefined ? { d: sessionDate } : {}),

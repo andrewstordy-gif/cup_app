@@ -20,6 +20,41 @@ const DEFAULT_FIELDS = {
   ledBrightnessPercent: "-",
 };
 
+const DEFAULT_BATTERY_LEVEL = "-";
+const DEFAULT_FIRMWARE_VERSION = "-";
+const DEFAULT_CUP_STATUS = "-";
+
+// Mirrors AppNavigator's getStateLabel mapping (text1.s/state) — state 4 is
+// a real firmware-reported value, not a battery-percentage threshold.
+function buildCupStatusFromParsed(parsed) {
+  const rawState = parsed?.text1?.s ?? parsed?.text1?.state;
+  const state = Number(rawState);
+  if (!Number.isFinite(state)) {
+    return DEFAULT_CUP_STATUS;
+  }
+  if (state === 0) return "OFF";
+  if (state === 1) return "READY";
+  if (state === 2) return "BREWING";
+  if (state === 3) return "CUPPING";
+  if (state === 4) return "LOW BATTERY";
+  return "UNKNOWN";
+}
+
+function buildBatteryLevelFromParsed(parsed) {
+  const text2 = parsed?.text2 || {};
+  const battery = Number(text2.battery ?? text2.b);
+  return Number.isFinite(battery) ? `${battery}%` : DEFAULT_BATTERY_LEVEL;
+}
+
+function buildFirmwareVersionFromParsed(parsed) {
+  const text2 = parsed?.text2 || {};
+  // Optional/nullable on the cup side — omitted entirely by firmware <0.3.0.
+  const firmwareVersion = text2.firmwareVersion ?? text2.v;
+  return typeof firmwareVersion === "string" && firmwareVersion.trim()
+    ? firmwareVersion.trim()
+    : DEFAULT_FIRMWARE_VERSION;
+}
+
 const FALLBACK_SETTINGS_FIELDS = {
   triggerTemp: "40",
   maxWaterTemp: "96",
@@ -204,7 +239,7 @@ function BrewTimeField({
   );
 }
 
-export function CupSettingsScreen({ onBackPress }) {
+export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToBrewing }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [fields, setFields] = useState(DEFAULT_FIELDS);
@@ -212,8 +247,12 @@ export function CupSettingsScreen({ onBackPress }) {
   const [statusMessage, setStatusMessage] = useState("Scan a cup to read settings.");
   const [isSyncing, setIsSyncing] = useState(false);
   const [warning, setWarning] = useState({ visible: false, title: "", message: "" });
-  const [mode, setMode] = useState("read");
+  const [canEdit, setCanEdit] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [lastReadCupState, setLastReadCupState] = useState(null);
+  const [batteryLevel, setBatteryLevel] = useState(DEFAULT_BATTERY_LEVEL);
+  const [firmwareVersion, setFirmwareVersion] = useState(DEFAULT_FIRMWARE_VERSION);
+  const [cupStatus, setCupStatus] = useState(DEFAULT_CUP_STATUS);
 
   const settingsPayload = useMemo(
     () => ({
@@ -228,6 +267,9 @@ export function CupSettingsScreen({ onBackPress }) {
 
   const handleFieldChange = (key, value) => {
     setFields((prev) => ({ ...prev, [key]: value }));
+    if (canEdit) {
+      setIsDirty(true);
+    }
     if (fieldErrors[key]) {
       setFieldErrors((prev) => ({ ...prev, [key]: undefined }));
     }
@@ -255,8 +297,12 @@ export function CupSettingsScreen({ onBackPress }) {
 
       setFields(buildFieldsFromParsed(parsed));
       setFieldErrors({});
+      setBatteryLevel(buildBatteryLevelFromParsed(parsed));
+      setFirmwareVersion(buildFirmwareVersionFromParsed(parsed));
+      setCupStatus(buildCupStatusFromParsed(parsed));
       setLastReadCupState(Number.isFinite(state) ? state : null);
-      setMode("write");
+      setCanEdit(true);
+      setIsDirty(false);
       setStatusMessage("Settings loaded. You can now edit and write them back.");
     } catch (error) {
       await playNfcFailureFeedback(error);
@@ -302,7 +348,8 @@ export function CupSettingsScreen({ onBackPress }) {
         text4: {},
       });
 
-      setMode("read");
+      setCanEdit(false);
+      setIsDirty(false);
       setLastReadCupState(null);
       setStatusMessage("Settings written. Scan another cup to read settings.");
     } catch (error) {
@@ -327,7 +374,7 @@ export function CupSettingsScreen({ onBackPress }) {
   };
 
   const handlePrimaryAction = async () => {
-    if (mode === "read") {
+    if (!isDirty) {
       await handleReadSettings();
       return;
     }
@@ -345,6 +392,18 @@ export function CupSettingsScreen({ onBackPress }) {
           { paddingHorizontal: 26 * scale, paddingTop: 24 * scale, paddingBottom: 48 * scale, gap: spacing.lg },
         ]}
       >
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>Cup Status</Text>
+          <Text style={[styles.helpText, { marginTop: 2 * scale }]}>
+            The cup's last reported status
+          </Text>
+          <Text
+            style={[styles.readOnlyValue, { marginTop: spacing.sm }]}
+            accessibilityLabel={`Cup status: ${cupStatus}`}
+          >
+            {cupStatus}
+          </Text>
+        </View>
         <SettingsField
           label="Trigger Temp"
           helpText="The temp the sensor must read to start the brewing stage"
@@ -352,7 +411,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("triggerTemp", value)}
           accessibilityLabel="Trigger Temp input"
           error={fieldErrors.triggerTemp}
-          disabled={mode !== "write"}
+          disabled={!canEdit}
           scale={scale}
         />
         <SettingsField
@@ -362,7 +421,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("maxWaterTemp", value)}
           accessibilityLabel="Max Water Temp input"
           error={fieldErrors.maxWaterTemp}
-          disabled={mode !== "write"}
+          disabled={!canEdit}
           scale={scale}
         />
         <BrewTimeField
@@ -371,7 +430,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeMinutes={(value) => handleFieldChange("brewMinutes", value)}
           onChangeSeconds={(value) => handleFieldChange("brewSeconds", value)}
           error={fieldErrors.brewTime}
-          disabled={mode !== "write"}
+          disabled={!canEdit}
           scale={scale}
         />
         <SettingsField
@@ -381,7 +440,7 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("maxCupTemp", value)}
           accessibilityLabel="Max Cupping Temp input"
           error={fieldErrors.maxCupTemp}
-          disabled={mode !== "write"}
+          disabled={!canEdit}
           scale={scale}
         />
         <SettingsField
@@ -391,9 +450,59 @@ export function CupSettingsScreen({ onBackPress }) {
           onChangeText={(value) => handleFieldChange("ledBrightnessPercent", value)}
           accessibilityLabel="LED Brightness percent input"
           error={fieldErrors.ledBrightnessPercent}
-          disabled={mode !== "write"}
+          disabled={!canEdit}
           scale={scale}
         />
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>Battery Level</Text>
+          <Text style={[styles.helpText, { marginTop: 2 * scale }]}>
+            The cup's last reported battery level
+          </Text>
+          <Text
+            style={[styles.readOnlyValue, { marginTop: spacing.sm }]}
+            accessibilityLabel={`Battery level: ${batteryLevel}`}
+          >
+            {batteryLevel}
+          </Text>
+        </View>
+        <View style={styles.fieldBlock}>
+          <Text style={styles.fieldLabel}>Firmware Version</Text>
+          <Text style={[styles.helpText, { marginTop: 2 * scale }]}>
+            The cup's reported firmware version
+          </Text>
+          <Text
+            style={[styles.readOnlyValue, { marginTop: spacing.sm }]}
+            accessibilityLabel={`Firmware version: ${firmwareVersion}`}
+          >
+            {firmwareVersion}
+          </Text>
+        </View>
+        {typeof onResetCupToOff === "function" || typeof onSwitchCupToBrewing === "function" ? (
+          <View style={styles.fieldBlock}>
+            <Text style={styles.fieldLabel}>Cup Actions</Text>
+            <Text style={[styles.helpText, { marginTop: 2 * scale }]}>
+              Scan a cup to change its state directly
+            </Text>
+            {typeof onResetCupToOff === "function" ? (
+              <FullPageButton
+                label="Reset Cup to OFF"
+                onPress={onResetCupToOff}
+                accessibilityLabel="Reset cup to off"
+                style={[styles.actionButton, { marginTop: spacing.sm }]}
+                textStyle={styles.actionButtonText}
+              />
+            ) : null}
+            {typeof onSwitchCupToBrewing === "function" ? (
+              <FullPageButton
+                label="Switch Cup to BREWING"
+                onPress={onSwitchCupToBrewing}
+                accessibilityLabel="Switch cup to brewing"
+                style={[styles.actionButton, { marginTop: spacing.sm }]}
+                textStyle={styles.actionButtonText}
+              />
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
 
       <View style={[styles.footer, { paddingHorizontal: 26 * scale }]}>
@@ -401,10 +510,10 @@ export function CupSettingsScreen({ onBackPress }) {
           {statusMessage}
         </Text>
         <FullPageButton
-          label={mode === "write" ? "Write Settings" : "Read Settings"}
+          label={isDirty ? "Write Settings" : "Read Settings"}
           onPress={handlePrimaryAction}
           loading={isSyncing}
-          accessibilityLabel={mode === "write" ? "Write cup settings" : "Read cup settings"}
+          accessibilityLabel={isDirty ? "Write cup settings" : "Read cup settings"}
           style={styles.scanButton}
         />
       </View>
@@ -439,6 +548,10 @@ const styles = StyleSheet.create({
   helpText: {
     ...typography.text_secondary_body,
     color: colors.inkSoft,
+  },
+  readOnlyValue: {
+    ...typography.text_body,
+    color: colors.ink,
   },
   input: {
     borderWidth: 1,
@@ -481,6 +594,12 @@ const styles = StyleSheet.create({
   },
   scanButton: {
     backgroundColor: colors.action,
+  },
+  actionButton: {
+    backgroundColor: colors.muted,
+  },
+  actionButtonText: {
+    color: colors.ink,
   },
   footer: {
     borderTopWidth: 1,

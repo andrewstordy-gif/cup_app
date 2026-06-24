@@ -45,6 +45,10 @@
     <true/>
     <key>NFCReaderUsageDescription</key>
     <string>This app scans NFC cup tags to read and write cupping session data.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>This app uses the camera to take a profile photo.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>This app accesses your photo library to choose a profile photo.</string>
     <key>NSAppTransportSecurity</key>
     <dict>
       <key>NSAllowsArbitraryLoads</key>

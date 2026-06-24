@@ -51,13 +51,6 @@ export const CUPPING_FORM_OPTIONS = [
 ];
 
 export const PENDING_CONFLICT_ERROR = "PENDING_CUP_CONFLICT";
-export const SAMPLE_COLOUR_OPTIONS = [
-  { key: "green", label: "Green", hex: "#00A651" },
-  { key: "yellow", label: "Yellow", hex: "#FFD43B" },
-  { key: "blue", label: "Blue", hex: "#3478F6" },
-  { key: "red", label: "Red", hex: "#FF3B30" },
-  { key: "black", label: "Black", hex: "#111111" },
-];
 export const PROCESS_OPTIONS = [
   { key: 1, label: "Washed (Wet)", aliases: ["Washed"] },
   { key: 2, label: "Natural (Dry)", aliases: ["Natural"] },
@@ -187,27 +180,6 @@ export function getProcessLabel(value) {
 
 export function compactProcessValue(value) {
   return normalizeProcessKey(value) ?? String(value || "").trim();
-}
-
-export function normalizeSampleColour(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "";
-  }
-
-  const option = SAMPLE_COLOUR_OPTIONS.find(
-    (entry) =>
-      entry.key === text.toLowerCase() ||
-      entry.label.toLowerCase() === text.toLowerCase() ||
-      entry.hex.toLowerCase() === text.toLowerCase()
-  );
-
-  if (option) {
-    return option.hex;
-  }
-
-  const normalized = text.startsWith("#") ? text : `#${text}`;
-  return /^#[0-9a-fA-F]{6}$/.test(normalized) ? normalized.toUpperCase() : "";
 }
 
 export function normalizePositiveInteger(value, fallback = 0) {
@@ -353,7 +325,6 @@ export function createSample(data = {}) {
     cupUUID: data.cupUUID || "",
     cupNumber,
     sampleNumber: normalizePositiveInteger(data.sampleNumber),
-    sampleColour: normalizeSampleColour(data.sampleColour),
     cuppingForm: normalizeCuppingFormKey(data.cuppingForm) ?? 1,
     verificationStatus: data.verificationStatus || "unverified",
   };
@@ -365,7 +336,6 @@ export function buildCompactSessionMetadata({
   cupNumber,
   samplesInSession,
   sampleNumber,
-  sampleColour,
   cuppingMode,
   cuppingForm,
   sessionName,
@@ -379,7 +349,6 @@ export function buildCompactSessionMetadata({
     y: Number.isInteger(Number(cupNumber)) ? Number(cupNumber) : 3,
     ...(Number.isInteger(Number(samplesInSession)) ? { i: Number(samplesInSession) } : {}),
     ...(Number.isInteger(Number(sampleNumber)) ? { z: Number(sampleNumber) } : {}),
-    ...(normalizeSampleColour(sampleColour) ? { k: normalizeSampleColour(sampleColour) } : {}),
     m: compactCuppingModeValue(cuppingMode),
     f: compactCuppingFormValue(cuppingForm),
     e: String(sessionName || "").trim(),
@@ -403,8 +372,6 @@ export function doesMetadataMatchExpected(actual, expected) {
       Number(actual.i ?? actual.samplesInSession ?? 0) === Number(expected.i || 0)) &&
     (expected.z === undefined ||
       Number(actual.z ?? actual.sampleNumber ?? 0) === Number(expected.z || 0)) &&
-    (expected.k === undefined ||
-      normalizeSampleColour(actual.k ?? actual.sampleColour ?? "") === normalizeSampleColour(expected.k ?? "")) &&
     String(compactCuppingModeValue(actual.m ?? actual.cuppingMode ?? "")) ===
       String(compactCuppingModeValue(expected.m ?? expected.cuppingMode ?? "")) &&
     Number(compactCuppingFormValue(actual.f ?? actual.cuppingForm ?? 1)) ===

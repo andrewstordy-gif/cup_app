@@ -797,7 +797,6 @@ export function CuppingScreen({
   sessionId = null,
   sampleId = null,
   sampleNumber = null,
-  sampleColour = null,
   cuppingMode = "blind",
   coffeeNameOrigin = "",
   process = "",
@@ -1925,7 +1924,6 @@ export function CuppingScreen({
                 sampleNumber={sampleNumber}
                 samplesInSession={cupTotal}
                 cupIndex={cupIndex}
-                sampleColour={sampleColour}
                 scale={scale}
               />
             }

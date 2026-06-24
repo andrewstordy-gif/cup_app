@@ -10,7 +10,9 @@
       "supportsTablet": true,
       "buildNumber": "2",
       "infoPlist": {
-        "NFCReaderUsageDescription": "This app scans NFC cup tags to read and write cupping session data."
+        "NFCReaderUsageDescription": "This app scans NFC cup tags to read and write cupping session data.",
+        "NSCameraUsageDescription": "This app uses the camera to take a profile photo.",
+        "NSPhotoLibraryUsageDescription": "This app accesses your photo library to choose a profile photo."
       },
       "entitlements": {
         "com.apple.developer.nfc.readersession.formats": [

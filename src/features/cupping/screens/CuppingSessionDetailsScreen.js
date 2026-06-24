@@ -46,7 +46,6 @@ import {
   normalizeCupUuid,
   PENDING_CONFLICT_ERROR,
   resolveCupUUIDFromReadResult,
-  SAMPLE_COLOUR_OPTIONS,
   SESSION_TYPE_OPTIONS,
 } from "../constants/sessionDetails";
 import {
@@ -246,7 +245,6 @@ export function CuppingSessionDetailsScreen({
                 cupNumber: sample.cupNumber,
                 cuppingForm: sample.cuppingForm,
                 sampleNumber: sample.sampleNumber,
-                sampleColour: sample.sampleColour,
                 verificationStatus: sample.verificationStatus,
               }),
               cuppingMode: normalizeCuppingModeKey(sample.cuppingMode),
@@ -574,11 +572,6 @@ export function CuppingSessionDetailsScreen({
           samplesInSession,
           Math.max(samples.length, sampleNumber)
         );
-        const sampleColour =
-          duplicateIndex === -1
-            ? SAMPLE_COLOUR_OPTIONS[samples.length % SAMPLE_COLOUR_OPTIONS.length].hex
-            : samples[duplicateIndex]?.sampleColour ||
-              SAMPLE_COLOUR_OPTIONS[duplicateIndex % SAMPLE_COLOUR_OPTIONS.length].hex;
         const isNtagCup =
           !isSmartCupHardware &&
           (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
@@ -590,7 +583,6 @@ export function CuppingSessionDetailsScreen({
           cupNumber: sheetCupNumber,
           samplesInSession: sessionSampleCount,
           sampleNumber,
-          sampleColour,
           cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
           cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
           sessionName: effectiveSessionName,
@@ -610,7 +602,6 @@ export function CuppingSessionDetailsScreen({
                     cupNumber: sheetCupNumber,
                     cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
                     sampleNumber,
-                    sampleColour,
                     verificationStatus: "pending",
                   }),
                   cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
@@ -627,7 +618,6 @@ export function CuppingSessionDetailsScreen({
                       cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
                       cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
                       sampleNumber,
-                      sampleColour,
                       verificationStatus: "pending",
                     }
                   : sample
@@ -799,7 +789,6 @@ export function CuppingSessionDetailsScreen({
         cupNumber: sampleForMetadata.cupNumber,
         samplesInSession: expectedSamplesInSession,
         sampleNumber: expectedSampleNumber,
-        sampleColour: sampleForMetadata.sampleColour,
         cuppingMode: sampleForMetadata.cuppingMode,
         cuppingForm: sampleForMetadata.cuppingForm,
         sessionName: sessionName || pendingQuickStartReadyRef.current?.sample?.coffeeNameOrigin || sampleForMetadata.coffeeNameOrigin,
@@ -882,7 +871,6 @@ export function CuppingSessionDetailsScreen({
       cupNumber: sampleForMetadata.cupNumber,
       samplesInSession: expectedSamplesInSession,
       sampleNumber: expectedSampleNumber,
-      sampleColour: sampleForMetadata.sampleColour,
       cuppingMode: sampleForMetadata.cuppingMode,
       cuppingForm: sampleForMetadata.cuppingForm,
       sessionName,

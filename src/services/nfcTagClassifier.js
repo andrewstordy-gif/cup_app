@@ -52,8 +52,6 @@ function isSessionMetadataPayload(payload) {
     "i",
     "sampleNumber",
     "z",
-    "sampleColour",
-    "k",
     "sessionName",
     "e",
     "sessionType",
@@ -168,7 +166,12 @@ export function getNfcTagIdentifier(tag) {
   return String(rawId || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
 }
 
+export function looksLikeSmartCupUuid(cupUUID) {
+  const tagId = String(cupUUID || "").replace(/[^a-z0-9]/gi, "").toUpperCase();
+  return /^E0/.test(tagId);
+}
+
 export function isSmartCupHardwareTag(tag) {
   const tagId = getNfcTagIdentifier(tag);
-  return Boolean(tag?.icManufacturerCode || tag?.icSerialNumber || /^E0/i.test(tagId));
+  return Boolean(tag?.icManufacturerCode || tag?.icSerialNumber || looksLikeSmartCupUuid(tagId));
 }

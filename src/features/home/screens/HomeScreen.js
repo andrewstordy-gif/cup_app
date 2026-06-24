@@ -46,6 +46,9 @@ function resolveHomeState(stateLabel) {
   if (state === "ready") {
     return { title: "Ready", isBrewing: false, showTemperature: true };
   }
+  if (state === "off") {
+    return { title: "Off", isBrewing: false, showTemperature: true };
+  }
   return { title: "Home", isBrewing: false, showTemperature: false };
 }
 
@@ -60,7 +63,6 @@ export function HomeScreen({
   timeLabel = "00:00",
   elapsedSeconds = null,
   brewTimeSeconds = null,
-  sampleColour = null,
   sampleNumber = null,
 }) {
   const { width } = useWindowDimensions();

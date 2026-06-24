@@ -90,6 +90,7 @@ Compact keys:
 - `NDEF2.m` = elapsed time in seconds
 - `NDEF2.b` = battery
 - `NDEF2.u` = physical cup UUID
+- `NDEF2.v` = firmware version (SemVer string, e.g. `"0.2.0"`; optional — omitted by cups on firmware older than the release that added it). The app decodes this field but never writes it back — `NDEF2` is cup-owned and republished by the cup itself on every interaction.
 - `NDEF3.r` = trigger temp
 - `NDEF3.a` = max start temp
 - `NDEF3.w` = brew time

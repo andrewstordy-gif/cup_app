@@ -284,7 +284,7 @@ const expectedMetadata = buildExpectedMetadata();
 assert(doesMetadataMatchExpected(baseMetadata, expectedMetadata), "expected metadata matches compact NDEF4 payload");
 
 const wrongColour = { ...baseMetadata, k: "#00A651" };
-assert(!doesMetadataMatchExpected(wrongColour, expectedMetadata), "wrong sample colour fails metadata verification");
+assert(doesMetadataMatchExpected(wrongColour, expectedMetadata), "legacy sample colour differences are ignored");
 
 const wrongSession = { ...baseMetadata, u: "different-session" };
 assert(!doesMetadataMatchExpected(wrongSession, expectedMetadata), "wrong session UUID fails metadata verification");
