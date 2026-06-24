@@ -21,6 +21,7 @@ Each entry should include the date, the agent that made the change, and a short 
 - `src/navigation/AppNavigator.js`, `src/features/home/screens/HomeScreen.js`, `src/features/cupping/screens/CuppingScreen.js`, and `src/features/cupping/screens/CuppingSessionDetailsScreen.js`: removed the live UI/context plumbing for sample colour, including Home/Cupping props and the add-sample colour-cycling logic. `ActiveSessionScreen.js` was intentionally left untouched because it is an orphaned route per the current app direction.
 - `docs/DATABASE_SCHEMA.md`: removed the `sample_colour` row from the documented `samples` table so the schema reference matches the live database model.
 - `scripts/virtual-nfc-robustness-check.js`: updated the metadata verification check so legacy sample-colour differences are treated as ignored, matching the new sample-colour-free cup metadata contract.
+- `app.json`: linked the app to the new EAS project `@andrewstordy/cup` so production iOS builds can be submitted through the EAS/TestFlight path.
 
 ## [2026-06-23] — Claude Code
 

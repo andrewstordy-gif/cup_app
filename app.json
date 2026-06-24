@@ -43,6 +43,12 @@
         }
       ],
       "expo-sqlite"
-    ]
+    ],
+    "extra": {
+      "appDisplayName": "cup",
+      "eas": {
+        "projectId": "a80a13f3-0ccf-4040-b71e-ed285585e160"
+      }
+    }
   }
 }
