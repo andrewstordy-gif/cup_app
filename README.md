@@ -314,21 +314,50 @@ The current manual release route is Xcode archive upload:
 
 1. Open `ios/cup.xcworkspace` in Xcode.
 2. Select the app target.
-3. Confirm Signing & Capabilities includes NFC Tag Reading. For NFC, keep NDEF/TAG enabled.
-4. Increment the build number when uploading another TestFlight build.
-5. Select a physical iPhone or `Any iOS Device (arm64)` as the destination.
-6. Choose Product -> Archive.
-7. In Organizer, select the archive and choose Distribute App.
-8. Upload to App Store Connect for TestFlight processing.
+3. Confirm the selected Apple Developer team is the personal CUP app team, not IKAWA LTD.
+4. Confirm Signing & Capabilities includes NFC Tag Reading. For NFC, keep NDEF/TAG enabled.
+5. Confirm the bundle identifier is `com.andrewstordy.cup`.
+6. Increment the build number when uploading another TestFlight build.
+7. Select a physical iPhone or `Any iOS Device (arm64)` as the destination.
+8. Choose Product -> Archive.
+9. In Organizer, select the archive and choose Distribute App.
+10. Upload to App Store Connect for TestFlight processing.
+
+Do not use the IKAWA LTD Apple Developer team for CUP app TestFlight releases.
 
 The version shown in Organizer is `MARKETING_VERSION (CURRENT_PROJECT_VERSION)`, for example `0.1.0 (2)`.
 
-### EAS Build Alternative
+### EAS Build For TestFlight
 
-The root `eas.json` also contains a production iOS profile for App Store Connect/TestFlight builds.
+The root `eas.json` contains a production iOS profile for App Store Connect/TestFlight builds. Use the personal Apple Developer account for CUP app releases:
 
 ```bash
 npx eas login
+npx eas build --platform ios --profile production --auto-submit
+```
+
+When EAS asks for Apple Developer credentials:
+
+- Use Apple ID `andrewstordy@gmail.com`.
+- Do not accept a prefilled `andrew@ikawacoffee.com` prompt.
+- Do not choose the IKAWA LTD Apple Developer team.
+- If EAS restores a cached IKAWA session, overwrite the Apple ID prompt with `andrewstordy@gmail.com` before continuing.
+
+The linked EAS project is `@andrewstordy/cup`.
+
+For manual submit after a completed EAS build:
+
+```bash
+npx eas submit --platform ios --profile production
+```
+
+If EAS reports Apple agreement updates for IKAWA LTD, stop. That means the build is using the wrong Apple account/team.
+
+### EAS Build Alternative
+
+For a build without automatic submission:
+
+```bash
 npx eas build --platform ios --profile production
 npx eas submit --platform ios --profile production
 ```
