@@ -8,6 +8,11 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
+## [2026-06-25] — Codex
+
+- `src/features/account/screens/AccountScreen.js`: made previous profile-photo cleanup best-effort and restricted it to stored profile photos in the app documents directory, so an iOS file-cleanup failure cannot block selecting a new TestFlight profile picture.
+- `app.json`, `ios/cup/Info.plist`, and `ios/cup.xcodeproj/project.pbxproj`: bumped the iOS build number from `4` to `5` for a new TestFlight build containing the profile-photo fix.
+
 ## [2026-06-24] — Codex
 
 - `src/navigation/AppNavigator.js` and `src/features/account/screens/AccountScreen.js`: renamed the visible Account entry/header to "Profile" while keeping the existing internal route/screen naming to avoid noisy navigation churn.

@@ -12,6 +12,15 @@ import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
 
+function isStoredProfilePhotoUri(uri) {
+  return (
+    Boolean(uri) &&
+    Boolean(FileSystem.documentDirectory) &&
+    uri.startsWith(FileSystem.documentDirectory) &&
+    uri.includes("/profile-photo-")
+  );
+}
+
 async function copyPhotoToDocuments(sourceUri, previousUri) {
   if (!sourceUri || !FileSystem.documentDirectory) {
     return "";
@@ -23,8 +32,12 @@ async function copyPhotoToDocuments(sourceUri, previousUri) {
     to: targetUri,
   });
 
-  if (previousUri && previousUri !== targetUri) {
-    await FileSystem.deleteAsync(previousUri, { idempotent: true });
+  if (previousUri && previousUri !== targetUri && isStoredProfilePhotoUri(previousUri)) {
+    try {
+      await FileSystem.deleteAsync(previousUri, { idempotent: true });
+    } catch {
+      // Cleanup is best-effort; a stale profile photo should not block selecting a new one.
+    }
   }
 
   return targetUri;
