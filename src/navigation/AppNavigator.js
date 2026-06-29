@@ -16,7 +16,7 @@ import { CloseButton } from "../components/ui/IconButton";
 import { colors } from "../theme/colors";
 import { spacing } from "../theme/spacing";
 import { typography } from "../theme/typography";
-import { readNdefMinimal, writeNdefMinimal } from "../services/nfcServiceMinimal";
+import { readAndWriteNdefMinimal, readNdefMinimal } from "../services/nfcServiceMinimal";
 import {
   NFC_TAG_TYPES,
   classifyNfcTagReadResult,
@@ -649,12 +649,14 @@ export function AppNavigator() {
     setScanStatusMessage("Scan cup to reset it to OFF...");
     try {
       await delay(HOME_WRITE_HANDOFF_MS);
-      await writeNdefMinimal({
-        text1: { state: 0 },
-        text2: {},
-        text3: {},
-        text4: {},
-      });
+      await readAndWriteNdefMinimal(async (result) => ({
+        records: {
+          text1: { state: 0 },
+          text2: result?.parsed?.text2 || {},
+          text3: result?.parsed?.text3 || {},
+          text4: result?.parsed?.text4 || {},
+        },
+      }));
       setHomeStateLabel("Off");
       setHomeTimeLabel("00:00");
       setHomeSampleNumber(null);
@@ -684,12 +686,14 @@ export function AppNavigator() {
     setScanStatusMessage("Scan cup to switch it to BREWING...");
     try {
       await delay(HOME_WRITE_HANDOFF_MS);
-      await writeNdefMinimal({
-        text1: { state: BREWING_STATE },
-        text2: {},
-        text3: {},
-        text4: {},
-      });
+      await readAndWriteNdefMinimal(async (result) => ({
+        records: {
+          text1: { state: BREWING_STATE },
+          text2: result?.parsed?.text2 || {},
+          text3: result?.parsed?.text3 || {},
+          text4: result?.parsed?.text4 || {},
+        },
+      }));
       setHomeStateLabel("Brewing");
       setHomeTimeLabel("00:00");
       setHomeElapsedSeconds(0);
