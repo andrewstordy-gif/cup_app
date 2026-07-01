@@ -652,8 +652,8 @@ export function AppNavigator() {
       await readAndWriteNdefMinimal(async (result) => ({
         records: {
           text1: { state: 0 },
-          text2: result?.parsed?.text2 || {},
-          text3: result?.parsed?.text3 || {},
+          text2: {},
+          text3: {},
           text4: result?.parsed?.text4 || {},
         },
       }));
@@ -689,8 +689,8 @@ export function AppNavigator() {
       await readAndWriteNdefMinimal(async (result) => ({
         records: {
           text1: { state: BREWING_STATE },
-          text2: result?.parsed?.text2 || {},
-          text3: result?.parsed?.text3 || {},
+          text2: {},
+          text3: {},
           text4: result?.parsed?.text4 || {},
         },
       }));

@@ -8,6 +8,12 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
+## [2026-07-01] — Claude Code
+
+- `src/navigation/AppNavigator.js`: state-change writes (reset to OFF, switch to BREWING) now send `{}` for text2 and text3 instead of echoing the read values back. text4 (coffee session data) is still sent in full from the tag read. Relies on firmware 0.4.1 sparse-write support — the firmware leaves unchanged records alone when it receives `{}`.
+- `src/features/cupping/screens/CuppingSessionDetailsScreen.js`: session-start write for smart cups now sends `{}` for text2 and text3 instead of echoing the read values. text4 is still the new session metadata sent in full.
+- `src/features/cup-settings/screens/CupSettingsScreen.js`: settings write switched from `writeNdefMinimal` (write-only) to `readAndWriteNdefMinimal` so text4 is read from the tag and sent back in full, preventing coffee session data being lost. text1 and text2 sent as `{}`.
+
 ## [2026-06-25] — Codex
 
 - `src/features/account/screens/AccountScreen.js`: made previous profile-photo cleanup best-effort and restricted it to stored profile photos in the app documents directory, so an iOS file-cleanup failure cannot block selecting a new TestFlight profile picture.

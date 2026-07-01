@@ -4,7 +4,7 @@ import { TypographyAuditText as Text } from "../../../components/ui/TypographyAu
 import { Header } from "../../../components/ui/Header";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
-import { readNdefMinimal, writeNdefMinimal } from "../../../services/nfcServiceMinimal";
+import { readNdefMinimal, readAndWriteNdefMinimal } from "../../../services/nfcServiceMinimal";
 import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 import { colors } from "../../../theme/colors";
@@ -341,12 +341,14 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
     setStatusMessage("Hold your phone near the cup to write settings.");
 
     try {
-      await writeNdefMinimal({
-        text1: {},
-        text2: {},
-        text3: settingsPayload,
-        text4: {},
-      });
+      await readAndWriteNdefMinimal(async (result) => ({
+        records: {
+          text1: {},
+          text2: {},
+          text3: settingsPayload,
+          text4: result?.parsed?.text4 || {},
+        },
+      }));
 
       setCanEdit(false);
       setIsDirty(false);
