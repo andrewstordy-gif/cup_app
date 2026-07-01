@@ -632,14 +632,8 @@ export function CuppingSessionDetailsScreen({
                   ...(tagClassification.type === NFC_TAG_TYPES.SMART_CUP ? parsed?.text1 || {} : {}),
                   state: 1,
                 },
-                text2:
-                  tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-                    ? parsed?.text2 || {}
-                    : buildRecoveredSmartCupText2(tag),
-                text3:
-                  tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-                    ? parsed?.text3 || {}
-                    : RECOVERED_SMART_CUP_TEXT3,
+                text2: {},
+                text3: {},
                 text4: sessionMetadata,
               },
           result: {
