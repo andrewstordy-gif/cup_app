@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import { ScrollView, StyleSheet, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
@@ -18,6 +18,7 @@ const DEFAULT_FIELDS = {
   brewSeconds: "-",
   maxCupTemp: "-",
   ledBrightnessPercent: "-",
+  ledCount: "-",
 };
 
 const DEFAULT_BATTERY_LEVEL = "-";
@@ -61,7 +62,8 @@ const FALLBACK_SETTINGS_FIELDS = {
   brewMinutes: "4",
   brewSeconds: "00",
   maxCupTemp: "70",
-  ledBrightnessPercent: "50",
+  ledBrightnessPercent: "25",
+  ledCount: "3",
 };
 
 const VALIDATION_RULES = {
@@ -87,8 +89,10 @@ function buildFieldsFromParsed(parsed) {
   const brewSecondsTotal = Number(text3.brewTime ?? text3.w ?? Number(FALLBACK_SETTINGS_FIELDS.brewMinutes) * 60);
   const brewMinutes = Number.isFinite(brewSecondsTotal) ? Math.floor(brewSecondsTotal / 60) : 4;
   const brewSeconds = Number.isFinite(brewSecondsTotal) ? brewSecondsTotal % 60 : 0;
-  const ledRaw = Number(text3.ledBrightness ?? text3.l ?? 100);
-  const ledPercent = Number.isFinite(ledRaw) ? Math.round(ledRaw / 2) : 50;
+  const ledRaw = Number(text3.ledBrightness ?? text3.l ?? 50);
+  const ledPercent = Number.isFinite(ledRaw) ? Math.round(ledRaw / 2) : 25;
+  const ledCountRaw = text3.ledCount ?? text3.k;
+  const ledCount = ledCountRaw === 1 || ledCountRaw === "1" ? "1" : "3";
 
   return {
     triggerTemp: String(text3.triggerTemp ?? text3.r ?? FALLBACK_SETTINGS_FIELDS.triggerTemp),
@@ -97,6 +101,7 @@ function buildFieldsFromParsed(parsed) {
     brewSeconds: pad2(brewSeconds),
     maxCupTemp: String(text3.maxCupTemp ?? text3.c ?? FALLBACK_SETTINGS_FIELDS.maxCupTemp),
     ledBrightnessPercent: String(ledPercent),
+    ledCount,
   };
 }
 
@@ -186,6 +191,50 @@ function SettingsField({
   );
 }
 
+function LedCountField({ value, onChange, disabled = false, scale }) {
+  const options = [
+    { label: "1 LED", value: "1" },
+    { label: "3 LEDs", value: "3" },
+  ];
+  return (
+    <View style={styles.fieldBlock}>
+      <Text style={styles.fieldLabel}>LED Count</Text>
+      <Text style={[styles.helpText, { marginTop: 2 * scale }]}>
+        Single LED uses less power; three LEDs are easier to see
+      </Text>
+      <View style={[styles.segmentRow, { marginTop: spacing.sm }]}>
+        {options.map((opt) => {
+          const selected = value === opt.value;
+          return (
+            <TouchableOpacity
+              key={opt.value}
+              onPress={() => !disabled && onChange(opt.value)}
+              style={[
+                styles.segmentOption,
+                selected && styles.segmentOptionSelected,
+                disabled && styles.segmentOptionDisabled,
+              ]}
+              accessibilityLabel={`LED count ${opt.label}`}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected, disabled }}
+            >
+              <Text
+                style={[
+                  styles.segmentOptionText,
+                  selected && styles.segmentOptionTextSelected,
+                  disabled && styles.segmentOptionTextDisabled,
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function BrewTimeField({
   minutesValue,
   secondsValue,
@@ -261,6 +310,7 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
       w: toBrewSeconds(fields),
       c: toNumber(fields.maxCupTemp),
       l: toLedBrightnessScaled(fields.ledBrightnessPercent),
+      k: toNumber(fields.ledCount),
     }),
     [fields],
   );
@@ -447,11 +497,17 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
         />
         <SettingsField
           label="LED Brightness"
-          helpText="Brighter LEDs will run the battery down, recommend 50%"
+          helpText="Brighter LEDs will run the battery down, recommend 25%"
           value={fields.ledBrightnessPercent}
           onChangeText={(value) => handleFieldChange("ledBrightnessPercent", value)}
           accessibilityLabel="LED Brightness percent input"
           error={fieldErrors.ledBrightnessPercent}
+          disabled={!canEdit}
+          scale={scale}
+        />
+        <LedCountField
+          value={fields.ledCount}
+          onChange={(value) => handleFieldChange("ledCount", value)}
           disabled={!canEdit}
           scale={scale}
         />
@@ -598,10 +654,40 @@ const styles = StyleSheet.create({
     backgroundColor: colors.action,
   },
   actionButton: {
-    backgroundColor: colors.muted,
+    backgroundColor: colors.action,
   },
   actionButtonText: {
+    color: colors.surface,
+  },
+  segmentRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  segmentOption: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.quietBorder,
+    backgroundColor: colors.input,
+    borderRadius: 10,
+  },
+  segmentOptionSelected: {
+    borderColor: colors.action,
+    backgroundColor: colors.action,
+  },
+  segmentOptionDisabled: {
+    backgroundColor: colors.panel,
+  },
+  segmentOptionText: {
+    ...typography.text_body,
     color: colors.ink,
+  },
+  segmentOptionTextSelected: {
+    color: colors.surface,
+  },
+  segmentOptionTextDisabled: {
+    color: colors.muted,
   },
   footer: {
     borderTopWidth: 1,

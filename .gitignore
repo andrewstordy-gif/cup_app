@@ -7,4 +7,5 @@ yarn-error.log*
 .DS_Store
 .venv_pdf/
 output/
+dist/
 tmp/

@@ -297,6 +297,7 @@ function compactText3Payload(payload) {
   const maxCupTemp = payload.c ?? payload.maxCupTemp;
   const maxTime = payload.x ?? payload.maxTime;
   const ledBrightness = payload.l ?? payload.ledBrightness;
+  const ledCount = payload.k ?? payload.ledCount;
 
   return {
     ...(triggerTemp !== undefined ? { r: triggerTemp } : {}),
@@ -305,6 +306,7 @@ function compactText3Payload(payload) {
     ...(maxCupTemp !== undefined ? { c: maxCupTemp } : {}),
     ...(maxTime !== undefined ? { x: maxTime } : {}),
     ...(ledBrightness !== undefined ? { l: ledBrightness } : {}),
+    ...(ledCount !== undefined ? { k: ledCount } : {}),
   };
 }
 

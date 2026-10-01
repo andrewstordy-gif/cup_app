@@ -8,6 +8,14 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
+## [2026-09-30] — Codex
+
+- `docs/NDEF_PROTOCOL.md`: added the canonical application-side NDEF communications specification, covering the four-record smart-cup message, compact keys and enums, normalization, NTAG metadata-only behavior, ownership boundaries, and the firmware `0.4.3` write constraint. Moved the source from Google Drive so protocol changes can be versioned and reviewed alongside the implementation.
+
+## [2026-09-18] — Codex
+
+- `README.md`: documented the deferred firmware `0.4.3` integration issue that can overwrite app-owned `NDEF4` coffee metadata, including the required future four-record write contract, the exact empty `NDEF2` requirement, and the multi-scan verification criterion.
+
 ## [2026-07-01] — Claude Code
 
 - `src/navigation/AppNavigator.js`: state-change writes (reset to OFF, switch to BREWING) now send `{}` for text2 and text3 instead of echoing the read values back. text4 (coffee session data) is still sent in full from the tag read. Relies on firmware 0.4.1 sparse-write support — the firmware leaves unchanged records alone when it receives `{}`.

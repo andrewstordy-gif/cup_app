@@ -98,6 +98,19 @@ Compact keys:
 - `NDEF3.x` = max time
 - `NDEF3.l` = LED brightness
 
+#### Known firmware integration issue (deferred)
+
+Firmware `0.4.3` can overwrite app-owned coffee/session metadata in `NDEF4` with a stale cached value, commonly `{}`, on a later NFC scan. The firmware owns `NDEF1`–`NDEF3` and preserves `NDEF4` during status rewrites through an internal ST25 cache, but in this version that cache is invalidated only when the app writes `NDEF2` as exactly `{}`. A full four-record write with non-empty `NDEF2` can therefore leave the stale `NDEF4` cache in place. Writing `NDEF4` alone is not reliable with the current cache design.
+
+The deferred app-side fix must follow this write contract whenever writing coffee metadata or settings:
+
+- Write the complete four-record NDEF message in the fixed `NDEF1`–`NDEF4` order.
+- Write `NDEF2` as exactly `{}`; never put cached or fabricated live status there because the cup publishes its own current status.
+- Put the intended coffee/session metadata JSON in `NDEF4`.
+- After implementation, verify that `NDEF4` remains present after multiple subsequent NFC scans.
+
+Manual testing confirms that the complete write preserves `NDEF4` when `NDEF2` is `{}`, while a non-empty `NDEF2` causes `NDEF4` to revert. This reproduces on firmware `0.4.3` and is not caused by recent app development changes.
+
 ### NTAG Cups
 
 Standard NTAG sticker cups do not provide smart-cup state, temperature, brew timer, or firmware settings.
