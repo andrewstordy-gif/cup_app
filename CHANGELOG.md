@@ -1,12 +1,19 @@
 # Changelog
 
-All notable changes to the CUP app are recorded here. Both Claude Code and Codex should update this file when making changes.
+All notable changes to the CUP app are recorded here. Changelog updates are consolidated by the PM/Release process, or by a task explicitly assigned changelog ownership.
 
 ## Format
 
 Each entry should include the date, the agent that made the change, and a short description.
 
 ---
+
+## [2026-10-01] — Codex
+
+- Added `docs/PRODUCT_SPEC.md` as the top-level product authority and `docs/NDEF_PROTOCOL.md` as the subordinate canonical NFC protocol specification. The protocol now identifies FR-028B as an unresolved Release 1 blocker requiring an approved Product Owner/protocol decision.
+- Adopted `docs/AI_DEVELOPMENT_OPERATING_MODEL.md`, including independent review, scoped parallel work, prospective integration validation, protected-`main` rules, and controlled Release Manager merges.
+- Updated `AGENTS.md` and `CLAUDE.md` to bootstrap agents into the operating model, and added `docs/tasks/TASK_TEMPLATE.md` for the durable task-record workflow.
+- Added `docs/tasks/SETUP-001.md` to record adoption evidence and review outcomes; centralized changelog ownership under the PM/Release process instead of requiring every implementation agent to edit it.
 
 ## [2026-07-01] — Claude Code
 

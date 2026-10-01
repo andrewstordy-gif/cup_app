@@ -1,54 +1,53 @@
-# CUP App UI Instructions
+# Cup App Agent Entry Point
 
-## Changelog
+This file is the repository entrypoint for Codex, Claude, and other development agents.
 
-After completing any task that changes code or docs, add an entry to `CHANGELOG.md` under today's date (`## [YYYY-MM-DD] — <agent name>`), describing what changed and why. If today's date section already exists, append to it instead of creating a duplicate. This applies to both Claude Code and Codex.
+## Before meaningful development work
 
-**If you are Codex**: this file (`AGENTS.md`) is your primary source of instructions for this repo — read it in full before starting any task, and follow the changelog rule above without being asked.
+Read, in this order:
 
-Before creating or modifying any user-facing UI, read:
+1. [`docs/AI_DEVELOPMENT_OPERATING_MODEL.md`](docs/AI_DEVELOPMENT_OPERATING_MODEL.md).
+2. The sections of [`docs/PRODUCT_SPEC.md`](docs/PRODUCT_SPEC.md) relevant to the task.
+3. Any relevant canonical technical specification, such as [`docs/NDEF_PROTOCOL.md`](docs/NDEF_PROTOCOL.md).
+4. [`docs/UI_STYLE_GUIDE.md`](docs/UI_STYLE_GUIDE.md) before creating or modifying user-facing UI.
 
-- `docs/UI_STYLE_GUIDE.md`
+The authority hierarchy is defined in `docs/AI_DEVELOPMENT_OPERATING_MODEL.md`. Do not infer product policy from source code, tests, or README material when a higher-authority specification governs the behaviour.
 
-Use the Home and Cupping screens as the visual reference for the app. Preserve the established quiet, neutral, professional appearance.
+Every meaningful development task requires a canonical `docs/tasks/<TASK-ID>.md` record before implementation begins. Read and update that record as required by the operating model. Trivial typo-only or document-formatting work may be exempt only when the Project Manager explicitly treats it as trivial.
 
-## Working Rules
+## Working rules
 
-- Prefer existing theme tokens and shared UI components.
-- Reuse an established component pattern before creating a new variation.
-- Do not introduce a new colour, spacing value, border radius, button treatment, or typography style without checking the style guide.
-- If a genuinely new visual pattern is needed, update `docs/UI_STYLE_GUIDE.md` as part of the same change.
-- Keep sample colours as small identification markers. Do not use them as large backgrounds.
-- Use flavour-pill colours only to represent recorded flavour data.
-- Keep NFC workflow changes separate from visual refactors wherever possible.
+- Never develop or push directly on `main`.
+- Work only within the task record's declared scope; do not opportunistically refactor unrelated code.
+- If work unexpectedly requires an unassigned shared file, interface, schema, protocol, navigation contract, or repository API owned by another active task, stop that part and return to the Project Manager for coordination.
+- Never claim physical NFC or device verification from simulation, mocks, bundling, or automated tests alone.
+- Record changelog-worthy information in the task handoff. Only the Project Manager/Release Manager, or an agent explicitly assigned changelog ownership, edits `CHANGELOG.md`. Parallel implementation agents do not edit it by default.
+- Keep NFC workflow changes separate from unrelated visual refactoring.
+
+## UI rules
+
+Use the Home and Cupping screens as visual references. Preserve the established quiet, neutral, professional appearance.
+
+- Prefer existing theme tokens, shared components, and established component patterns.
+- Do not introduce arbitrary colours, spacing values, border radii, button treatments, or typography styles. Check the style guide first and update it with any genuinely new approved pattern.
+- Keep sample colours as small identification markers, not large backgrounds.
+- Use flavour-pill colours only for recorded flavour data.
 - When touching an older screen, move it incrementally toward the style guide without changing unrelated behaviour.
 
-## Responsive Scale Factor
+### Responsive scale factor
 
-Several screens use a `scale` variable derived from the device width (e.g. `const scale = Math.min(Math.max(width / 616, 0.58), 1.05)`). On a standard iPhone this value is approximately `0.63`.
+Apply a screen-derived `scale` only to layout values such as padding, margin, gap, dimensions, and border radius. Never apply it to font sizes. Typography tokens are the intended rendered sizes.
 
-**The scale factor must only be applied to layout values** — padding, margin, gap, component width/height, and border radius.
-
-**Never apply the scale factor to font sizes.** Typography token values (`typography.text_body`, `typography.text_section_title`, etc.) are the intended rendered sizes. Multiplying them by `scale` produces text that is ~37% smaller than the style guide specifies.
-
-Correct pattern:
 ```js
-// Layout: scale applies
+// Correct: scale layout, not typography.
 <View style={{ paddingVertical: 10 * scale, gap: 8 * scale }}>
+  <Text style={styles.cupNumber}>Cup 1/2</Text>
+</View>
 
-// Typography: no scale, use the token directly
-<Text style={styles.cupNumber}>Cup 1/2</Text>
-
-// StyleSheet: token only, no scale
-cupNumber: {
-  ...typography.text_section_title,
-  letterSpacing: 0,
-},
+const styles = StyleSheet.create({
+  cupNumber: {
+    ...typography.text_section_title,
+    letterSpacing: 0,
+  },
+});
 ```
-
-Incorrect pattern:
-```js
-// Do NOT do this — shrinks text far below the intended size
-<Text style={{ fontSize: 20 * scale }}>Cup 1/2</Text>
-```
-
