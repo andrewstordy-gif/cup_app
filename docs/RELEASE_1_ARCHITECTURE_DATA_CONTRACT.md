@@ -34,6 +34,8 @@ The following remain parameters or unresolved decisions, not values chosen by th
 - exact configurable fields for Quick QC and Purchasing/selection;
 - descriptor-vocabulary policy.
 
+Unresolved duration values do not permit an indefinite or missing production policy. Before pilot/production use, an authorised policy configuration MUST supply finite participant-grant expiry, retention, deletion-processing, backup-expiry, audit-retention, and revocation-propagation values. If a required value is absent, invalid, infinite, or outside an approved safety bound, the affected grant issuance, new session/data creation, or deletion workflow fails closed. This contract does not choose the values.
+
 ### 2.1 Blocking NDEF form decision
 
 FR-028B remains unresolved and blocks a Release 1 pilot. `NDEF4.f=1` means SCA CVA. No production values are defined for legacy SCA, Quick QC, or Purchasing/selection. This contract names the four domain forms but does not map the other three to NDEF values. Implementations MUST reject or visibly block a production tag write when the selected session form has no approved protocol mapping. They MUST NOT invent, persist, or transmit a production enum value.
@@ -109,7 +111,7 @@ All records carry `created_at` and, where mutable, `updated_at` in UTC ISO-8601 
 
 ## 5. Canonical Release 1 entities
 
-Fields listed as policy parameters may be null until the Product Owner approves a value. Unknown data MUST remain unknown rather than receiving a misleading default.
+Fields listed as policy parameters may be null in design/import state until the Product Owner approves a value. Unknown data MUST remain unknown rather than receiving a misleading default. Section 2's mandatory finite safety policies are nevertheless preconditions for the affected production operation; null never authorises a non-expiring grant, indefinite retention, or an unbounded deletion/revocation delay.
 
 Session, Sample, Cup, and Cup Assignment records that can originate from a cold NFC join are discriminated unions:
 
@@ -123,7 +125,7 @@ Only authoritative entities may enter host/service-authoritative queries, tenant
 Required fields:
 
 - `organisation_id`, `name`, `timezone`, `default_units`
-- `retention_policy_ref` (nullable pending policy)
+- `retention_policy_ref` (nullable only in design/import state pending policy; production Session creation is blocked until it resolves to an approved finite policy)
 - `created_at`, `updated_at`
 
 The organisation is the tenant boundary for host-managed sessions, accepted shared results, exports, and audit events. Every service-side query MUST be constrained by `organisation_id` derived from authorised context, not a client-supplied filter alone.
@@ -144,11 +146,11 @@ Required fields:
 
 - `participant_id`, `session_id`, `display_name`
 - `local_device_scope_id`
-- `access_grant_ref` (nullable until a grant is available)
+- `access_grant_ref` (null only for `provisional_local`; otherwise references the authoritative grant in section 10.3)
 - `privacy_notice_version`, `privacy_accepted_at`
 - `completion_state`, `completed_at`
 - `participant_revision`, a monotonically increasing session-local aggregate revision
-- `access_expires_at` (policy-derived and nullable while policy is unresolved)
+- `access_expires_at` (null only for `provisional_local`; every authoritative grant supplies a finite policy-derived value)
 - `created_at`, `updated_at`
 
 A participant belongs to exactly one session. An access grant MUST be session-scoped and MUST NOT authorise another session or organisation. Local identity continuity MAY survive restart on the same device. It MUST NOT be silently promoted to a host account or cross-session identity.
@@ -560,6 +562,63 @@ Blind protection MUST be enforced when selecting/serializing data, not by hiding
 
 Reveal is an explicit, authorised, audited state transition. Offline participants may remain on the safe blind projection until they receive a valid reveal update; lack of connectivity MUST NOT cause the app to guess or expose identity.
 
+### 9.3 Encryption and key management
+
+All Cup App data other than the deliberately participant-readable canonical NDEF payload is sensitive by default. Encryption is mandatory, not a provider option.
+
+**In transit**
+
+- Every mobile/service, portal/service, service-to-service, export download/upload, backup transfer, key-management, and administrative connection MUST use an authenticated encrypted transport with certificate/peer validation and downgrade/plaintext disabled.
+- Authentication, access grants, join capabilities, result snapshots, exports, keys, and credentials MUST never be sent over plaintext or an unauthenticated encrypted channel. Redirects, retries, diagnostics, and health endpoints MUST NOT create an exception.
+- The NDEF radio/tag payload is not confidential under the current protocol. Therefore it is restricted to the participant-safe allowlist in sections 9 and 11 and MUST contain no secret, credential, protected identity in blind mode, or result data.
+
+**At rest**
+
+- The installed app MUST encrypt its local database, offline packages, private notes/results, canonical outbox bytes, conflict/quarantine evidence, cached participant projections, locally generated exports, and migration/rollback copies.
+- The service MUST encrypt primary databases, object/blob storage, portal/search read models, queues, quarantine/dead-letter stores, generated exports, operational snapshots, replicas, and backups.
+- Host/participant credentials, access grants, refresh material, capability proofs, and private keys require the strongest applicable credential/key protection and MUST NOT be stored in general preferences, plaintext files, logs, analytics, crash reports, or unencrypted backups.
+
+**Keys and separation**
+
+- Mobile data-encryption keys are generated with a cryptographically secure source, are non-exportable where the platform supports it, and are wrapped/protected by platform secure key storage. Credential/grant material uses a separate secure-storage namespace/key from bulk local data.
+- Service data-encryption keys are envelope-wrapped by a provider-neutral key-management boundary. Production, test, and development keys are separate. Primary data, credentials/grants, exports, and backups use separate key purposes; compromise or revocation of one purpose MUST NOT expose every surface.
+- Key identifiers/versions accompany encrypted records without exposing key material. Key material never enters source control, task records, client payloads, analytics, or routine logs.
+- Rotation is supported without plaintext bulk exposure: new writes use the current key version, reads can unwrap approved older versions during migration, and re-encryption progress is durable/idempotent. Revoked/compromised keys stop new use immediately and follow an authorised recovery or crypto-erasure procedure.
+- Backup keys are separated from live-data keys. Deleting live data alone MUST NOT make an undeclared backup copy readable indefinitely.
+
+**Fail-closed behavior and evidence**
+
+- Before accepting sensitive local capture, the app MUST successfully provision/open its protected key and encrypted store. If secure storage, key unwrap, authenticated decryption, or integrity verification fails, it MUST not fall back to plaintext, overwrite ciphertext, display stale decrypted caches, or report a save/share success.
+- Services similarly fail the affected operation closed on key, certificate, or integrity failure; ciphertext and recovery evidence are preserved without logging plaintext. Availability degradation is explicit and tenant isolation remains enforced.
+- Recovery, rotation, revocation, restore, and crypto-erasure actions are authorised and minimally audited. Implementations MUST test that database files, application backups, exported service objects, and captured transport do not expose representative sensitive fixtures without the appropriate keys.
+
+### 9.4 Retention, display-name removal, deletion, and anonymisation
+
+An approved policy supplies finite durations and any authorised hold rules. Missing policy never means “retain forever” or “delete immediately”; production creation/issuance fails closed as section 2 states.
+
+Two tenant-scoped operations are required:
+
+- `anonymize_participant_display_name` removes the participant's display name from shared/service/host-controlled data while preserving response content and exclusion/audit semantics required by the Product Specification;
+- `delete_session` deletes or irreversibly anonymises the Session and its tenant-controlled Samples, Cups only where session-owned, Assignments, participants, accepted responses/events, share operations, read models, exports, and derived data according to policy.
+
+Each operation has an immutable random `deletion_operation_id`, target tenant/session/participant scope, authorised actor, policy version, requested time, and state `requested -> authorised -> propagating -> completed`, with explicit `partially_blocked` and `failed` outcomes. The same operation ID and scope are idempotent; reuse with different scope is rejected. Authorisation derives tenant and target scope server-side and requires a current host/admin permission appropriate to the action.
+
+Propagation MUST cover:
+
+- primary service records, accepted raw records, portal/search/aggregate read models, caches, queues, quarantine/dead-letter stores, service-managed exports and download links, replicas, and migration/rollback stores;
+- host-controlled mobile/offline packages on next authenticated synchronization;
+- participant outbox items and shared-result local copies when the device next validates the tombstone; a deleted Session's service tombstone rejects late queued/replayed shares so data cannot resurrect;
+- participant-private, never-shared local results only where local user action or an applicable disclosed local-retention policy authorises removal. A host deletion cannot be falsely reported as erasing an offline private device the service has never controlled;
+- derived analytics only if they contain targetable personal/session data; analytics should already exclude notes and protected identity.
+
+Service-managed exports are revoked and deleted. An export already downloaded outside Cup App control cannot be remotely erased; the deletion result records this limitation without retaining the file contents. New exports and restored read models MUST consult tombstones.
+
+Immutable backups use a deletion manifest/tombstone and expire or become cryptographically unreadable within the finite configured backup policy. A restore MUST apply deletion manifests before the restored system serves queries. Quarantine data is not exempt: it is deleted/anonymised on the same target scope unless a specifically authorised hold applies; holds are scoped, finite, reviewable, and never inferred.
+
+Audit evidence is minimised rather than silently destroyed: after anonymisation/deletion it retains only the tenant, operation ID, opaque/non-reversible target tombstone, action, policy/legal basis code where applicable, timestamps, and outcome. It MUST NOT retain display names, free-text notes, protected sample identity, grants, or deleted payload snapshots. Audit retention itself is a finite policy input.
+
+Completion requires durable per-surface evidence or an explicit `partially_blocked` result naming the uncontrolled/offline surface. A compact tombstone containing no deleted content remains for the configured anti-replay period, then follows policy. Retrying propagation or restoring a backup is unable to resurrect deleted/anonymised data.
+
 ## 10. Offline session package
 
 The app MUST persist a versioned offline package before a prepared session can claim offline readiness. The package is the union of data obtained through authorised host setup and participant join paths; NFC alone need not carry every field.
@@ -618,6 +677,39 @@ Reconciliation MUST be one idempotent local transaction keyed by normalized `pub
 
 Repeating the same authoritative package produces no additional rows or revisions. Provisional rows remain provenance evidence and are excluded by construction from authoritative repositories/views before and after reconciliation. A domain-ID collision with different content, missing validated Organisation/Host/assigner authority, mismatched form/version or mode, unknown/revoked session, conflicting Sample/Assignment, or duplicate authoritative mapping is quarantined. Local observations remain readable and are never discarded; sharing stays visibly failed/blocked until an authorised resolution or a new join artifact establishes scope. The app MUST NOT silently attach local results to a merely similar service record.
 
+### 10.3 Authoritative participant access grant
+
+The `provisional_local` record is not a grant. A service-valid participant grant is issued only after the service validates permitted join capability/evidence, resolves tenant and Session from server-owned data, confirms the Session access state, binds local participant continuity, and records the accepted privacy-notice version. A join capability is itself a cryptographically random opaque value backed by an integrity-protected service record, or a signed/authenticated artifact; it is purpose/audience-bound to participant joining, resolves to exactly one authoritative tenant and Session, has a finite policy-derived expiry and revocation/replay state, and never accepts client claims as authority. NDEF possession alone remains insufficient.
+
+Each grant has or resolves server-side to these immutable claims:
+
+- random `grant_id`, grant format/version, issuer, and signing/encryption/key version or opaque-record version;
+- authoritative `organisation_id` and `session_id` derived by the service, never accepted as scope merely because the client supplied them;
+- `access_subject_id` bound to one account-free participant/session continuity and its registered `local_device_scope_id` where applicable;
+- explicit audience identifying the participant-safe API/service;
+- least-privilege scopes selected from `participant_session_read`, `own_results_share`, and `revealed_identity_read`; no host, billing, membership, other-participant, or cross-session scope;
+- `issued_at`, optional future `not_before`, mandatory finite `expires_at`, policy version, and current status/revocation version.
+
+The actual lifetime is a Product Owner policy value, but issuance MUST reject a missing, null, non-finite, already expired, or non-positive configured lifetime. No sentinel date means “never.” The service caps expiry at the configured Session/participant-access boundary and does not let a refresh silently exceed policy.
+
+The grant is either cryptographically signed/authenticated so alteration is detectable, or is a cryptographically random opaque bearer whose complete claims/status live in an integrity-protected service record. Client-readable claims are untrusted until verified. Raw grants and refresh/capability material are stored only in platform secure credential storage, excluded from ordinary device backups where supported, and never placed in NDEF, URLs, analytics, crash reports, clipboard, or logs. Bulk app-data encryption alone is not sufficient credential storage.
+
+Every service read, share, reveal refresh, reconciliation continuation, and deletion-related participant request MUST validate:
+
+1. cryptographic/opaque integrity, issuer, format/key version, audience, and finite `not_before`/`expires_at`;
+2. current grant/subject/session revocation status and the configured revocation-propagation bound;
+3. exact authoritative tenant, Session, access subject, device continuity where bound, and requested scope;
+4. current Session state and the policy matrix for join, participant-safe read, share-after-completion/closure, reveal read, and archive/delete behavior; and
+5. request-specific bindings, including the immutable Share Operation ID/hash for result ingestion.
+
+Validation derives query tenant/session scope from the verified grant and server records. A client path/body identifier can only narrow that scope and a mismatch fails closed. Expired, revoked, wrong-audience, wrong-session, wrong-tenant, wrong-subject, or insufficient-scope use returns no protected data and no distinguishable resource-existence detail.
+
+Grant revocation is supported by grant, participant, and Session. Session deletion revokes immediately; closure/archive behavior follows a mandatory configured access-state matrix with finite share/reveal grace where allowed. If that matrix or a required duration is unset, the operation is denied. Reveal is never encoded as an irrevocable grant claim: each reveal read checks current authorised reveal state and returns the allowlisted projection. Revocation cannot make already delivered offline revealed data secret again, so connected clients apply the applicable deletion/cache policy and the limitation is recorded.
+
+Refresh/replacement requires either a still-valid grant with refresh permission represented server-side or renewed proof from a permitted join artifact/capability. It repeats current Session, subject, audience, scope, revocation, and policy checks; issues a new `grant_id`; and revokes/replaces the old grant under a finite configured overlap bound. An expired or revoked grant alone cannot refresh itself. Reconciliation swaps `provisional_local` for the new protected grant atomically with authoritative aliases; failure leaves only local private access.
+
+Public-session-reference/capability issuance endpoints MUST resist replay and enumeration with high-entropy references, bounded attempts and rate limits across appropriate reference/device/network dimensions, generic non-enumerating errors, and security monitoring that does not log the raw reference, capability, grant, participant name, or protected sample identity. Repeated issuance of the same authorised participant continuity is idempotent or rotates under the replacement rule; it MUST NOT create unlimited identities/grants through retry. Error timing and response shape SHOULD be uniform enough not to reveal whether a guessed Session exists.
+
 ## 11. NFC boundary
 
 All physical encoding follows `NDEF_PROTOCOL.md`.
@@ -659,11 +751,14 @@ prepareHostSession(host_context, session)
 joinWithLinkOrQr(join_artifact, display_name, privacy_acceptance)
 bootstrapProvisionalNfcJoin(ndef_metadata, physical_identifier, display_name, privacy_acceptance)
 reconcileProvisionalJoin(public_session_ref, evidence, capability) -> authoritative aliases + scoped grant
-validateSessionScope(grant, session_id)
+issueParticipantGrant(validated_join_evidence, access_subject, privacy_acceptance) -> scoped grant
+validateGrant(grant, audience, required_scope, authoritative_context) -> verified context | denied
+refreshOrReplaceGrant(grant_or_renewed_join_proof) -> replacement grant | denied
+revokeGrant(authoritative_scope, reason)
 refreshRevealProjection(grant, package_version)
 ```
 
-The interface supports offline-prepared artifacts and makes expiry a policy input rather than a hard-coded duration.
+The interface supports offline-prepared artifacts. Grant expiry and every closure/archive grace are mandatory finite policy inputs rather than hard-coded durations. Issuance and use fail closed when any required policy, binding, integrity check, or current revocation state is unavailable.
 
 ### 12.3 CupResolver and NfcAdapter
 
@@ -686,7 +781,7 @@ sendShare(operation_id, immutable_envelope) -> durable acknowledgement | retryab
 ingestShare(authorised_context, immutable_envelope) -> original/new durable acknowledgement
 ```
 
-Provider timeouts never imply failure or success; retrying the same operation obtains the original result.
+Transport uses the authenticated encrypted channel from section 9.3. Provider timeouts never imply failure or success; retrying the same operation obtains the original result.
 
 ### 12.5 Projection and Audit
 
@@ -698,6 +793,21 @@ recordAudit(actor, action, target, minimized_before_after)
 ```
 
 Projection functions use allowlists. Serializing a broad entity and deleting fields afterward is not conformant for blind or tenant-isolated data.
+
+### 12.6 Protection and Erasure
+
+```text
+openProtectedLocalStore(platform_key_reference) -> encrypted store | unavailable
+encryptAtRest(key_purpose, plaintext) -> versioned authenticated ciphertext
+rotateKey(key_purpose, from_version, to_version) -> durable progress
+revokeKey(key_purpose, key_version, reason)
+requestParticipantAnonymisation(authorised_context, participant_id, policy_version) -> operation
+requestSessionDeletion(authorised_context, session_id, policy_version) -> operation
+propagateDeletion(deletion_operation_id) -> per-surface progress
+applyDeletionManifestOnRestore(restore_id, manifest_version) -> verified result | blocked
+```
+
+Protection operations fail closed and never return plaintext or success after an integrity/key failure. Erasure operations derive tenant and target scope from verified authority, are idempotent by operation ID plus immutable scope, expose partial/uncontrolled outcomes, and cannot mark completion until every controlled surface has durable evidence.
 
 ## 13. Prototype migration contract
 
@@ -741,6 +851,15 @@ Prototype temperature/time snapshots are preserved as legacy raw metadata for lo
 - Legacy `complete` state is preserved as provenance but does not prove account-free completion, consent, sharing, or portal ingestion.
 - No legacy row is treated as shared without a separately evidenced explicit share action. Migrated responses default to private/local.
 
+### 13.4 Security and privacy migration implications
+
+- The migration backup, rollback database, checkpoints, mapping ledger, quarantine, and temporary copies MUST be encrypted before they contain sensitive data. Their keys use a purpose separate from the live database and their finite expiry/deletion follows the configured migration and backup policies.
+- Migration from a plaintext legacy database provisions and proves the protected store and platform key first. Copy/transform, reconciliation, and read cutover are transactional or restartable; verification covers row/content evidence before success. Plaintext temporary artifacts are not created. The superseded plaintext store is made inaccessible and removed using the strongest platform-supported deletion semantics only after rollback approval, with the platform limitation recorded rather than claiming guaranteed physical erasure.
+- Every imported record receives a policy classification. Production cutover and new production writes are blocked until required finite retention, participant-access, backup-expiry, audit-retention, deletion-processing, and revocation-propagation policy values are present and valid.
+- Legacy data has no authoritative participant access grant. Migration MUST NOT synthesize grants, access subjects, capability proofs, expiry, or consent. Unknown legacy tokens are invalidated; a grant can be issued only through section 10.3 after current proof and privacy acceptance.
+- The migration ledger records compact, non-content tombstones for existing participant-name anonymisation or Session deletion evidence. Restore/cutover applies the latest deletion manifest before any migrated projection is readable, so replaying a batch or legacy backup cannot resurrect deleted data.
+- Quarantined and `needs_resolution` records remain encrypted and tenant-isolated and are subject to the same deletion/anonymisation propagation. Ambiguity is not authority to extend retention or bypass a deletion request.
+
 ## 14. Current prototype conflicts and disposition
 
 | Evidence | Conflict | Classification | Required follow-up |
@@ -754,6 +873,9 @@ Prototype temperature/time snapshots are preserved as legacy raw metadata for lo
 | Flavour and feedback rows include temperature/time snapshots | Release 1 must not present note time as sensory data; validated sensor provenance is Release 2 | Out of Release 1 behavior; preserve-only migration data | Retain as legacy metadata, do not surface as validated context |
 | Current database has no durable outbox, consent snapshot, or idempotency key | FR-064 is not implemented | Implementation gap | Implement explicit consented Share Operation/outbox later |
 | Current data has no server-side blind projection or tenant boundary | UI hiding cannot satisfy FR-013/security requirements | Security implementation gap | Enforce allowlisted projections and authorisation service-side |
+| Current local database and migration path do not evidence encrypted storage or platform-secured keys | Sensitive offline data may be readable outside the application boundary | Security implementation gap | Introduce and verify the section 9.3 protected-store migration before production capture |
+| Current prototype has no service-issued participant grant, revocation state, or finite access-policy enforcement | NFC/session references could be mistaken for authorisation | Security implementation gap | Implement section 10.3 issuance/verification before service participant access |
+| Current prototype has no idempotent deletion/anonymisation operation or cross-surface tombstone propagation | Retained projections, outbox data, exports, or restores could resurrect deleted data | Privacy implementation gap | Implement section 9.4 lifecycle and restore manifests before production retention claims |
 | Current README contains obsolete NDEF4 sample colour `k` | Canonical NDEF protocol removed the field | Documentation defect outside this task | Separate README reconciliation task |
 | Only NDEF form value `1` is defined | Four Release 1 forms cannot all be encoded | Unresolved product/protocol decision, FR-028B | Product Owner/approved protocol decision; do not invent values |
 | Reopen duration, participant expiry, retention, tag protection, export schema, and PDF delivery are unspecified | Values materially constrain product policy | Unresolved product decisions | Keep configurable/null and escalate through PM |
@@ -832,6 +954,25 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 48. Authoritative repositories, host/portal queries, aggregate/export paths, and readiness checks return no provisional entity; only a validated, atomic, idempotent alias/promotion transaction makes an authoritative graph available.
 49. Independent implementations produce every accepted `cup-time-ms-v1` output and reject every invalid vector in section 8.1.1 exactly as specified; equivalent UTC/offset/fraction inputs normalize to the same 24-byte ASCII timestamp.
 50. Independent mobile and service implementations hash the revised timestamp-bearing fixture to `95faf8ed77cc827f4840a918d9e410ac859c5cb26d1a4ccdf42788b1582d3187`; changing only an accepted equivalent input representation before normalization does not change the canonical bytes or digest.
+
+### 15.8 Security, grants, erasure, and migration
+
+51. Representative mobile database, offline-package, private-response, outbox, quarantine, export, and migration-copy files reveal no sensitive fixture without the correct protected key; credentials/grants cannot be recovered from the bulk store, general preferences, logs, analytics, crash reports, clipboard, or ordinary backup.
+52. Representative service primary data, object/read-model data, queues, quarantine, exports, replicas, and backups are encrypted at rest, and captured mobile/service, portal/service, service-to-service, export, backup, key-management, and administrative traffic reveals no plaintext sensitive fixture.
+53. An invalid certificate/peer, attempted plaintext or downgraded transport, unavailable secure store/key, failed unwrap, altered ciphertext, or failed integrity check denies the operation without plaintext fallback, stale decrypted display, ciphertext overwrite, or false save/share success.
+54. Key-purpose and environment separation prevents a credential/export/backup key from decrypting primary data; rotation is restartable and idempotent, new writes use the current version, and a revoked key cannot protect new writes.
+55. Production grant issuance rejects an absent policy, null/infinite/non-positive lifetime, already-expired result, or expiry beyond the configured Session/access boundary; every issued grant has a finite `expires_at` and policy version.
+56. Tampering or using a wrong issuer, key/version, audience, tenant, Session, access subject, bound device, scope, time window, or request-specific Share Operation/hash is denied without protected data or resource-existence detail.
+57. Expired or revoked grants and grants for a closed, archived, or deleted Session follow the mandatory access-state matrix on every read, share, reveal, refresh, reconciliation continuation, and deletion-related participant request; an unset matrix/duration denies access.
+58. Refresh/replacement repeats current validation, produces a new random grant ID, and revokes/replaces the old grant within the finite overlap bound; an expired or revoked grant alone cannot refresh or extend itself.
+59. Reveal access checks the current authorised reveal state for every read; possession of a previously valid token does not disclose newly restricted identity, while tests record the unavoidable limitation for identity already delivered offline.
+60. Replayed authorised issuance is idempotent or rotates under the replacement rule; bounded/rate-limited guessing receives generic non-enumerating responses, and raw references, capabilities, grants, names, or protected identities never enter security logs.
+61. Participant display-name anonymisation removes the name from all controlled primary, raw, projection, cache, queue, quarantine, export, replica, migration, and applicable synchronized local surfaces while preserving response semantics and only the minimized audit/tombstone fields from section 9.4.
+62. Session deletion propagates to every controlled surface, revokes grants/download links, and creates a compact tombstone that rejects a late queued/replayed share and prevents read-model, migration, or backup restore from resurrecting content.
+63. An unreachable participant device, externally downloaded export, or other uncontrolled surface yields an explicit `partially_blocked` limitation rather than false completion; later authenticated synchronization applies the applicable tombstone without claiming authority over never-shared private local results.
+64. A restore applies current deletion manifests before serving any query; quarantined data and backups expire or become cryptographically unreadable under finite policy and cannot bypass an authorised deletion through replay.
+65. Retrying one deletion operation with the same immutable scope is idempotent; reuse with altered tenant/target scope is rejected, and completion evidence/audit contains no deleted payload, display name, note, protected identity, or grant.
+66. Migration cannot cut over while protected storage or any mandatory finite policy is unavailable, does not synthesize legacy grants/consent, and leaves no newly created plaintext backup, checkpoint, quarantine, rollback, or temporary artifact.
 
 ## 16. Dependency map for subsequent tasks
 
