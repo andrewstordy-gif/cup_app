@@ -83,7 +83,16 @@ The following identifiers are immutable:
 
 `public_session_ref` is distinct from `session_id`. It is the NDEF/session-join reference and MUST obey the current NDEF protocol: 14 lowercase alphanumeric characters for newly generated sessions. It MUST be generated with a cryptographically secure random source. `Math.random` or a timestamp is not acceptable. `NO-SESSION` is a protocol sentinel and MUST NOT be used as a domain `session_id`.
 
-Physical NFC identifiers are normalized identifiers, not credentials. The system MUST NOT use a raw tag identifier as an authentication secret.
+Before lookup or storage, a `public_session_ref` is normalized by trimming surrounding ASCII whitespace and converting ASCII letters to lowercase, then validated against exactly `[a-z0-9]{14}`. Internal whitespace, non-ASCII lookalikes, and every other length or character are rejected. `NO-SESSION` is recognized case-insensitively before normal validation and is never stored as a Session reference. The service MUST enforce global uniqueness on the normalized value because join artifacts do not require an organisation identifier. Local stores MUST enforce one normalized reference to one local Session or explicit reconciliation alias. Generation retries on a local or service collision; an imported reference that identifies two authoritative Sessions is quarantined and neither Session is guessed.
+
+Physical NFC identifiers are normalized identifiers, not credentials. The NFC adapter MUST expose identifier source and raw value rather than a provider-formatted display string:
+
+- a hardware tag UID is canonicalized from its bytes as `tag-uid:` followed by uninterrupted lowercase hexadecimal with two digits per byte;
+- when hardware bytes are unavailable and the canonical protocol supplies a Smart Cup identifier in NDEF2 `u`, it is canonicalized as `smart-cup:` followed by the trimmed lowercase ASCII protocol value; an RFC 4122 UUID value also has braces removed and hyphens restored to canonical `8-4-4-4-12` form, while another protocol value must match `[a-z0-9][a-z0-9._:-]{0,127}` or be rejected;
+- separators, case, and surrounding whitespace in provider tag-UID strings are removed only while decoding to bytes; an odd-length, non-hexadecimal, empty, or otherwise ambiguous UID is rejected rather than repaired;
+- a value from one identifier source MUST NOT be compared as if it came from the other source.
+
+When both a hardware UID and NDEF2 `u` are available, the hardware UID is the Cup lookup key and the protocol value is a separately unique alias to the same Cup. Conflicting aliases return `unknown`; the resolver MUST NOT switch identity sources opportunistically. The canonical pair `(identifier_kind, nfc_identifier)` is unique within an Organisation's Cup registry and within every offline Session package. The service MUST also quarantine simultaneous active ownership by different Organisations rather than silently linking tenants. A resolver encountering multiple Cup or Assignment rows for one canonical identifier returns `unknown` with a duplicate-identity error; it MUST NOT select by recency. The system MUST NOT use a raw or canonical NFC identifier as an authentication secret.
 
 ### 4.2 Idempotency identifiers
 
@@ -131,6 +140,7 @@ Required fields:
 - `access_grant_ref` (nullable until a grant is available)
 - `privacy_notice_version`, `privacy_accepted_at`
 - `completion_state`, `completed_at`
+- `participant_revision`, a monotonically increasing session-local aggregate revision
 - `access_expires_at` (policy-derived and nullable while policy is unresolved)
 - `created_at`, `updated_at`
 
@@ -191,12 +201,41 @@ Required fields:
 
 - `cup_assignment_id`, `session_id`, `sample_id`, `cup_id`
 - `assigned_by_user_id`, `assigned_at`
-- `active`, `ended_at`
-- `tag_payload_version`, `tag_write_status`, `tag_verified_at`
+- `lifecycle_state`, `replaces_assignment_id`, `ended_at`
+- `tag_payload_version`, `intended_payload_hash`, `tag_write_status`, `tag_verified_at`
+- last write/verification error and recovery timestamps where applicable
 
-One Sample may have many Cup Assignments. A Cup MUST have at most one active assignment in a session. The implementation MUST enforce a uniqueness invariant equivalent to `(session_id, cup_id) WHERE active = true` and MUST reject duplicates with a corrective error.
+One Sample may have many Cup Assignments. A Cup MUST have at most one `active` assignment in a session. The implementation MUST enforce a uniqueness invariant equivalent to `(session_id, cup_id) WHERE lifecycle_state = 'active'` and MUST reject duplicates with a corrective error.
 
-Reassignment creates or activates a new assignment and ends the prior assignment in one transaction. It then writes and verifies the complete protocol payload. A failed or interrupted write leaves the assignment visibly unverified/failed and MUST NOT report success.
+Database state and a physical NFC write cannot share one transaction. Reassignment therefore uses the following durable state machine:
+
+```text
+staged -> writing -> written_unverified -> verified_pending_activation -> active
+   |         |              |                         |
+   +---------+--------------+-------------------------+-> failed
+   +---------------------------------------------------> cancelled
+
+active -> superseded                    failed-after-write -> rollback_pending
+```
+
+1. **Stage:** In one local transaction, create a `staged` candidate with the complete intended participant-safe payload, its canonical hash, and `replaces_assignment_id`. Keep the last verified assignment `active`. A newly registered cup with no prior assignment remains unassigned.
+2. **Write intent:** Persist `writing` before beginning the external NFC operation. Retries reuse the same candidate and payload hash.
+3. **Write:** After the adapter reports a completed write, persist `written_unverified`. This state is not success.
+4. **Read-back verify:** Read the tag again and compare its complete canonical payload and physical identifier with the staged intent. An exact match records verification evidence and moves to `verified_pending_activation`. A mismatch or unreadable tag moves to `failed` or a retryable `written_unverified` state with an explicit error; it never activates.
+5. **Activate:** In one idempotent local transaction, end/supersede the previous active assignment, activate the verified candidate, and persist the verification time. Only this transition reports assignment success/readiness.
+
+Resolver behavior is deterministic at every state:
+
+- a scan matching the last verified `active` assignment resolves `assigned`, even while a different candidate is `staged`, `writing`, or `written_unverified`;
+- a local scan matching only a non-active candidate returns `unassigned` with an assignment-in-progress or recovery reason and MUST NOT open tasting;
+- with no previous active assignment, every pre-activation state resolves `unassigned`;
+- a payload matching neither the active nor the candidate intent returns `unknown` and creates recovery evidence;
+- `failed`, `cancelled`, `rollback_pending`, and `superseded` records never resolve as active;
+- a cold participant device without the host's assignment journal may bootstrap provisionally from one structurally valid NDEF payload under section 10.1, but later reconciliation MUST confirm or conflict that provisional mapping.
+
+On restart, recovery examines each non-terminal intent and performs a fresh read where possible. If the tag exactly matches the candidate, recovery verifies and activates idempotently. If it exactly matches the last verified payload, the last verified assignment stays active and the candidate can be retried or failed. If it matches neither, the cup is not ready and requires host recovery. A persisted `verified_pending_activation` may repeat the activation transaction; a later contradictory physical read is treated as tag drift and blocks readiness.
+
+Cancellation before physical writing marks the candidate `cancelled`. After writing starts, cancellation first enters `rollback_pending`: the app must rewrite and verify the last verified payload before marking the candidate cancelled. Where there is no safely restorable payload or tag protection policy prevents restoration, the cup remains `failed`/not ready for manual recovery; this contract does not invent a tag-clearing policy. A failed or interrupted write MUST NOT report success.
 
 ### 5.8 Response
 
@@ -232,13 +271,25 @@ Release 1 event timestamps are persistence/audit metadata only and MUST NOT be p
 A Share Operation is the durable record of one explicit consent action. Required fields:
 
 - `share_operation_id`, `session_id`, `participant_id`
-- immutable `snapshot_revision` and canonical `snapshot_hash`
+- immutable `participant_snapshot_revision`, `response_revision_vector`, `schema_version`, `canonicalization_version`, `hash_algorithm`, and `snapshot_hash`
 - `consent_recorded_at`, `privacy_notice_version`
 - state: `queued`, `sharing`, `shared`, or `failed`
 - `queued_at`, `last_attempt_at`, `acknowledged_at`
 - `attempt_count`, `last_error_code`, `retry_after`
 
-The outbox payload contains the minimum session-scoped envelope and the immutable response/event snapshot through `snapshot_revision`. It MUST be created in the same durable transaction that records consent and changes the visible state from `complete` to `queued`.
+Every transaction that changes any Response, Tasting Event, or participant completion state increments `participant_revision` exactly once. The outbox payload is the immutable aggregate cut at `participant_snapshot_revision`: it contains every Response owned by that participant in the Session, including completion state, plus an explicit `response_revision_vector` of `{response_id, current_revision}` entries. The vector is sorted by canonical `response_id`; each included event is bounded by the named Response revision. A Response created after the cut or an event committed at a later aggregate revision is not part of the snapshot.
+
+Snapshot creation MUST occur in one local database transaction that:
+
+1. obtains a write lock or equivalent serializable boundary for the participant/session aggregate;
+2. reads and freezes the current `participant_revision`;
+3. enumerates all participant Responses in that Session and their exact revision vector;
+4. materializes and canonicalizes the envelope defined in section 8.1;
+5. computes the canonical hash;
+6. records consent, the immutable Share Operation, and the queued outbox bytes; and
+7. commits before showing `queued`.
+
+A concurrent edit either commits before this transaction and appears in the vector, or commits afterward with a higher `participant_revision` and is excluded. Torn cross-Response snapshots are forbidden.
 
 A Share Attempt records transport evidence:
 
@@ -289,7 +340,8 @@ For every acknowledged participant mutation, the local store MUST atomically per
 1. the immutable Tasting Event with its pre-generated `event_id` and `local_revision`;
 2. the updated Response projection and revision;
 3. any dependent deterministic descriptor projection; and
-4. a local commit marker sufficient to detect an incomplete transaction after restart.
+4. exactly one increment of the owning participant's session-local `participant_revision`; and
+5. a local commit marker sufficient to detect an incomplete transaction after restart.
 
 The UI MUST acknowledge success only after the durable transaction commits. Updating React state, memory, an asynchronous request queue, or an NFC payload is not acknowledgement.
 
@@ -314,15 +366,42 @@ Local persistence MUST survive app restart, device sleep, and the complete offli
 
 An ingestion request MUST contain:
 
-- contract/schema version;
-- `organisation_id`, `session_id`, `public_session_ref`;
-- participant and session-scoped access proof;
-- `share_operation_id`, `snapshot_revision`, `snapshot_hash`;
+- integer contract/schema version and `canonicalization_version`;
+- immutable local `session_id` and normalized `public_session_ref` in the snapshot;
+- authoritative `organisation_id`/`session_id` alias binding and participant session-scoped access proof in the transport authorisation wrapper after reconciliation;
+- `share_operation_id`, `participant_snapshot_revision`, sorted `response_revision_vector`, `hash_algorithm`, and `snapshot_hash`;
 - participant display data permitted by the privacy notice;
-- complete responses and their immutable events through the snapshot revision;
+- every participant Response in the Session at the aggregate cut and its immutable events through the corresponding vector revision;
 - client-created times and app/build version for diagnostics.
 
 The envelope MUST NOT include unrelated sessions, unshared later revisions, hidden host-only identity in blind mode, device secrets, or analytics data.
+
+### 8.1.1 Canonical bytes and hash
+
+Release 1 canonicalization version `cup-share-jcs-v1` uses RFC 8785 JSON Canonicalization Scheme (JCS), UTF-8 without a byte-order mark, and SHA-256. The stored/transmitted `snapshot_hash` is 64 lowercase hexadecimal characters.
+
+Before JCS serialization, the Cup App profile requires:
+
+- domain UUIDs in canonical lowercase hyphenated form;
+- `public_session_ref`, NFC identifiers, enums, and timestamps normalized by their defining contracts;
+- timestamps serialized in UTC with a trailing `Z`; semantically equal instants use the same shortest millisecond precision accepted by the schema;
+- no `undefined`, non-finite number, negative zero, duplicate object key, or unpaired Unicode surrogate;
+- absent optional fields omitted, while an explicit JSON `null` appears only where the schema assigns it meaning;
+- `response_revision_vector` and Responses sorted by `response_id` code-point order;
+- each Response's events sorted by numeric `local_revision`, then `event_id` code-point order;
+- set-like arrays sorted by the schema-defined identifier; user-authored ordered values retain their semantic order.
+
+The hash input is the complete immutable share snapshot excluding only `snapshot_hash`, transport-attempt metadata, the authoritative alias/access wrapper, access-proof bytes/signatures, and service acknowledgement fields. It includes the locally stable `session_id`, normalized `public_session_ref`, `schema_version`, `canonicalization_version`, `hash_algorithm`, `share_operation_id`, aggregate/vector boundaries, and all shared content. The exact canonical UTF-8 bytes are stored with the outbox item so retries do not reserialize mutable projections. After a cold join, reconciliation binds the immutable local identifiers to authoritative identifiers in the excluded transport wrapper; it does not rewrite the consented bytes.
+
+The service MUST validate schema/types, reconstruct the hash-input object from received fields, apply the same profile and JCS implementation independently, recompute SHA-256, and compare the digest before idempotency or ingestion decisions. It MUST NOT trust the client-provided hash or hash raw transport bytes whose excluded authentication wrapper may vary. An unsupported canonicalization version is a permanent validation failure, not a fallback to implementation-native JSON serialization.
+
+Cross-implementation canonicalization/hash fixture (intentionally a minimal object rather than a complete valid share envelope; the line between the fences has no trailing newline in the hashed bytes):
+
+```json
+{"canonicalization_version":"cup-share-jcs-v1","hash_algorithm":"sha-256","participant_id":"00000000-0000-4000-8000-000000000001","participant_snapshot_revision":7,"response_revision_vector":[{"response_id":"00000000-0000-4000-8000-000000000010","revision":3},{"response_id":"00000000-0000-4000-8000-000000000011","revision":2}],"schema_version":1,"session_id":"00000000-0000-4000-8000-000000000002","share_operation_id":"00000000-0000-4000-8000-000000000020"}
+```
+
+Expected SHA-256: `a9f103dc91b94c5425f20b74c3c8f68567ad19e982a764ef02ace78459ca0f53`.
 
 ### 8.2 Service acceptance transaction
 
@@ -331,7 +410,7 @@ The service MUST atomically:
 1. authenticate/validate the session-scoped grant and tenant/session relationship;
 2. validate schema and form versions;
 3. enforce blind-safe fields;
-4. compare the idempotency identifier and canonical hash;
+4. independently canonicalize and recompute the snapshot hash, then compare the idempotency identifier and digest;
 5. insert previously unseen responses/events and preserve raw records;
 6. update portal read models only from accepted shared data;
 7. record the service acknowledgement.
@@ -393,9 +472,9 @@ The app MUST persist a versioned offline package before a prepared session can c
 Minimum content:
 
 - package/contract version and creation/update time;
-- `session_id` or locally resolvable mapping from `public_session_ref`;
+- an authoritative `session_id` or a persisted provisional Session plus mapping from normalized `public_session_ref`;
 - neutral session name, session status, form key/version, and identity mode;
-- session-scoped participant access material or a durable pending-grant state that does not broaden access;
+- authoritative session-scoped participant access material or the restricted provisional-local access state defined below;
 - privacy notice version;
 - known ordered Samples using participant-safe fields (`sample_id`, `blind_code` or open display label, position); the package MAY grow as additional NFC cups are scanned, and MUST NOT imply that an NFC-only join already contains unscanned samples;
 - active Cup Assignment resolution data for NFC, QR, and manual codes;
@@ -407,6 +486,42 @@ Minimum content:
 The package MUST support session creation by a prepared host, NFC/QR/manual joining from available prepared data, cup resolution, form rendering, capture, editing, completion, and local review without a network request.
 
 Resolution outcomes are exactly `assigned`, `unassigned`, `unknown`, or `unsupported`. An absent or ambiguous mapping MUST NOT fall back to the most recent sample. Manual selection records that manual identity resolution was used.
+
+### 10.1 Cold/offline NFC bootstrap
+
+A first-use device in airplane mode has no service-issued domain IDs or access token. A successful read of one structurally valid, supported canonical NDEF payload may bootstrap local tasting without pretending that tag data is service-authoritative.
+
+The bootstrap transaction MUST:
+
+1. normalize and validate `public_session_ref` and the physical NFC identifier under section 4;
+2. classify the supported NDEF profile and resolve `f` through an immutable form compatibility registry bundled with the installed app;
+3. reject `NO-SESSION`, an unsupported/ambiguous form mapping, malformed sample position, invalid mode, duplicate canonical identifier, or conflicting prior payload;
+4. find or create one persisted provisional Session keyed by normalized `public_session_ref`;
+5. find or create one provisional Sample keyed within that Session by the protocol sample position `z`, and one provisional Cup/Assignment keyed by canonical NFC identifier plus the parsed payload intent;
+6. create or reuse a cryptographically random local participant ID and a `provisional_local` session access record;
+7. persist the participant-safe package, raw canonical NDEF evidence, parser/profile version, and provisional-to-authoritative mapping rows; and
+8. only then open the scanned cup's Response.
+
+Provisional domain IDs are normal cryptographically random UUIDs generated once and persisted. They are not derived from public tag data and are marked `authority_state = provisional`. Repeating the same scan returns the same provisional Session, Sample, Cup Assignment, participant continuity, and Response; it does not duplicate them. A different payload for the same normalized reference/position/identifier is retained as conflict evidence and returns `unknown` until reconciled.
+
+The current NDEF payload has a form key but no independent form-version field. Therefore each supported NDEF protocol profile and `f` value MUST map to exactly one immutable bundled pair `(form_key, form_version)` and a form-definition hash. That registry entry is the provisional Session's form contract. If an app supports more than one form version for the same unversioned NDEF profile/key, cold bootstrap is `unsupported`; it MUST NOT select the newest version. Adding an on-tag version requires a separately approved NDEF protocol change. FR-028B still prevents production bootstrap/write mappings for the three forms without approved `f` values.
+
+`provisional_local` is evidence of physical possession for local, participant-safe use of exactly one `public_session_ref`. It permits offline capture and local completion only. It is not a service bearer token, does not identify an Organisation, cannot read host data or another Session, and cannot by itself upload results. The app may queue an explicitly consented share while still provisional, but transport waits until the access and identity reconciliation below succeeds.
+
+### 10.2 Online reconciliation
+
+When connectivity returns, the app presents the normalized `public_session_ref`, participant-safe NDEF evidence, provisional participant continuity, and any separate QR/link capability it holds to the provider-neutral SessionAccess boundary. The service validates the reference/capability, session status, tenant, canonical form/version, mode, sample position, Cup, and active Assignment, then returns an authoritative package plus a service-valid session-scoped grant. This exchange does not upload results and does not imply share consent.
+
+Reconciliation MUST be one idempotent local transaction keyed by normalized `public_session_ref` and authoritative identifiers:
+
+- create durable aliases from each provisional Session/Sample/Cup/Assignment ID to its authoritative ID;
+- retain the locally generated participant, Response, Event, and Share Operation IDs unless an exact collision is detected;
+- rewrite or resolve foreign keys through the alias map without changing event content, local revisions, participant aggregate revisions, or consent snapshots;
+- merge only records whose public reference, normalized NFC identity, sample position, form key/version, and identity mode agree;
+- record the service package/version and replace `provisional_local` with the service-valid session-scoped grant;
+- leave queued share snapshot bytes byte-for-byte immutable and place authoritative alias bindings only in the separately validated transport wrapper excluded from the snapshot hash.
+
+Repeating the same authoritative package produces no additional rows or revisions. A domain-ID collision with different content, mismatched form/version or mode, unknown/revoked session, conflicting Sample/Assignment, or duplicate authoritative mapping is quarantined. Local observations remain readable and are never discarded; sharing stays visibly failed/blocked until an authorised resolution or a new join artifact establishes scope. The app MUST NOT silently attach local results to a merely similar service record.
 
 ## 11. NFC boundary
 
@@ -433,7 +548,7 @@ Interfaces may use different names in code, but MUST preserve these semantics.
 transact(mutations) -> committed revision
 loadOfflinePackage(public_session_ref) -> package | not_found
 appendTastingEvent(event, expected_response_revision) -> response projection
-createShareOperation(snapshot, consent) -> queued operation
+createShareOperation(participant_id, expected_participant_revision, consent) -> queued immutable snapshot
 claimQueuedShare(now) -> operation | none
 recordShareAttempt(operation_id, attempt)
 acknowledgeShare(operation_id, snapshot_hash, service_ack)
@@ -447,7 +562,8 @@ recoverInterruptedWork()
 ```text
 prepareHostSession(host_context, session)
 joinWithLinkOrQr(join_artifact, display_name, privacy_acceptance)
-joinWithNfc(ndef_metadata, display_name, privacy_acceptance)
+bootstrapProvisionalNfcJoin(ndef_metadata, physical_identifier, display_name, privacy_acceptance)
+reconcileProvisionalJoin(public_session_ref, evidence, capability) -> authoritative aliases + scoped grant
 validateSessionScope(grant, session_id)
 refreshRevealProjection(grant, package_version)
 ```
@@ -459,6 +575,9 @@ The interface supports offline-prepared artifacts and makes expiry a policy inpu
 ```text
 classify(read_result) -> tag classification
 resolve(identifier, metadata, offline_package) -> assigned | unassigned | unknown | unsupported
+stageAssignment(cup_id, sample_id, complete_payload) -> staged intent
+advanceAssignmentWrite(intent_id) -> durable lifecycle state
+recoverAssignmentIntent(intent_id, fresh_read) -> durable lifecycle state
 encodeAssignment(assignment, participant_safe_sample, protocol_version) -> records
 writeAndVerify(records) -> verified result | explicit failure
 ```
@@ -520,6 +639,10 @@ Prototype temperature/time snapshots are preserved as legacy raw metadata for lo
 - If all legacy sample rows agree on `cupping_mode`, migrate it to Session `identity_mode`.
 - Mixed per-sample forms or modes are invalid under the Product Specification. Preserve raw rows, mark the Session `needs_resolution`, and require an authorised migration decision; do not pick the first value.
 - A missing/duplicate Cup identity, missing parent, malformed mask, or identifier collision is quarantined with evidence rather than dropped.
+- Normalize every legacy `session_uuid` and `cup_uuid` into separate candidate columns before adding uniqueness constraints. Keep the original bytes/text as migration evidence.
+- Legacy Sessions that normalize to the same `public_session_ref` are never merged merely because the key matches. An exact duplicate may be linked only when all immutable/session-defining fields and content evidence agree; otherwise every conflicting Session is quarantined and the public reference is unavailable for join until resolved.
+- Legacy Cup rows that normalize to the same `(organisation, identifier_kind, nfc_identifier)` are never resolved by row order or recency. Proven duplicate rows may map to one Cup only when their immutable identity evidence agrees; conflicting rows and their assignments remain preserved but non-resolvable pending review.
+- Constraints are enabled only after the migration report shows no unresolved duplicate in the active/readable set. A later collision is rejected at write time and recorded; it never updates the existing row.
 - Legacy `complete` state is preserved as provenance but does not prove account-free completion, consent, sharing, or portal ingestion.
 - No legacy row is treated as shared without a separately evidenced explicit share action. Migrated responses default to private/local.
 
@@ -554,40 +677,59 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 6. Re-running migration produces no duplicates and no additional semantic changes.
 7. Every legacy row is mapped or quarantined with a reason; row/content reconciliation is reproducible.
 8. A failed migration leaves the original database recoverable and no partial read cutover active.
+9. `public_session_ref` normalization accepts case/surrounding ASCII whitespace only as specified, rejects every malformed/sentinel value, and enforces one global authoritative Session; generated collisions retry without overwrite.
+10. Equivalent provider renderings of the same tag UID produce the same `tag-uid:<hex>` value; malformed identifiers and cross-kind lookalikes are rejected.
+11. Legacy session/tag duplicates are either proven identical and explicitly aliased or quarantined; neither scan nor join resolves a quarantined duplicate.
 
 ### 15.2 Offline durability
 
-9. Killing and restarting after an acknowledged edit restores the event and current projection.
-10. Failure before transaction commit does not acknowledge or expose a partially saved edit.
-11. Session creation, prepared join, scan resolution, capture, editing, completion, and local review work with network disabled.
-12. Unknown, unassigned, unsupported, and ambiguous scans never open a guessed sample.
-13. Interrupted `sharing` state recovers without a new consent operation or duplicate snapshot.
+12. Killing and restarting after an acknowledged edit restores the event and current projection.
+13. Failure before transaction commit does not acknowledge or expose a partially saved edit.
+14. Session creation, prepared join, scan resolution, capture, editing, completion, and local review work with network disabled.
+15. On a fresh device in airplane mode, one valid supported NFC read atomically creates a provisional Session/Sample/Cup Assignment/participant/Response with the registry-pinned form version and opens only that cup.
+16. Repeating the same cold scan before and after restart reuses every provisional mapping and creates no duplicate entity or Response.
+17. Reconciliation of a matching authoritative package is idempotent, preserves all local event/response/share IDs and revisions, and enables the scoped service grant without uploading results.
+18. Reconciliation mismatch, revoked/unknown session, identifier collision, or ambiguous form version preserves local observations, exposes a blocked/conflict state, and never guesses an authoritative mapping.
+19. Unknown, unassigned, unsupported, and ambiguous scans never open a guessed sample.
+20. Interrupted `sharing` state recovers without a new consent operation or duplicate snapshot.
 
-### 15.3 Sharing and conflict
+### 15.3 Assignment write and recovery
 
-14. No outbox item exists before explicit **Share results** consent.
-15. Consent, immutable snapshot, hash, and queued state commit atomically.
-16. All retries reuse the Share Operation ID and snapshot hash.
-17. Replaying the same operation/event returns the original acknowledgement and creates no duplicate result/event.
-18. Identifier reuse with different content is rejected and preserved as a conflict.
-19. Edits after sharing are not uploaded until another explicit share action.
-20. Excluding a result changes aggregates but retains raw data and creates an Audit Event.
+21. Before activation, the last verified assignment remains active and a candidate-only payload never opens tasting on the host device.
+22. Crash/restart tests at each boundary—before/after staging, persisting `writing`, physical write completion, persisting `written_unverified`, read-back, persisting verification, and activation commit—produce only the documented state and never report premature success.
+23. Recovery with a tag matching the candidate verifies/activates exactly once; matching the prior payload retains the prior assignment; matching neither blocks readiness.
+24. Retrying a staged or interrupted write reuses the candidate ID and intended payload hash and cannot create two active assignments.
+25. Cancellation before write has no tag effect; cancellation after write cannot complete until the prior verified payload is restored and read-back verified, or the cup remains not ready.
+26. Initial assignment with no last verified payload resolves `unassigned` through every pre-activation/failure state.
 
-### 15.4 Blindness, privacy, and tenancy
+### 15.4 Sharing and conflict
 
-21. Before reveal, protected identity is absent—not merely hidden—from participant UI/accessibility output, NFC, offline cache/package, URLs, logs, analytics, and network responses.
-22. Blind NDEF4 `n` contains only the neutral identifier.
-23. Reveal requires an authorised explicit action and creates an Audit Event.
-24. A session-scoped participant grant cannot read or share another session.
-25. Cross-organisation identifiers supplied by a client cannot escape server-side tenant scoping.
-26. Free-text notes and protected sample identity never appear as analytics properties.
+27. No outbox item exists before explicit **Share results** consent.
+28. Consent, all-Response aggregate cut, revision vector, exact canonical bytes/hash, Share Operation, and queued state commit atomically.
+29. A concurrent edit to any Response is wholly before or after the snapshot transaction; the captured participant revision/vector and event sets never form a torn cut.
+30. All retries reuse the Share Operation ID, exact stored canonical bytes, and snapshot hash.
+31. Independent mobile and service implementations serialize the section 8.1.1 fixture to exactly the displayed bytes and SHA-256 digest; property vectors cover object-key order, response/event sorting, Unicode, timestamps, null/omitted fields, number formatting, and invalid values.
+32. The service rejects a client hash that differs from its independently canonicalized/recomputed digest and rejects unsupported canonicalization versions.
+33. Replaying the same operation/event returns the original acknowledgement and creates no duplicate result/event.
+34. Identifier reuse with different content is rejected and preserved as a conflict.
+35. Edits after sharing are not uploaded until another explicit share action.
+36. Excluding a result changes aggregates but retains raw data and creates an Audit Event.
 
-### 15.5 Protocol boundary
+### 15.5 Blindness, privacy, and tenancy
 
-27. Notes, scores, participant data, and share state never enter NDEF.
-28. Failed/interrupted writes remain visibly unverified and never report assignment success.
-29. A production write for a form without an approved NDEF mapping is blocked.
-30. Physical NFC behavior is verified only with recorded device, OS, tag, firmware where relevant, and scenario evidence.
+37. Before reveal, protected identity is absent—not merely hidden—from participant UI/accessibility output, NFC, offline cache/package, URLs, logs, analytics, and network responses.
+38. Blind NDEF4 `n` contains only the neutral identifier.
+39. Reveal requires an authorised explicit action and creates an Audit Event.
+40. A provisional-local record cannot call service APIs; a reconciled session-scoped participant grant cannot read or share another session.
+41. Cross-organisation identifiers supplied by a client cannot escape server-side tenant scoping.
+42. Free-text notes and protected sample identity never appear as analytics properties.
+
+### 15.6 Protocol boundary
+
+43. Notes, scores, participant data, and share state never enter NDEF.
+44. Failed/interrupted writes remain visibly unverified and never report assignment success.
+45. A production write or cold bootstrap for a form without one approved, unambiguous NDEF-to-form-version mapping is blocked.
+46. Physical NFC behavior is verified only with recorded device, OS, tag, firmware where relevant, and scenario evidence.
 
 ## 16. Dependency map for subsequent tasks
 
