@@ -85,7 +85,7 @@ NDEF4 is app-owned metadata linking a physical cup to a coffee sample and cuppin
 - `i` — total number of samples in the session. Written when a valid integer is available.
 - `z` — this sample’s one-based position in the session. Written when a valid integer is available.
 - `m` — cupping mode: `b` for Blind Cupping or `o` for Open Cupping.
-- `f` — cupping-form key. The only current value is `1` for SCA CVA.
+- `f` — cupping-form key. Release 1 defines `1` for SCA CVA and `2` for SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 - `e` — session name.
 - `t` — session-type key.
 - `d` — compact session date as a six-digit `YYMMDD` number.
@@ -115,13 +115,13 @@ The read parser expands `n`, `p`, `y`, `i`, `z`, `e`, `t`, `d`, and `u` to `coff
 
 ### Cupping form `f`
 
-`1` SCA CVA.
+`1` SCA CVA; `2` SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 
-#### BLOCKING Release 1 decision — FR-028B
+#### Approved Release 1 mapping — FR-028B
 
-Product Specification requirement **FR-028B** requires compatible, versioned NDEF4 form values for all four Release 1 forms: SCA CVA, legacy SCA, Quick QC, and Purchasing/selection. This protocol currently defines only `f=1` for SCA CVA. FR-028B is therefore unresolved and BLOCKING for a Release 1 pilot candidate.
+Product Specification requirement **FR-028B** is resolved for the two Release 1 forms by the mapping above. A reader or writer MUST treat any other `f` value as unsupported, fail visibly, and never guess or silently map it to SCA CVA. The application-level form registry MUST bind each supported NDEF value to exactly one immutable `(form_key, form_version, form-definition hash)` for a given protocol profile; an unambiguous bundled mapping is required for offline use.
 
-An implementation agent must not invent production enum values for the remaining forms. A reversible experimental value may be used only in isolated experimental work; it must not enter user-visible `main`, persisted production data, or a release contract. The Product Owner or an approved protocol decision must resolve and document the mapping and compatibility rules before FR-028B can be considered complete.
+Quick QC and Purchasing/selection are subsequent-release concepts and have no assigned or reserved NDEF values. An implementation agent MUST NOT invent, alias, persist, or transmit production values for them. Any future addition requires an approved protocol change, compatibility rules, and conformance evidence; it must not reinterpret `1` or `2`.
 
 ## 7. Read and write normalization
 
