@@ -36,7 +36,7 @@ git status --short --branch
 git diff --name-status
 git diff --cached --name-status
 git ls-files --others --exclude-standard
-git ls-files --others --ignored --exclude-standard
+git ls-files --others --ignored --exclude-standard --directory
 git remote -v
 git branch --show-current
 git branch --all --verbose --no-abbrev
@@ -130,7 +130,7 @@ git reflog show --all --date=iso
 git diff --name-status
 git diff --cached --name-status
 git ls-files --others --exclude-standard
-git ls-files --others --ignored --exclude-standard
+git ls-files --others --ignored --exclude-standard --directory
 git ls-files docs/tasks
 rg -n '^(- \*\*Status:\*\*|# Task Record|## Review findings|## Final references)' docs/tasks
 ```
