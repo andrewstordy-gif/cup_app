@@ -91,6 +91,10 @@ NDEF4 is app-owned metadata linking a physical cup to a coffee sample and cuppin
 - `d` — compact session date as a six-digit `YYMMDD` number.
 - `u` — session UUID. Newly generated session IDs are 14 lowercase alphanumeric characters. `NO-SESSION` is also used as a sentinel for cups not attached to a saved session.
 
+For both open and blind sessions, `n` may contain the real coffee name/origin and `p` may contain the real processing-method key. In blind mode, `m=b` instructs Cup App to retain those fields locally but exclude them from every participant-facing app projection until that participant explicitly completes the session. Completion durably reveals the locally held metadata on that device; it does not rewrite NDEF4, require connectivity or a host-global reveal, or share/upload results.
+
+NDEF is participant-readable and is not a confidentiality boundary. Deliberate raw inspection with a third-party NFC reader can expose `n` and `p` and is outside the Release 1 threat model. This exception is limited to the documented session/sample metadata: results, tasting notes, participant data, credentials, access grants, tenant secrets, and device secrets remain forbidden from NDEF.
+
 NDEF4 no longer contains a sample-colour field. Older examples may show `k` as a colour hex value; current code ignores that field and drops it on subsequent writes.
 
 The read parser expands `n`, `p`, `y`, `i`, `z`, `e`, `t`, `d`, and `u` to `coffeeName`, `coffeeProcess`, `cupNumber`, `samplesInSession`, `sampleNumber`, `sessionName`, `sessionType`, `sessionDate`, and `sessionUUID`. Compact `m` and `f` remain present through object preservation; downstream code reads them directly or normalizes them as `cuppingMode` and `cuppingForm`.
@@ -146,6 +150,8 @@ Because parsing is positional, this single record initially appears as `parsed.t
 ## 10. What is not stored in NDEF4
 
 Scores, aroma/flavour selections, defects, notes, final results, live temperature, live timing, battery state, and the physical cup UUID are not part of NDEF4. Assessment data is stored in the app database. Live cup data belongs to NDEF2, while the physical cup identity is `NDEF2.u` on smart cups or the hardware tag ID on NTAG cups.
+
+NDEF4 also never stores participant identity, completion/reveal state, share consent/state, outbox data, credentials, access grants, tenant secrets, or device secrets. A blind participant completing in Cup App changes only that participant's durable local presentation state; the tag payload is unchanged.
 
 ## 11. Implementation and conformance evidence
 
