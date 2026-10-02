@@ -111,6 +111,13 @@ All records carry `created_at` and, where mutable, `updated_at` in UTC ISO-8601 
 
 Fields listed as policy parameters may be null until the Product Owner approves a value. Unknown data MUST remain unknown rather than receiving a misleading default.
 
+Session, Sample, Cup, and Cup Assignment records that can originate from a cold NFC join are discriminated unions:
+
+- `authority_state = authoritative` uses the full canonical shape and all authoritative ownership/actor fields described below;
+- `authority_state = provisional` uses the explicit restricted shapes in section 5.12; unavailable authority fields are SQL/JSON `null` or absent exactly as that shape specifies, never placeholder UUIDs, sentinel Organisations, copied participant IDs, or inferred host identities.
+
+Only authoritative entities may enter host/service-authoritative queries, tenant-scoped portal projections, exports, aggregate reporting, or assignment-readiness decisions. Participant-local projections may follow provisional references solely under the restricted access contract in section 10.1.
+
 ### 5.1 Organisation
 
 Required fields:
@@ -150,7 +157,8 @@ A participant belongs to exactly one session. An access grant MUST be session-sc
 
 Required fields:
 
-- `session_id`, `public_session_ref`, `organisation_id`, `host_user_id`
+- `authority_state = authoritative`
+- `session_id`, `public_session_ref`, non-null `organisation_id`, non-null `host_user_id`
 - `name`, `session_type`
 - `form_key`, `form_version`
 - `identity_mode`: `blind` or `open`
@@ -175,6 +183,7 @@ Starting, completing, reopening, and archiving are explicit host actions. Reopen
 
 Required fields:
 
+- `authority_state = authoritative`
 - `sample_id`, `session_id`, `position`
 - at least one of `display_name` or `sample_code`
 - `blind_code`
@@ -187,7 +196,8 @@ A Sample is the coffee being evaluated. It is not a cup and MUST NOT store a phy
 
 Required fields:
 
-- `cup_id`, `organisation_id`
+- `authority_state = authoritative`
+- `cup_id`, non-null `organisation_id`
 - `nfc_identifier`, `device_type`, `capabilities`
 - optional `internal_label`, `model`, `hardware_version`, `firmware_version`
 - `status`, `tag_write_status`, `last_written_at`, `last_verified_at`
@@ -199,8 +209,9 @@ A Cup is reusable across sessions. `nfc_identifier` is immutable unless an audit
 
 Required fields:
 
+- `authority_state = authoritative`
 - `cup_assignment_id`, `session_id`, `sample_id`, `cup_id`
-- `assigned_by_user_id`, `assigned_at`
+- non-null `assigned_by_user_id`, `assigned_at`
 - `lifecycle_state`, `replaces_assignment_id`, `ended_at`
 - `tag_payload_version`, `intended_payload_hash`, `tag_write_status`, `tag_verified_at`
 - last write/verification error and recovery timestamps where applicable
@@ -310,6 +321,58 @@ Required fields:
 
 Audit events are append-only. Release 1 MUST audit cup reassignment, blind reveal, result exclusion/inclusion, session complete/reopen/archive, and identity-affecting changes. Audit payloads MUST obey the same blind and tenant-isolation rules as normal data.
 
+### 5.12 Provisional cold-bootstrap entity shapes
+
+These shapes exist only in participant-local storage after section 10.1 bootstrap. They are not incomplete authoritative rows.
+
+**Provisional Session**
+
+- `authority_state = provisional`
+- local `session_id`, normalized `public_session_ref`
+- `organisation_id = null`, `host_user_id = null`
+- participant-safe `name`, `session_type`, `identity_mode`, registry-pinned `form_key`, `form_version`, and form-definition hash derived from validated NDEF/registry evidence
+- `provisional_status`: `local_joined`, `conflicted`, or `reconciliation_blocked`; authoritative lifecycle `status = null`
+- `provenance`: `source = ndef_cold_bootstrap`, canonical NDEF evidence hash, parser/profile version, physical-read time, and originating app/build version
+- `created_at`, `updated_at`
+
+**Provisional Sample**
+
+- `authority_state = provisional`
+- local `sample_id`, provisional `session_id`, validated protocol position, and participant-safe NDEF name/blind label/process fields
+- protected host-only metadata absent; fields not present in NDEF are `null`, never inferred
+- the same evidence hash/provenance reference as the bootstrap transaction
+- `created_at`, `updated_at`
+
+**Provisional Cup**
+
+- `authority_state = provisional`
+- local `cup_id`, `organisation_id = null`
+- canonical identifier kind/value, observed `device_type`, and only capabilities proven by the read/classifier
+- internal label, model, hardware version, firmware version, authoritative cup status, and host tag-history fields `null` unless directly present in canonical participant-safe protocol evidence
+- the bootstrap evidence hash/provenance reference, `created_at`, `updated_at`
+
+**Provisional Cup Assignment observation**
+
+- `authority_state = provisional`
+- local `cup_assignment_id` and provisional `session_id`, `sample_id`, `cup_id`
+- `assigned_by_user_id = null`, `assigned_at = null`; these MUST NOT be replaced by the participant or physical-read time
+- `observed_at`, canonical observed payload hash, protocol/profile version
+- `lifecycle_state = provisional_observed`; no `active`/verified/readiness claim
+- bootstrap evidence hash/provenance reference, `created_at`, `updated_at`
+
+A participant Response may reference a `provisional_observed` assignment locally. That relationship means “this tag payload was observed for this provisional sample,” not “an authorised host assignment was verified.” Host/service code MUST use a typed authoritative-only repository/view whose schema excludes provisional rows, rather than relying on callers to remember a filter.
+
+Reconciliation is monotonic and provenance-preserving:
+
+1. validate the authoritative package and scoped grant before creating any authoritative ownership/actor value;
+2. insert or match separate full authoritative Session, Sample, Cup, and Cup Assignment records with non-null service-validated Organisation, Host, and assigner references;
+3. create one-to-one typed alias rows from provisional IDs to authoritative IDs, including evidence/package versions and reconciliation time;
+4. mark provisional records `reconciled` in reconciliation metadata without rewriting their original evidence fields or changing `authority_state`;
+5. route participant Responses/Events through the validated aliases for service ingestion while preserving their IDs/revisions; and
+6. perform the alias creation, grant replacement, and local projection switch atomically and idempotently.
+
+An implementation MAY let the service explicitly adopt a client-generated domain UUID, but only when the authoritative response names that same UUID and supplies every required ownership/actor field. This is still recorded as validated adoption with provenance; local code never self-promotes a provisional record. A mismatch, missing authority field, alias collision, or changed immutable evidence leaves the provisional graph isolated and blocked as section 10.2 specifies.
+
 ## 6. Participant result and sharing state
 
 The participant-visible result state is derived from response completion and the latest explicit Share Operation:
@@ -384,12 +447,44 @@ Before JCS serialization, the Cup App profile requires:
 
 - domain UUIDs in canonical lowercase hyphenated form;
 - `public_session_ref`, NFC identifiers, enums, and timestamps normalized by their defining contracts;
-- timestamps serialized in UTC with a trailing `Z`; semantically equal instants use the same shortest millisecond precision accepted by the schema;
+- every timestamp normalized by the exact timestamp profile below before JCS serialization;
 - no `undefined`, non-finite number, negative zero, duplicate object key, or unpaired Unicode surrogate;
 - absent optional fields omitted, while an explicit JSON `null` appears only where the schema assigns it meaning;
 - `response_revision_vector` and Responses sorted by `response_id` code-point order;
 - each Response's events sorted by numeric `local_revision`, then `event_id` code-point order;
 - set-like arrays sorted by the schema-defined identifier; user-authored ordered values retain their semantic order.
+
+#### Timestamp profile `cup-time-ms-v1`
+
+Every timestamp field in a hashed snapshot MUST first parse the case-sensitive input grammar:
+
+```text
+YYYY-MM-DDTHH:mm:ss[.fraction](Z|+HH:MM|-HH:MM)
+```
+
+The rules are:
+
+- year is `0001` through `9999`; month/day must be a real proleptic-Gregorian date;
+- hour is `00`-`23`, minute and second are `00`-`59`; leap seconds and `24:00:00` are rejected;
+- `fraction`, when present, has one to three decimal digits and denotes decimal fractions of a second; more digits are rejected rather than rounded;
+- an offset is mandatory and is either uppercase `Z` or a numeric offset from `-13:59` through `+13:59`, plus `-14:00` and `+14:00`; at `14` the minutes must be `00`;
+- `-00:00` is rejected because it denotes an unknown local offset; `+00:00` is accepted as UTC;
+- spaces, lowercase `t`/`z`, timezone names, omitted seconds, commas, and surrounding whitespace are rejected;
+- parsing/conversion uses integer calendar arithmetic, not locale rules or floating-point epoch seconds; an offset conversion outside years `0001`-`9999` is rejected.
+
+After validating, convert the instant to UTC, right-pad an absent/short fraction to exactly three millisecond digits, and serialize exactly `YYYY-MM-DDTHH:mm:ss.SSSZ` (24 ASCII characters). No fractional trimming is permitted. Thus semantically equal accepted inputs always produce identical strings before JCS.
+
+Required timestamp vectors:
+
+| Accepted input | Canonical output |
+| --- | --- |
+| `2026-10-02T10:00:00Z` | `2026-10-02T10:00:00.000Z` |
+| `2026-10-02T10:00:00.0Z` | `2026-10-02T10:00:00.000Z` |
+| `2026-10-02T10:00:00.000+00:00` | `2026-10-02T10:00:00.000Z` |
+| `2026-10-02T12:30:45.12+02:30` | `2026-10-02T10:00:45.120Z` |
+| `2026-01-01T00:15:00-01:00` | `2026-01-01T01:15:00.000Z` |
+
+Required rejection vectors include `2026-10-02 10:00:00Z`, `2026-10-02T10:00:00z`, `2026-10-02T10:00Z`, `2026-10-02T10:00:60Z`, `2026-10-02T10:00:00.0000Z`, `2026-10-02T10:00:00-00:00`, and `2026-02-29T10:00:00Z`.
 
 The hash input is the complete immutable share snapshot excluding only `snapshot_hash`, transport-attempt metadata, the authoritative alias/access wrapper, access-proof bytes/signatures, and service acknowledgement fields. It includes the locally stable `session_id`, normalized `public_session_ref`, `schema_version`, `canonicalization_version`, `hash_algorithm`, `share_operation_id`, aggregate/vector boundaries, and all shared content. The exact canonical UTF-8 bytes are stored with the outbox item so retries do not reserialize mutable projections. After a cold join, reconciliation binds the immutable local identifiers to authoritative identifiers in the excluded transport wrapper; it does not rewrite the consented bytes.
 
@@ -398,10 +493,10 @@ The service MUST validate schema/types, reconstruct the hash-input object from r
 Cross-implementation canonicalization/hash fixture (intentionally a minimal object rather than a complete valid share envelope; the line between the fences has no trailing newline in the hashed bytes):
 
 ```json
-{"canonicalization_version":"cup-share-jcs-v1","hash_algorithm":"sha-256","participant_id":"00000000-0000-4000-8000-000000000001","participant_snapshot_revision":7,"response_revision_vector":[{"response_id":"00000000-0000-4000-8000-000000000010","revision":3},{"response_id":"00000000-0000-4000-8000-000000000011","revision":2}],"schema_version":1,"session_id":"00000000-0000-4000-8000-000000000002","share_operation_id":"00000000-0000-4000-8000-000000000020"}
+{"canonicalization_version":"cup-share-jcs-v1","consent_recorded_at":"2026-10-02T10:00:00.000Z","hash_algorithm":"sha-256","participant_id":"00000000-0000-4000-8000-000000000001","participant_snapshot_revision":7,"response_revision_vector":[{"response_id":"00000000-0000-4000-8000-000000000010","revision":3},{"response_id":"00000000-0000-4000-8000-000000000011","revision":2}],"schema_version":1,"session_id":"00000000-0000-4000-8000-000000000002","share_operation_id":"00000000-0000-4000-8000-000000000020"}
 ```
 
-Expected SHA-256: `a9f103dc91b94c5425f20b74c3c8f68567ad19e982a764ef02ace78459ca0f53`.
+Expected SHA-256: `95faf8ed77cc827f4840a918d9e410ac859c5cb26d1a4ccdf42788b1582d3187`.
 
 ### 8.2 Service acceptance transaction
 
@@ -496,13 +591,13 @@ The bootstrap transaction MUST:
 1. normalize and validate `public_session_ref` and the physical NFC identifier under section 4;
 2. classify the supported NDEF profile and resolve `f` through an immutable form compatibility registry bundled with the installed app;
 3. reject `NO-SESSION`, an unsupported/ambiguous form mapping, malformed sample position, invalid mode, duplicate canonical identifier, or conflicting prior payload;
-4. find or create one persisted provisional Session keyed by normalized `public_session_ref`;
-5. find or create one provisional Sample keyed within that Session by the protocol sample position `z`, and one provisional Cup/Assignment keyed by canonical NFC identifier plus the parsed payload intent;
+4. find or create one persisted provisional Session using the exact section 5.12 shape, keyed by normalized `public_session_ref`, with Organisation/Host authority explicitly unavailable;
+5. find or create the section 5.12 provisional Sample, Cup, and Cup Assignment observation keyed within that Session by protocol position `z`, canonical NFC identifier, and parsed payload intent, with Organisation/assigner authority explicitly unavailable;
 6. create or reuse a cryptographically random local participant ID and a `provisional_local` session access record;
 7. persist the participant-safe package, raw canonical NDEF evidence, parser/profile version, and provisional-to-authoritative mapping rows; and
 8. only then open the scanned cup's Response.
 
-Provisional domain IDs are normal cryptographically random UUIDs generated once and persisted. They are not derived from public tag data and are marked `authority_state = provisional`. Repeating the same scan returns the same provisional Session, Sample, Cup Assignment, participant continuity, and Response; it does not duplicate them. A different payload for the same normalized reference/position/identifier is retained as conflict evidence and returns `unknown` until reconciled.
+Provisional domain IDs are normal cryptographically random UUIDs generated once and persisted. They are not derived from public tag data and are marked `authority_state = provisional`. `organisation_id`, `host_user_id`, and `assigned_by_user_id` remain null/absent according to section 5.12; the app MUST NOT generate stand-ins. Repeating the same scan returns the same provisional Session, Sample, Cup Assignment observation, participant continuity, and Response; it does not duplicate them. A different payload for the same normalized reference/position/identifier is retained as conflict evidence and returns `unknown` until reconciled.
 
 The current NDEF payload has a form key but no independent form-version field. Therefore each supported NDEF protocol profile and `f` value MUST map to exactly one immutable bundled pair `(form_key, form_version)` and a form-definition hash. That registry entry is the provisional Session's form contract. If an app supports more than one form version for the same unversioned NDEF profile/key, cold bootstrap is `unsupported`; it MUST NOT select the newest version. Adding an on-tag version requires a separately approved NDEF protocol change. FR-028B still prevents production bootstrap/write mappings for the three forms without approved `f` values.
 
@@ -514,14 +609,14 @@ When connectivity returns, the app presents the normalized `public_session_ref`,
 
 Reconciliation MUST be one idempotent local transaction keyed by normalized `public_session_ref` and authoritative identifiers:
 
-- create durable aliases from each provisional Session/Sample/Cup/Assignment ID to its authoritative ID;
+- create full authoritative entities from service-validated data where not already present, then durable typed aliases from each provisional Session/Sample/Cup/Assignment ID to its authoritative ID; never fill authority fields from local guesses;
 - retain the locally generated participant, Response, Event, and Share Operation IDs unless an exact collision is detected;
 - rewrite or resolve foreign keys through the alias map without changing event content, local revisions, participant aggregate revisions, or consent snapshots;
 - merge only records whose public reference, normalized NFC identity, sample position, form key/version, and identity mode agree;
-- record the service package/version and replace `provisional_local` with the service-valid session-scoped grant;
+- record the service package/version, validated Organisation/Host/assigner provenance, and replace `provisional_local` with the service-valid session-scoped grant;
 - leave queued share snapshot bytes byte-for-byte immutable and place authoritative alias bindings only in the separately validated transport wrapper excluded from the snapshot hash.
 
-Repeating the same authoritative package produces no additional rows or revisions. A domain-ID collision with different content, mismatched form/version or mode, unknown/revoked session, conflicting Sample/Assignment, or duplicate authoritative mapping is quarantined. Local observations remain readable and are never discarded; sharing stays visibly failed/blocked until an authorised resolution or a new join artifact establishes scope. The app MUST NOT silently attach local results to a merely similar service record.
+Repeating the same authoritative package produces no additional rows or revisions. Provisional rows remain provenance evidence and are excluded by construction from authoritative repositories/views before and after reconciliation. A domain-ID collision with different content, missing validated Organisation/Host/assigner authority, mismatched form/version or mode, unknown/revoked session, conflicting Sample/Assignment, or duplicate authoritative mapping is quarantined. Local observations remain readable and are never discarded; sharing stays visibly failed/blocked until an authorised resolution or a new join artifact establishes scope. The app MUST NOT silently attach local results to a merely similar service record.
 
 ## 11. NFC boundary
 
@@ -730,6 +825,13 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 44. Failed/interrupted writes remain visibly unverified and never report assignment success.
 45. A production write or cold bootstrap for a form without one approved, unambiguous NDEF-to-form-version mapping is blocked.
 46. Physical NFC behavior is verified only with recorded device, OS, tag, firmware where relevant, and scenario evidence.
+
+### 15.7 Provisional authority and timestamp canonicalization
+
+47. A cold bootstrap persists the exact provisional shapes from section 5.12: Organisation, Host, and assigner references are null/absent as specified, provenance is present, and no fabricated authority identifier exists.
+48. Authoritative repositories, host/portal queries, aggregate/export paths, and readiness checks return no provisional entity; only a validated, atomic, idempotent alias/promotion transaction makes an authoritative graph available.
+49. Independent implementations produce every accepted `cup-time-ms-v1` output and reject every invalid vector in section 8.1.1 exactly as specified; equivalent UTC/offset/fraction inputs normalize to the same 24-byte ASCII timestamp.
+50. Independent mobile and service implementations hash the revised timestamp-bearing fixture to `95faf8ed77cc827f4840a918d9e410ac859c5cb26d1a4ccdf42788b1582d3187`; changing only an accepted equivalent input representation before normalization does not change the canonical bytes or digest.
 
 ## 16. Dependency map for subsequent tasks
 
