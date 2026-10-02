@@ -2,6 +2,8 @@
 
 This file is the repository entrypoint for Codex, Claude, and other development agents.
 
+If Project Manager, Codex/chat, worktree, or machine state must be recovered, start with [`docs/PROJECT_MANAGER_RECOVERY.md`](docs/PROJECT_MANAGER_RECOVERY.md) and perform its inspection before changing repository state.
+
 ## Before meaningful development work
 
 Read, in this order:
