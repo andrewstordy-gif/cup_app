@@ -16,6 +16,8 @@ The app currently supports two NFC cup paths:
 
 The main production-style flow now uses the redesigned Home, Brewing, Cupping, and Active Session screens.
 
+For replacement-agent, lost-chat/worktree, or clean-machine recovery, follow [`docs/PROJECT_MANAGER_RECOVERY.md`](docs/PROJECT_MANAGER_RECOVERY.md). It preserves the authority and protected workflow in [`docs/AI_DEVELOPMENT_OPERATING_MODEL.md`](docs/AI_DEVELOPMENT_OPERATING_MODEL.md).
+
 ### Release 1 target contract
 
 - Release 1 supports exactly two forms: SCA CVA (`NDEF4.f=1`) and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023) (`NDEF4.f=2`). Quick QC and Purchasing/selection are subsequent-release concepts and have no assigned NDEF values. Unknown/unsupported values must fail visibly rather than default to SCA CVA.
