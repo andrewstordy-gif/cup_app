@@ -474,7 +474,8 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 
 **Audit event**
 
-- actor, action, target, timestamp, before/after metadata for identity, reveal, exclusion, closure, and assignment changes.
+- service/host audit: actor, action, target, timestamp, and minimized before/after metadata for host identity-mode changes, result exclusion/inclusion, session closure/reopen, and cup assignment/reassignment.
+- participant completion and its local reveal evidence belong to the durable participant-local aggregate. They are not a host reveal and do not create a service Audit Event, network action, or share record. A later, separately authorised action records only its own evidence and does not retroactively turn local completion/reveal into a service audit event.
 
 ### 9.2 Important constraints
 
