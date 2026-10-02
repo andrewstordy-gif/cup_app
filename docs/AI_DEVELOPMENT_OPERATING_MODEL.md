@@ -432,11 +432,11 @@ The PM must choose one of three responses:
 
 The chosen response and its reversibility must be recorded in the task. A temporary default must not quietly become a permanent contract through implementation precedent.
 
-### BLOCKING Release 1 decision: FR-028B
+### Approved Release 1 protocol decision: FR-028B
 
-Product Specification requirement **FR-028B** is unresolved and BLOCKING for Release 1. The current canonical NDEF protocol defines a form enum value only for SCA CVA; it does not yet define compatible, versioned values for legacy SCA, Quick QC, and Purchasing/selection.
+Product Specification requirement **FR-028B** is resolved for the two Release 1 forms. The canonical NDEF protocol defines `NDEF4.f=1` for SCA CVA and `NDEF4.f=2` for SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). Quick QC and Purchasing/selection are subsequent-release concepts with no assigned or reserved NDEF values.
 
-Implementation agents must not invent production enum values. A reversible experimental value may exist only in isolated experimental work and must not enter user-visible `main`, persisted production data, or a release contract. The Product Owner or an approved protocol decision must define the mapping and compatibility rules before FR-028B can be marked complete.
+Implementation agents must preserve the approved mappings and visibly reject unknown or unsupported values; they must never guess, silently map an unsupported value to SCA CVA, or invent future production values. Each supported value still requires one immutable bundled form key, version, and definition hash. Any future form or mapping requires an approved Product Specification and protocol change before it enters user-visible `main`, persisted production data, or a release contract.
 
 ## 17. Initial operating principle
 

@@ -2,11 +2,11 @@
 
 **Status:** Proposed canonical technical contract for Release 1 implementation
 
-**Version:** 1.0
+**Version:** 1.1
 
 **Date:** 2 October 2026
 
-**Scope:** Domain model, local-first persistence, synchronisation, blind-data isolation, and prototype migration
+**Scope:** Domain model, local-first persistence, synchronisation, blind-data isolation, fresh production-schema cutover, and provider reachability
 
 ## 1. Authority and purpose
 
@@ -31,14 +31,14 @@ The following remain parameters or unresolved decisions, not values chosen by th
 - paid-plan, trial, and pilot-entitlement details;
 - PDF delivery method and stable export schema;
 - supported launch tags and tag write-protection policy;
-- exact configurable fields for Quick QC and Purchasing/selection;
+- exact configurable fields for subsequent-release Quick QC and Purchasing/selection;
 - descriptor-vocabulary policy.
 
 Unresolved duration values do not permit an indefinite or missing production policy. Before pilot/production use, an authorised policy configuration MUST supply finite participant-grant expiry, retention, deletion-processing, backup-expiry, audit-retention, and revocation-propagation values. If a required value is absent, invalid, infinite, or outside an approved safety bound, the affected grant issuance, new session/data creation, or deletion workflow fails closed. This contract does not choose the values.
 
-### 2.1 Blocking NDEF form decision
+### 2.1 Approved Release 1 form mappings
 
-FR-028B remains unresolved and blocks a Release 1 pilot. `NDEF4.f=1` means SCA CVA. No production values are defined for legacy SCA, Quick QC, or Purchasing/selection. This contract names the four domain forms but does not map the other three to NDEF values. Implementations MUST reject or visibly block a production tag write when the selected session form has no approved protocol mapping. They MUST NOT invent, persist, or transmit a production enum value.
+FR-028B is resolved for the two Release 1 forms: `NDEF4.f=1` means SCA CVA and `NDEF4.f=2` means SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). These are the only Release 1 form values. Quick QC and Purchasing/selection are subsequent-release concepts with no assigned or reserved values. Implementations MUST reject an unknown or unsupported `f` visibly and MUST NOT guess, silently map it to SCA CVA, or invent, persist, or transmit a production value for a future form.
 
 ## 3. Architectural boundaries and ownership
 
@@ -664,7 +664,7 @@ The bootstrap transaction MUST:
 
 Provisional domain IDs are normal cryptographically random UUIDs generated once and persisted. They are not derived from public tag data and are marked `authority_state = provisional`. `organisation_id`, `host_user_id`, and `assigned_by_user_id` remain null/absent according to section 5.12; the app MUST NOT generate stand-ins. Repeating the same scan returns the same provisional Session, Sample, Cup Assignment observation, participant continuity, and Response; it does not duplicate them. A different payload for the same normalized reference/position/identifier is retained as conflict evidence and returns `unknown` until reconciled.
 
-The current NDEF payload has a form key but no independent form-version field. Therefore each supported NDEF protocol profile and `f` value MUST map to exactly one immutable bundled pair `(form_key, form_version)` and a form-definition hash. That registry entry is the provisional Session's form contract. If an app supports more than one form version for the same unversioned NDEF profile/key, cold bootstrap is `unsupported`; it MUST NOT select the newest version. Adding an on-tag version requires a separately approved NDEF protocol change. FR-028B still prevents production bootstrap/write mappings for the three forms without approved `f` values.
+The current NDEF payload has a form key but no independent form-version field. Therefore each supported NDEF protocol profile and `f` value MUST map to exactly one immutable bundled triple `(form_key, form_version, form-definition hash)`. For Release 1, the registry contains exactly one triple for `f=1` (SCA CVA) and exactly one triple for `f=2` (SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023)). That registry entry is the provisional Session's form contract. If an app supports more than one form version for the same unversioned NDEF profile/key, cold bootstrap is `unsupported`; it MUST NOT select the newest version. Adding an on-tag version or a future form value requires a separately approved NDEF protocol change.
 
 `provisional_local` is evidence of physical possession for local use of exactly one `public_session_ref`. It permits offline capture and local completion only. In a blind Session, its participant-facing projection remains neutral until that participant completes, even though encrypted storage may retain real `n`/`p` values from the tag. It is not a service bearer token, does not identify an Organisation, cannot read host data or another Session, and cannot by itself upload results. The app may queue an explicitly consented share while still provisional, but transport waits until the access and identity reconciliation below succeeds.
 
@@ -729,7 +729,7 @@ All physical encoding follows `NDEF_PROTOCOL.md`.
 - Assignment is not successful until the intended full payload is written and verified.
 - An interrupted or mismatched write produces a visible failed/unverified state.
 - A later assignment replaces the earlier session/sample payload only after verification.
-- Unsupported form mappings, including the unresolved FR-028B cases, block production writes rather than guessing.
+- Unknown, unsupported, or ambiguous form mappings block production writes and cold bootstrap rather than guessing or silently mapping to SCA CVA.
 
 NFC scan evidence may identify a Cup and Assignment, but possession of a raw hardware identifier alone is not authorisation. Session access is limited to the account-free capability intended by the Product Specification.
 
@@ -818,94 +818,95 @@ applyDeletionManifestOnRestore(restore_id, manifest_version) -> verified result 
 
 Protection operations fail closed and never return plaintext or success after an integrity/key failure. Erasure operations derive tenant and target scope from verified authority, are idempotent by operation ID plus immutable scope, expose partial/uncontrolled outcomes, and cannot mark completion until every controlled surface has durable evidence.
 
-## 13. Prototype migration contract
+### 12.7 Mainland-China reachability boundary
 
-Migration from the current `cup_user_test.db` MUST be additive, restartable, and recoverable.
+Every mandatory Release 1 online path MUST be reliably accessible from mainland China without a mandatory Google-hosted service or transitive Google-hosted dependency. The assessed path set includes:
 
-### 13.1 Required process
+- host authentication, entitlement checks required for new-session creation, and account recovery;
+- participant session access and authoritative reconciliation;
+- explicit result sharing and acknowledgement;
+- host portal sign-in, shared-result/history/search views, and administration required for the Release 1 workflow; and
+- CSV and printable/PDF export generation and download.
 
-1. Record the source schema version and create a recoverable database backup before mutation.
-2. Create new tables/columns alongside legacy tables. Do not drop legacy data in the same release that first introduces the new contract.
-3. Migrate in a single transaction or in restartable, checkpointed batches with an idempotent migration ledger.
-4. Preserve every legacy primary key in `legacy_source_id` fields or a mapping table.
-5. Validate row counts, foreign-key relationships, identifier uniqueness, and content hashes before switching reads.
-6. Keep a rollback path that restores the pre-migration database or selects the legacy read path without interpreting partially migrated data.
-7. Mark ambiguous records `needs_resolution`; never discard or silently normalize them.
-8. Only remove legacy tables in a later independently reviewed task after production evidence and rollback-window approval.
+Provider selection MUST inventory direct and transitive runtime dependencies for those paths, including DNS, certificate and key endpoints, identity and challenge services, API gateways, databases and object storage, CDNs, fonts, email links, analytics, crash reporting, monitoring, and download delivery. A dependency that is optional in the product design MUST fail without blocking, corrupting, or falsely acknowledging a mandatory user path. Offline creation, prepared participation, NFC resolution, capture, completion/local reveal, and review remain independent of this online reachability boundary.
 
-### 13.2 Mapping
+Acceptance evidence MUST record repeated end-to-end tests over real mainland-China networks on supported devices, including test date, broad region and network class, DNS/TLS outcome, latency/reliability observations, each required path above, failures/retries, and the dependency versions/endpoints exercised. A VPN, proxy, simulated location, provider assertion, or testing only from outside mainland China is not sufficient evidence. No fixed provider or numerical service-level threshold is selected by this contract; the approved release task must define measurable pilot thresholds without weakening the Product Specification.
 
-| Prototype record | Release 1 mapping |
-| --- | --- |
-| `sessions` | Session plus legacy identifier mapping |
-| `samples` row | One Sample and one Cup Assignment for its `cup_uuid`; do not fabricate additional physical cups from `cup_number` |
-| `sample_feedback_entries` | Response/Tasting Events under a session-local legacy participant, preserving raw values and final flags |
-| `sample_defect_entries` | Versioned form response events, preserving masks and raw legacy snapshots |
-| `sample_flavour_observations` | Deterministic descriptor events with original label/keyword/colour and legacy provenance |
+This boundary is provider-neutral. It does not require physical hosting in mainland China, make a legal/regulatory-compliance claim, or authorise a provider choice. Hosting jurisdiction, licensing, data residency, and legal review remain separately governed decisions.
 
-Because the prototype has no participant entity, migration MUST create one explicit `legacy_local` participant per session (with a new valid identifier) and label its provenance. It MUST NOT claim that this identity represents a real account-free participant.
+## 13. Fresh Release 1 schema and forward-migration contract
 
-Prototype temperature/time snapshots are preserved as legacy raw metadata for lossless recovery, but Release 1 MUST NOT present them as validated sensory timing or Smart Cup provenance.
+The pre-release `cup_user_test.db` and related prototype stores are disposable implementation evidence, not a production predecessor schema. Release 1 MUST initialize a distinct, fresh encrypted database and MUST NOT open, import, transform, alias, or expose prototype records through an importer or user-facing migration flow. This contract does not authorise deletion or mutation of any existing prototype data; preservation or archival outside the Release 1 product is a separately scoped operational choice.
 
-### 13.3 Ambiguity handling
+### 13.1 First production schema initialization
 
-- If all legacy sample rows agree on `cupping_form`, migrate that value to the Session only when it has an approved domain mapping. Otherwise mark the Session `needs_resolution`.
-- If all legacy sample rows agree on `cupping_mode`, migrate it to Session `identity_mode`.
-- Mixed per-sample forms or modes are invalid under the Product Specification. Preserve raw rows, mark the Session `needs_resolution`, and require an authorised migration decision; do not pick the first value.
-- A missing/duplicate Cup identity, missing parent, malformed mask, or identifier collision is quarantined with evidence rather than dropped.
-- Normalize every legacy `session_uuid` and `cup_uuid` into separate candidate columns before adding uniqueness constraints. Keep the original bytes/text as migration evidence.
-- Legacy Sessions that normalize to the same `public_session_ref` are never merged merely because the key matches. An exact duplicate may be linked only when all immutable/session-defining fields and content evidence agree; otherwise every conflicting Session is quarantined and the public reference is unavailable for join until resolved.
-- Legacy Cup rows that normalize to the same `(organisation, identifier_kind, nfc_identifier)` are never resolved by row order or recency. Proven duplicate rows may map to one Cup only when their immutable identity evidence agrees; conflicting rows and their assignments remain preserved but non-resolvable pending review.
-- Constraints are enabled only after the migration report shows no unresolved duplicate in the active/readable set. A later collision is rejected at write time and recorded; it never updates the existing row.
-- Legacy `complete` state is preserved as provenance but does not prove account-free completion, consent, sharing, or portal ingestion.
-- No legacy row is treated as shared without a separately evidenced explicit share action. Migrated responses default to private/local.
+1. Use a distinct production database identity/path or namespace so an installed prototype store cannot be mistaken for the Release 1 store.
+2. Provision the platform-secured key and prove authenticated encryption before creating or accepting sensitive production data. Failure is closed; no plaintext fallback is permitted.
+3. Create the complete first production schema, constraints, form registry, schema-version metadata, and deletion-manifest boundary atomically or with restart-safe initialization.
+4. Validate foreign keys, uniqueness/normalization rules, required finite policy configuration, form-definition hashes, and encryption before marking initialization complete.
+5. A failed or interrupted initialization is retried idempotently or replaced only as an empty uncommitted production store. It MUST NOT expose a partially initialized store.
+6. Prototype data remains outside the Release 1 read/write path. The application presents no import, upgrade, mapping-ledger, rollback-database, or legacy-resolution UI.
 
-### 13.4 Security and privacy migration implications
+### 13.2 Forward migrations from the first production schema
 
-- The migration backup, rollback database, checkpoints, mapping ledger, quarantine, and temporary copies MUST be encrypted before they contain sensitive data. Their keys use a purpose separate from the live database and their finite expiry/deletion follows the configured migration and backup policies.
-- Migration from a plaintext legacy database provisions and proves the protected store and platform key first. Copy/transform, reconciliation, and read cutover are transactional or restartable; verification covers row/content evidence before success. Plaintext temporary artifacts are not created. The superseded plaintext store is made inaccessible and removed using the strongest platform-supported deletion semantics only after rollback approval, with the platform limitation recorded rather than claiming guaranteed physical erasure.
-- Every imported record receives a policy classification. Production cutover and new production writes are blocked until required finite retention, participant-access, backup-expiry, audit-retention, deletion-processing, and revocation-propagation policy values are present and valid.
-- Legacy data has no authoritative participant access grant. Migration MUST NOT synthesize grants, access subjects, capability proofs, expiry, or consent. Unknown legacy tokens are invalidated; a grant can be issued only through section 10.3 after current proof and privacy acceptance.
-- The migration ledger records compact, non-content tombstones for existing participant-name anonymisation or Session deletion evidence. Restore/cutover applies the latest deletion manifest before any migrated projection is readable, so replaying a batch or legacy backup cannot resurrect deleted data.
-- Quarantined and `needs_resolution` records remain encrypted and tenant-isolated and are subject to the same deletion/anonymisation propagation. Ambiguity is not authority to extend retention or bypass a deletion request.
+Every production schema version from the first Release 1 schema onward MUST support controlled forward evolution:
+
+- record the source and target schema versions and exact migration identity;
+- use a transaction or restartable, checkpointed, idempotent batches;
+- preserve all production records and stable identifiers unless an authorised deletion/anonymisation operation applies;
+- validate row counts, content hashes where defined, foreign keys, normalized identifier uniqueness, form registry integrity, deletion manifests, and projection rebuilds before read cutover;
+- keep a recoverable encrypted pre-migration backup or transactional rollback path under finite backup policy, without creating plaintext temporary artifacts;
+- prevent concurrent old/new writers from interpreting partially migrated state;
+- fail with the prior production schema/data recoverable and no partial read cutover; and
+- require a separate reviewed task before any destructive schema removal, compatibility break, or rollback-window expiry.
+
+Forward migrations never synthesize participant grants, access subjects, capability proofs, consent, share operations, or authority. New required fields use an approved deterministic derivation or an explicit unresolved/quarantined state; they are never guessed from similar content.
+
+### 13.3 Security, deletion, and recovery
+
+- Production backups, checkpoints, rollback artifacts, quarantine, and temporary migration copies MUST be encrypted before containing sensitive data, use purpose-separated keys where applicable, and follow finite expiry/deletion policy.
+- Production cutover and new writes are blocked if protected storage or required finite participant-access, retention, deletion-processing, backup-expiry, audit-retention, or revocation-propagation policy is absent or invalid.
+- Every restore applies the latest deletion manifest before any record or projection becomes readable. Replaying a migration, backup, outbox item, or read-model build cannot resurrect deleted or anonymised data.
+- Migration/quarantine data remains tenant-isolated and participates in deletion/anonymisation propagation. Ambiguity does not extend retention or bypass a deletion request.
+- Recovery evidence records the exact schema version, backup/checkpoint identity, key version, validation result, and cutover state without logging protected content or credentials.
 
 ## 14. Current prototype conflicts and disposition
 
 | Evidence | Conflict | Classification | Required follow-up |
 | --- | --- | --- | --- |
-| `samples` represents a cup-like row and stores `cup_uuid` | Product requires Sample separate from reusable Cup and Cup Assignment | Migration work / foundational implementation gap | Add entities and migrate losslessly |
-| `cupping_form` and `cupping_mode` are stored per sample | Both are session-level product contracts | Implementation defect and migration ambiguity | Promote uniform values; quarantine mixed values |
+| `samples` represents a cup-like row and stores `cup_uuid` | Product requires Sample separate from reusable Cup and Cup Assignment | Foundational implementation gap | Implement the separate entities in the fresh production schema; do not import prototype rows |
+| `cupping_form` and `cupping_mode` are stored per sample | Both are session-level product contracts | Prototype implementation defect | Implement them at Session level in the fresh production schema |
 | No Organisation, User, Participant, Response, Share Operation, or Audit Event tables | Required ownership, consent, tenant, and traceability boundaries are absent | Foundational implementation gap | Add in sequenced tasks |
 | Prototype entry IDs may fall back to timestamp plus `Math.random` | Not a reliable collision-resistant offline identity contract | Implementation defect | Use cryptographically random UUID generation and fail closed |
 | Session NDEF reference generator may fall back to `Math.random` | Session reference must be unguessable or verifiable | Security defect | Require secure randomness; no insecure fallback |
-| Feedback/defect saves persist rows but do not implement a unified response revision/event acknowledgement contract | Cannot yet prove all acknowledged observations or conflict handling | Reliability/migration work | Introduce transactional event plus projection boundary |
-| Flavour and feedback rows include temperature/time snapshots | Release 1 must not present note time as sensory data; validated sensor provenance is Release 2 | Out of Release 1 behavior; preserve-only migration data | Retain as legacy metadata, do not surface as validated context |
+| Feedback/defect saves persist rows but do not implement a unified response revision/event acknowledgement contract | Cannot yet prove all acknowledged observations or conflict handling | Reliability implementation gap | Introduce transactional event plus projection boundary in the fresh production schema |
+| Flavour and feedback rows include temperature/time snapshots | Release 1 must not present note time as sensory data; validated sensor provenance is Release 2 | Out of Release 1 behavior | Do not reproduce this prototype behavior in the production schema |
 | Current database has no durable outbox, consent snapshot, or idempotency key | FR-064 is not implemented | Implementation gap | Implement explicit consented Share Operation/outbox later |
 | Current data has no participant-completion projection boundary, server-side blind response projection, or tenant boundary | Broad UI objects or API responses could expose coffee metadata early even though raw NDEF4 is an approved exception | Security implementation gap | Enforce completion-aware allowlisted app projections and service authorisation/filtering |
-| Current local database and migration path do not evidence encrypted storage or platform-secured keys | Sensitive offline data may be readable outside the application boundary | Security implementation gap | Introduce and verify the section 9.3 protected-store migration before production capture |
+| Current local database does not evidence encrypted storage or platform-secured keys | Sensitive offline data may be readable outside the application boundary | Security implementation gap | Initialize and verify the section 9.3 fresh protected production store before production capture |
 | Current prototype has no service-issued participant grant, revocation state, or finite access-policy enforcement | NFC/session references could be mistaken for authorisation | Security implementation gap | Implement section 10.3 issuance/verification before service participant access |
 | Current prototype has no idempotent deletion/anonymisation operation or cross-surface tombstone propagation | Retained projections, outbox data, exports, or restores could resurrect deleted data | Privacy implementation gap | Implement section 9.4 lifecycle and restore manifests before production retention claims |
-| Current README contains obsolete NDEF4 sample colour `k` | Canonical NDEF protocol removed the field | Documentation defect outside this task | Separate README reconciliation task |
-| Only NDEF form value `1` is defined | Four Release 1 forms cannot all be encoded | Unresolved product/protocol decision, FR-028B | Product Owner/approved protocol decision; do not invent values |
+| Current README contains obsolete NDEF4 sample colour `k` | Canonical NDEF protocol removed the field | Documentation defect | Reconcile README in R1-003; runtime references remain a later implementation defect |
+| Current implementation recognizes only NDEF form value `1` | Release 1 also requires approved `f=2` for SCA Legacy 2004–2023 | Implementation gap; FR-028B policy resolved | Implement the immutable two-entry registry and visibly reject all unsupported values |
 | Reopen duration, participant expiry, retention, tag protection, export schema, and PDF delivery are unspecified | Values materially constrain product policy | Unresolved product decisions | Keep configurable/null and escalate through PM |
 
 ## 15. Testable invariants
 
 Subsequent implementation tasks MUST provide automated evidence for applicable invariants.
 
-### 15.1 Domain and migration
+### 15.1 Domain and production-schema lifecycle
 
 1. New domain IDs are valid cryptographically generated UUIDs and remain stable across restart and retry.
 2. `public_session_ref` is distinct from the domain ID, protocol-valid, and securely generated.
 3. A session has exactly one immutable form/version after the first Response and one identity mode.
 4. A Sample can have many assignments; a Cup cannot have two active assignments in one session.
 5. A Response references exactly one participant, Sample, assignment, and form version.
-6. Re-running migration produces no duplicates and no additional semantic changes.
-7. Every legacy row is mapped or quarantined with a reason; row/content reconciliation is reproducible.
-8. A failed migration leaves the original database recoverable and no partial read cutover active.
+6. First production launch creates a distinct encrypted schema and never opens, imports, mutates, or deletes a prototype store.
+7. Re-running fresh-store initialization or a production forward migration produces no duplicates and no additional semantic changes.
+8. A failed production forward migration leaves the prior production database recoverable and no partial read cutover active.
 9. `public_session_ref` normalization accepts case/surrounding ASCII whitespace only as specified, rejects every malformed/sentinel value, and enforces one global authoritative Session; generated collisions retry without overwrite.
 10. Equivalent provider renderings of the same tag UID produce the same `tag-uid:<hex>` value; malformed identifiers and cross-kind lookalikes are rejected.
-11. Legacy session/tag duplicates are either proven identical and explicitly aliased or quarantined; neither scan nor join resolves a quarantined duplicate.
+11. Production session/tag identifier collisions are rejected without overwrite; neither scan nor join resolves an ambiguous or quarantined identifier.
 
 ### 15.2 Offline durability
 
@@ -964,9 +965,9 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 49. Independent implementations produce every accepted `cup-time-ms-v1` output and reject every invalid vector in section 8.1.1 exactly as specified; equivalent UTC/offset/fraction inputs normalize to the same 24-byte ASCII timestamp.
 50. Independent mobile and service implementations hash the revised timestamp-bearing fixture to `95faf8ed77cc827f4840a918d9e410ac859c5cb26d1a4ccdf42788b1582d3187`; changing only an accepted equivalent input representation before normalization does not change the canonical bytes or digest.
 
-### 15.8 Security, grants, erasure, and migration
+### 15.8 Security, grants, erasure, and production migration
 
-51. Representative mobile database, offline-package, private-response, outbox, quarantine, export, and migration-copy files reveal no sensitive fixture without the correct protected key; credentials/grants cannot be recovered from the bulk store, general preferences, logs, analytics, crash reports, clipboard, or ordinary backup.
+51. Representative mobile database, offline-package, private-response, outbox, quarantine, export, and production migration/rollback files reveal no sensitive fixture without the correct protected key; credentials/grants cannot be recovered from the bulk store, general preferences, logs, analytics, crash reports, clipboard, or ordinary backup.
 52. Representative service primary data, object/read-model data, queues, quarantine, exports, replicas, and backups are encrypted at rest, and captured mobile/service, portal/service, service-to-service, export, backup, key-management, and administrative traffic reveals no plaintext sensitive fixture.
 53. An invalid certificate/peer, attempted plaintext or downgraded transport, unavailable secure store/key, failed unwrap, altered ciphertext, or failed integrity check denies the operation without plaintext fallback, stale decrypted display, ciphertext overwrite, or false save/share success.
 54. Key-purpose and environment separation prevents a credential/export/backup key from decrypting primary data; rotation is restartable and idempotent, new writes use the current version, and a revoked key cannot protect new writes.
@@ -976,17 +977,24 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 58. Refresh/replacement repeats current validation, produces a new random grant ID, and revokes/replaces the old grant within the finite overlap bound; an expired or revoked grant alone cannot refresh or extend itself.
 59. Local post-completion reveal is participant/device-scoped and is not reversed by grant refresh/revocation or host Session closure/archive; Release 1 participant service responses remain blind-safe before and after completion. Tests preserve the limitation that already revealed offline metadata cannot be made secret again, while deletion/reset may remove it under policy.
 60. Replayed authorised issuance is idempotent or rotates under the replacement rule; bounded/rate-limited guessing receives generic non-enumerating responses, and raw references, capabilities, grants, names, or protected identities never enter security logs.
-61. Participant display-name anonymisation removes the name from all controlled primary, raw, projection, cache, queue, quarantine, export, replica, migration, and applicable synchronized local surfaces while preserving response semantics and only the minimized audit/tombstone fields from section 9.4.
-62. Session deletion propagates to every controlled surface, revokes grants/download links, and creates a compact tombstone that rejects a late queued/replayed share and prevents read-model, migration, or backup restore from resurrecting content.
+61. Participant display-name anonymisation removes the name from all controlled primary, raw, projection, cache, queue, quarantine, export, replica, production-migration, and applicable synchronized local surfaces while preserving response semantics and only the minimized audit/tombstone fields from section 9.4.
+62. Session deletion propagates to every controlled surface, revokes grants/download links, and creates a compact tombstone that rejects a late queued/replayed share and prevents read-model, production-migration, or backup restore from resurrecting content.
 63. An unreachable participant device, externally downloaded export, or other uncontrolled surface yields an explicit `partially_blocked` limitation rather than false completion; later authenticated synchronization applies the applicable tombstone without claiming authority over never-shared private local results.
 64. A restore applies current deletion manifests before serving any query; quarantined data and backups expire or become cryptographically unreadable under finite policy and cannot bypass an authorised deletion through replay.
 65. Retrying one deletion operation with the same immutable scope is idempotent; reuse with altered tenant/target scope is rejected, and completion evidence/audit contains no deleted payload, display name, note, protected identity, or grant.
-66. Migration cannot cut over while protected storage or any mandatory finite policy is unavailable, does not synthesize legacy grants/consent, and leaves no newly created plaintext backup, checkpoint, quarantine, rollback, or temporary artifact.
+66. A production forward migration cannot cut over while protected storage or any mandatory finite policy is unavailable, does not synthesize grants/consent/authority, and leaves no newly created plaintext backup, checkpoint, quarantine, rollback, or temporary artifact.
+
+### 15.9 Mainland-China accessibility
+
+67. Repeated real-network checks from mainland China complete host authentication/account recovery, session access/reconciliation, explicit sharing, portal use, and export generation/download on supported devices, with dates, broad regions/network classes, endpoints, latency/reliability observations, retries, and outcomes recorded.
+68. The direct and transitive runtime dependency inventory for every mandatory path contains no mandatory Google-hosted endpoint, SDK call, font, identity/challenge service, CDN, storage/download route, analytics, crash-reporting, monitoring, DNS, or certificate dependency.
+69. Blocking or making unavailable each optional analytics, crash-reporting, monitoring, or font dependency leaves every mandatory user path functional and never produces false authentication, reconciliation, sharing, portal, or export success.
+70. Mainland-China evidence distinguishes actual network testing from VPN, proxy, simulation, or provider claims and makes no inference of physical mainland hosting or legal/regulatory compliance.
 
 ## 16. Dependency map for subsequent tasks
 
 ```text
-secure identifiers + schema/migration foundation
+secure identifiers + fresh encrypted schema/forward-migration foundation
         |
         +--> organisation/host/session domain
         |        +--> offline host session preparation
@@ -1005,26 +1013,27 @@ secure identifiers + schema/migration foundation
                                    +--> CSV/PDF/history
 
 blind-safe projection and tenant/session authorisation span every branch
-FR-028B approval gates production NFC writes for all four forms
+mainland-China reachability and dependency review span every online branch
+the immutable f=1/f=2 form registry gates production NFC writes/bootstrap
 ```
 
 Recommended sequencing:
 
-1. Secure identifier primitives and additive local schema/migration.
-2. Session-level form/mode, Sample/Cup/Assignment separation, and migration validation.
+1. Secure identifier primitives and fresh encrypted production schema with forward-migration/recovery foundations.
+2. Session-level form/mode, Sample/Cup/Assignment separation, and first-schema validation.
 3. Participant, Response, append-only Tasting Event, and transactional acknowledgement.
 4. Versioned offline package plus NFC/QR/manual deterministic resolution.
 5. Completion-aware blind participant projections and session/tenant authorisation, reviewed for security/privacy.
 6. Explicit Share Operation/outbox and idempotent ingestion.
-7. Portal read models, exclusions/audit, history, and exports.
+7. Portal read models, exclusions/audit, history, and exports, followed by end-to-end mainland-China dependency/reachability validation.
 
-Form-specific implementation can proceed only with approved form definitions. Production NDEF coverage for all four forms remains gated by FR-028B.
+Form-specific implementation can proceed only with approved immutable definitions. Release 1 production NDEF coverage is limited to the approved `f=1` SCA CVA and `f=2` SCA Legacy 2004–2023 mappings; every other value remains unsupported.
 
 ## 17. Incremental UI consumption
 
 This contract does not redesign UI. Existing Home and Cupping screens can adopt it incrementally:
 
-- Home reads a Session projection and explicit Cup resolution state instead of inferring product state from legacy rows.
+- Home reads a Session projection and explicit Cup resolution state instead of inferring product state from prototype rows.
 - Cupping reads one session-level form/version and identity mode, a participant-safe Sample projection, and a Response projection.
 - Existing save controls call the transactional event boundary and show saved only after durable acknowledgement.
 - Existing completion controls atomically set local completion and, for a blind Session, permanently reveal locally held coffee metadata for that participant/device; a separate **Share results** action creates consent and the outbox item.
@@ -1038,13 +1047,14 @@ Any visual or navigation change requires its own scoped task and UI-guidance rev
 
 An implementation claiming conformance MUST identify the exact commit and provide:
 
-- schema and migration tests, including restart, rollback, ambiguity, and content reconciliation;
+- fresh encrypted first-schema initialization and production forward-migration tests, including restart, rollback/recovery, deletion-manifest application, and content reconciliation, plus evidence that prototype stores are neither imported nor deleted;
 - transaction/crash-recovery tests for acknowledged observations and outbox creation;
 - offline end-to-end tests for the prepared host and participant flows;
 - idempotency, replay, divergent-content, and conflict tests;
 - completion-aware blind projection and tenant/session authorisation tests at UI/accessibility/cache/diagnostic and serialization/API boundaries, including the explicit raw-NDEF exception;
 - NDEF serializer/parser conformance tests and real-device evidence where physical behavior is claimed;
+- real mainland-China network evidence for every section 12.7 path and its complete direct/transitive dependency inventory; VPN/proxy/simulation-only results are identified as insufficient;
 - review by an independent architecture reviewer and security/privacy reviewer;
-- explicit limitations for policy parameters and FR-028B.
+- explicit limitations for unresolved policy parameters, provider selection, mainland hosting, and legal/compliance conclusions.
 
 Passing a JavaScript bundle, simulation, or mocked NFC payload alone does not prove local durability, native NFC behavior, offline readiness, blind isolation, or pilot readiness.

@@ -4,10 +4,9 @@ Expo React Native app for CUP NFC cupping workflows, local session storage, smar
 
 ## Current Status
 
-This branch is the NTAG prototype branch:
+This repository contains the pre-release NTAG prototype implementation. It is implementation evidence, not the Release 1 authority; see `docs/PRODUCT_SPEC.md`, `docs/NDEF_PROTOCOL.md`, and `docs/RELEASE_1_ARCHITECTURE_DATA_CONTRACT.md`.
 
-- Branch: `codex/ntag-version`
-- Base checkpoint: `codex/redesign-cupping-flow`
+- Recovery checkpoint: `prototype-baseline-2026-10-01`
 - iOS bundle id: `com.andrewstordy.cup`
 
 The app currently supports two NFC cup paths:
@@ -16,6 +15,12 @@ The app currently supports two NFC cup paths:
 - Standard NTAG sticker cups using metadata-only NDEF for prototype and research testing.
 
 The main production-style flow now uses the redesigned Home, Brewing, Cupping, and Active Session screens.
+
+### Release 1 target contract
+
+- Release 1 supports exactly two forms: SCA CVA (`NDEF4.f=1`) and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023) (`NDEF4.f=2`). Quick QC and Purchasing/selection are subsequent-release concepts and have no assigned NDEF values. Unknown/unsupported values must fail visibly rather than default to SCA CVA.
+- Release 1 starts with a distinct fresh encrypted production database. The prototype store is not imported through an application or user-facing migration flow, and this documentation decision does not delete existing prototype data. Forward migration and recovery are required from the first production schema onward.
+- Mandatory Release 1 online paths must be reliably accessible from mainland China without mandatory Google-hosted direct or transitive dependencies. Mainland-China physical hosting is not required. Real-network evidence and the complete runtime dependency chain are required before release; this statement is not a provider selection or legal-compliance claim.
 
 ## Run Locally
 
@@ -138,7 +143,8 @@ Compact keys:
 - `y` = cups per sample
 - `i` = samples in session
 - `z` = sample number
-- `k` = sample colour hex
+- `m` = cupping mode (`b` blind, `o` open)
+- `f` = Release 1 form (`1` SCA CVA, `2` SCA Legacy 2004–2023)
 - `e` = session name
 - `t` = session type key
 - `d` = compact date, for example `260521`
@@ -147,8 +153,10 @@ Compact keys:
 Example:
 
 ```json
-{"n":"Burundi","p":6,"y":3,"i":3,"z":2,"k":"#00A651","e":"NTAG","t":1,"d":260506,"u":"nfzyy8y0pqizn6"}
+{"n":"Burundi","p":6,"y":3,"i":3,"z":2,"m":"b","f":1,"e":"NTAG","t":1,"d":260506,"u":"nfzyy8y0pqizn6"}
 ```
+
+NDEF4 has no sample-colour field. The prototype source may still contain legacy references to `k`; those references are non-conformant implementation evidence and must not be reproduced in Release 1.
 
 ## App Flows
 
@@ -181,7 +189,7 @@ The Brewing screen uses:
 
 - `NDEF2.m` for elapsed seconds
 - `NDEF3.w` for target brew time
-- `NDEF4.k` for the sample colour indicator
+- a local neutral presentation marker where the prototype UI requires visual sample distinction; sample colour is not read from or written to NDEF4
 
 The timer progresses locally second-by-second after the cup has been scanned.
 

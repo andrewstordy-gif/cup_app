@@ -1,9 +1,9 @@
 # Cup App — Product Specification v1.0
 
 **Status:** Released
-**Version:** 1.0
+**Version:** 1.1
 **Release date:** 1 October 2026
-**Last reviewed:** 1 October 2026
+**Last reviewed:** 2 October 2026
 **Evidence base:** 11 customer interviews, the MVP-filtered demand review, and the current Version 2 website
 **Product principle:** Cup the coffee, not the app.
 **Release constraint:** Ship first with user-supplied, off-the-shelf NFC tags; add Smart Cup capabilities without replacing the core workflow.
@@ -39,7 +39,7 @@ A team should be able to buy compatible NFC tags and attach one to each existing
 
 - Release 1 works with compatible off-the-shelf NFC stickers; Stordy may also sell tested stickers, but third-party compatible tags remain supported.
 - Only hosts need paid accounts. Participants join, taste, and keep local results without an account or internet connection. Release 1 pricing remains TBC.
-- The host selects one form for the session: SCA CVA, legacy SCA, Quick QC, or Purchasing/selection. Every cup scan opens that form.
+- The host selects one of exactly two Release 1 forms for the session: SCA CVA or SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). Every cup scan opens that form.
 - Cup App operates offline throughout setup and tasting. A participant's results stay private on their device until they deliberately press **Share results** after completion.
 - Shared results and reports are available to the host through an online portal. The mobile app remains focused on running and participating in cuppings.
 - Release 1 uses native device voice capture/dictation with editable text. Smart Cup timing and temperature, supplier-label extraction, and AI descriptor identification/colouring belong to Release 2.
@@ -55,7 +55,7 @@ Across the interviews, six needs recur:
 | Keep live cupping fast and unobtrusive | Account-free participation, large tap targets, autosave, minimal required fields | Very strong |
 | Add differentiated sensing when Smart Cups are ready | Extend the same tasting event with measured time and temperature | Strong, but not required to launch |
 | Preserve and share useful records | Explicit participant sharing followed by portal history, summaries, and CSV/PDF export | Very strong |
-| Support different real-world decisions | SCA CVA, legacy SCA, Quick QC, and purchasing forms | Strong |
+| Support formal professional cupping | SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023) in Release 1; shorter operational forms remain a subsequent-release opportunity | Strong |
 | Work alongside existing systems | Export-first integration model | Strong |
 
 The product is therefore best understood as a **sample-identity and sensory-capture layer**. In Version 1, the NFC tag is the physical link. Smart Cups later enrich the same record with sensor context.
@@ -67,7 +67,7 @@ The product is therefore best understood as a **sample-identity and sensory-capt
 - Eliminate or materially reduce wrong-sample data entry.
 - Require an account only for creating and managing sessions; joining and tasting must remain account-free.
 - Keep the common tasting action to a scan plus a small number of taps.
-- Support SCA CVA, legacy SCA, Quick QC, and purchasing/selection forms.
+- Support SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 - Operate without an internet connection throughout session setup and cupping; connectivity is required only when a participant deliberately shares results after completion.
 - Defer sensory timing to Release 2, where a Smart Cup can automatically detect brew start and give note times meaningful context.
 - Support blind cupping by withholding protected coffee metadata from participant-facing Cup App surfaces until that participant explicitly completes the session.
@@ -144,7 +144,7 @@ The product is therefore best understood as a **sample-identity and sensory-capt
 - Account-free join by link/QR/session code with display name only.
 - Scan cup to open the correct tasting screen.
 - Blind mode with per-participant reveal when that participant explicitly completes the session; reveal persists on that device and is separate from sharing.
-- Four session forms: SCA CVA, legacy SCA, Quick QC, and Purchasing/selection. Each includes the descriptive inputs appropriate to that form.
+- Exactly two session forms: SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). Each includes the descriptive inputs appropriate to that form.
 - Autosaved notes, descriptors, result, and optional score.
 - Native device voice capture/dictation for flavour notes, producing editable text with typed input as the fallback.
 - Deterministic matching of recognised SCA flavour-wheel descriptors to their established categories and colours; the text category remains visible and colour is never the only cue.
@@ -154,6 +154,8 @@ The product is therefore best understood as a **sample-identity and sensory-capt
 - An online host portal containing shared individual and aggregate results, incomplete-submission handling, session history, search, CSV export, and a printable/PDF summary.
 - Installed mobile app support for current iOS and Android devices, with offline NFC reading and local storage treated as launch requirements.
 - Clear degraded behaviour when NFC or connectivity is unavailable.
+- A fresh encrypted Release 1 local database. Pre-release prototype data is disposable and has no importer or user-facing migration flow; this requirement does not authorise deleting any existing prototype data. Forward migration and recovery remain mandatory from the first production schema onward.
+- Reliable access to the online Release 1 capabilities from mainland China without a mandatory Google-hosted dependency. Physical hosting in mainland China is not required.
 
 Release 1 must be useful and commercially releasable without Stordy hardware. Smart Cup readiness is an architectural constraint, not a launch acceptance criterion.
 
@@ -218,9 +220,7 @@ Account-free participants enter directly into one session and do not see host na
 2. Enter a session name; date/time defaults to now.
 3. Choose a mode:
    - SCA CVA
-   - Legacy SCA
-   - Quick QC
-   - Purchasing / selection
+   - SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023)
 4. Add samples individually or paste/import a simple list.
 5. Set blind or visible identity.
 6. Assign cups:
@@ -247,7 +247,9 @@ Account-free participants enter directly into one session and do not see host na
 8. Re-scan any cup to resume its entry.
 9. Explicitly complete the session locally. In a blind session, that completion durably reveals the coffee metadata already held on this device and it remains revealed if the participant later reopens or edits results where policy allows. Completion/reveal creates no share consent, outbox item, or upload. Results remain private on the device unless the participant separately presses **Share results**; an offline share is then queued until connectivity returns.
 
-### 6.4 Quick QC form
+### 6.4 Subsequent-release Quick QC form
+
+Quick QC is not a Release 1 form and has no assigned NDEF form value. The following evidence-backed outline is retained for a separately approved subsequent release.
 
 Required default fields:
 
@@ -263,9 +265,11 @@ Optional default fields:
 - Intended disposition: normal use / review / alternate use / hold.
 - Confidence: low / medium / high.
 
-The organisation may hide optional fields, but the pilot should not expose a general-purpose form builder.
+The organisation may hide optional fields, but a future scoped release should not expose a general-purpose form builder by default.
 
-### 6.5 Purchasing form
+### 6.5 Subsequent-release Purchasing/selection form
+
+Purchasing/selection is not a Release 1 form and has no assigned NDEF form value. The following evidence-backed outline is retained for a separately approved subsequent release.
 
 - Decision: advance / hold / decline.
 - Overall score, optional.
@@ -277,7 +281,7 @@ The organisation may hide optional fields, but the pilot should not expose a gen
 
 ### 6.6 SCA forms
 
-- Release 1 supports both the current SCA CVA form and the legacy SCA cupping form.
+- Release 1 supports both SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 - Their scoring, descriptive inputs, validation, and calculated values are versioned independently so historical responses retain their original meaning.
 - The host selects the form for the session; participants do not select or change it during tasting.
 - The product may simplify screen layout for use at the table, but it must preserve the meaning and required fields of the selected form.
@@ -316,7 +320,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 
 | ID | Priority | Requirement | Acceptance criterion |
 | --- | --- | --- | --- |
-| FR-010 | P0 | A host can create a session using SCA CVA, legacy SCA, Quick QC, or Purchasing/selection. | A session can be ready for cup assignment with only name and form supplied; the form identifier is included in the NDEF4 session/sample payload. |
+| FR-010 | P0 | A host can create a session using either SCA CVA or SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). | A session can be ready for cup assignment with only name and one of the two Release 1 forms supplied; the form identifier is included in the NDEF4 session/sample payload. |
 | FR-011 | P0 | A host can add, edit, reorder, and remove samples before the session starts. | Changes are reflected consistently in assignment and participant views. |
 | FR-012 | P0 | Minimal sample metadata includes name or code; optional fields include supplier, origin, process, lot, roast reference, sample stage, and notes. | Only one identifying field is required. |
 | FR-013 | P0 | Blind mode substitutes neutral codes for protected coffee metadata in participant-facing Cup App surfaces until that participant completes. | Before explicit participant completion, protected coffee metadata is absent from the participant UI, accessibility output, page titles, notifications, cached previews, ordinary app diagnostics, and participant network responses. NDEF4 may still contain the real `n` name/origin and `p` process under the section 6.7 threat-model exception. |
@@ -338,7 +342,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | FR-027 | P0 | A participant can tap an NFC cup while offline. | Cup App reads the canonical NDEF payload locally, adds the referenced session, and opens the scanned cup in that session without a network request. |
 | FR-028 | P0 | NFC data conforms to the canonical protocol. | A standard NTAG sticker has one Well-Known Text record containing the NDEF4 JSON; a Smart Cup uses the defined four-record message. Notes, scores, results, and participant data are absent. |
 | FR-028A | P0 | Assigning an NFC cup to a new session updates the session/sample metadata stored on its tag. | After a successful write and verification, scanning the cup resolves the new assignment; an interrupted write leaves a visible error and never reports success. |
-| FR-028B | P0 | The canonical NDEF4 form enum supports all four Release 1 forms. | SCA CVA, legacy SCA, Quick QC, and Purchasing/selection each have a documented, version-compatible value; older supported payloads remain readable. |
+| FR-028B | P0 | The canonical NDEF4 form enum supports exactly the two Release 1 forms. | `f=1` selects SCA CVA and `f=2` selects SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023); unknown or unsupported values fail visibly and are never guessed or silently mapped. Quick QC and Purchasing/selection have no assigned values. |
 | FR-029 | P1 | NFC Cup and Smart Cup identities use the same resolution contract. | Adding a hardware type does not change session, assignment, response, or participant-flow APIs. |
 
 ### 7.4 Live tasting capture
@@ -347,7 +351,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | --- | --- | --- | --- |
 | FR-030 | P0 | Each session selects one supported form mode. | Every scan opens the correct form without the taster choosing it again. |
 | FR-031 | P0 | Partial entries autosave locally without depending on connectivity. | Closing and reopening the app restores the most recent edit with no explicit save action. |
-| FR-032 | P0 | A taster can enter notes, discrete choices, descriptors, and optional scores. | The common Quick QC result can be recorded one-handed without horizontal sliders. |
+| FR-032 | P0 | A taster can enter the notes, discrete choices, descriptors, and scores defined by the selected Release 1 SCA form. | The complete selected form can be recorded with large controls and without horizontal sliders for common inputs. |
 | FR-032A | P0 | A taster can record a flavour note using the device's native voice capture/dictation. | The resulting text is editable and typed entry remains available when native voice input is unavailable; no custom cloud transcription service is required. |
 | FR-032B | P0 | Recognised SCA flavour-wheel descriptors receive their established category and colour through deterministic matching. | The original words and text category remain visible, and users can correct a match. |
 | FR-034 | P1 | When Smart Cup support ships, available temperature is attached to the event automatically. | The UI distinguishes measured temperature from unavailable or manually entered values. |
@@ -391,6 +395,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | FR-062 | P0 | Conflicting edits are detected. | The app preserves both versions or asks an authorised user to resolve; it never silently overwrites. |
 | FR-063 | P0 | Session closure is recoverable from accidental action. | A host must confirm closure and can reopen during a defined grace period. |
 | FR-064 | P0 | Results upload only after the participant explicitly presses **Share results**. | Sharing is retryable and idempotent; the app clearly distinguishes private/local, queued, sharing, shared, and failed states. No automatic end-of-session upload is enabled. |
+| FR-065 | P0 | Release 1 online capabilities are reliably accessible from mainland China without a mandatory Google-hosted dependency. | Real mainland-China network evidence covers host authentication/account recovery, session access/reconciliation, explicit result sharing, the host portal, exports/downloads, and all transitive runtime dependencies; optional operational services can fail without blocking these paths. Mainland-China physical hosting is not required. |
 
 ### 7.8 Release 2 sample-label extraction
 
@@ -578,9 +583,9 @@ Login and invitation friction is one of the clearest complaints about existing s
 
 Professional workflows vary from one cup per sample to six or more. The data model treats cup assignment as many-to-one rather than assuming one smart cup per sample or one fixed bundle.
 
-### 12.4 Four forms, one per session
+### 12.4 Two Release 1 forms, one per session
 
-Release 1 supports SCA CVA, legacy SCA, Quick QC, and Purchasing/selection. Full SCA forms serve formal evaluation, while the shorter forms support routine operational decisions. The host chooses one form for the session and scans open it automatically.
+Release 1 supports exactly SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). The host chooses one form for the session and scans open it automatically. Quick QC and Purchasing/selection retain product rationale for subsequent releases, but neither is selectable in Release 1 and neither has an NDEF form value.
 
 ### 12.5 NFC tags are the product's first release, not merely a starter option
 
@@ -602,6 +607,14 @@ Account-free participants own their local results until they press **Share resul
 
 The SCA flavour wheel provides Release 1's established categories and colours, but it is not treated as the complete vocabulary of flavour. Release 2 AI preserves exact compound and culturally specific phrases, assigns a closest-family colour automatically, and lets the user correct or remove the coloured pill.
 
+### 12.10 Mainland-China accessibility without a hosting mandate
+
+Release 1 online capabilities must be reliably accessible from mainland China without any mandatory Google-hosted service or other transitive Google-hosted dependency. This includes host authentication and account recovery, session access and reconciliation, explicit result sharing, the host portal, and exports/downloads. Offline cupping remains independent of connectivity.
+
+Provider selection must evaluate the complete runtime dependency chain, including DNS, certificates, identity and challenge services, API and object-storage endpoints, CDNs, fonts, monitoring, analytics, crash reporting, email links, and download delivery. An optional operational dependency may fail without blocking a user-critical path. Evidence must include repeated tests over real mainland-China networks on supported devices; a VPN, proxy, simulation, or provider assertion alone is not sufficient.
+
+This requirement does not require infrastructure to be physically hosted in mainland China, select a provider, or assert legal or regulatory compliance. Those matters require their own approved decisions and evidence.
+
 ## 13. Risks and mitigations
 
 | Risk | Impact | Mitigation |
@@ -610,12 +623,13 @@ The SCA flavour wheel provides Release 1's established categories and colours, b
 | Results fail or duplicate during end-of-session sharing | Team record is incomplete or misleading | Stable local event IDs, idempotent sync, durable outbox, visible per-device sync status, and retry support |
 | Smart Cup work delays the NFC-tag release | Time-to-market goal is missed | Keep all sensor work out of Release 1 acceptance; preserve extension points but validate hardware in a separate Release 2 workstream |
 | Scope expands into a full data platform | Pilot becomes slow and expensive | Hold non-goals; export-first; require evidence before adding lifecycle or enterprise features |
-| Forms are too simple for experts or too dense for casual tasters | Low adoption at the table | Test all four Release 1 forms in real sessions; add constrained templates rather than a broad builder |
+| Forms are too simple for experts or too dense for casual tasters | Low adoption at the table | Test both Release 1 SCA forms in real sessions; evaluate Quick QC and Purchasing/selection separately before adding later constrained templates |
 | Blind identity appears in Cup App before participant completion | Invalid blind sessions and lost trust | Enforce participant-facing projection filtering, server-side response filtering, durable per-participant completion state, and automated blind-session tests while treating deliberate third-party raw NDEF inspection as out of scope |
 | Account-free participants create duplicate identities | Fragmented team results | Use session-scoped device continuity; let host merge/rename shared submissions with audit history |
 | Sensor readings are stale or inaccurate | Misleading sensory conclusions | Display freshness/provenance, never invent continuity, surface calibration/status, allow no-sensor completion |
 | Hardware price limits deployment | Teams never reach useful scale | Support stickers, partial adoption, pilots, and mixed cup types from day one |
 | Corporate phones or networks are restricted | Enterprise pilots stall | Plan tablet/shared-device and offline modes; keep export usable without internal-system access |
+| A mandatory service or transitive dependency is unreliable or blocked in mainland China | Hosts or participants cannot authenticate, reconcile, share, use the portal, or download exports | Select provider-neutral dependencies using real mainland-China network evidence, remove mandatory Google-hosted runtime dependencies, and ensure optional telemetry/monitoring failures do not block user-critical paths |
 
 ## 14. Open decisions requiring validation
 
@@ -624,7 +638,7 @@ The SCA flavour wheel provides Release 1's established categories and colours, b
 1. What is the smallest useful Release 1 descriptor vocabulary around the SCA framework: free text, organisation-defined chips, a wheel subset, or a combination?
 2. Should an account-free participant be able to reopen their own completed local results after a session, and for how long?
 3. How long can a host reopen a completed session?
-4. Which fields are required in Quick QC and Purchasing/selection, and can the host loosen/tighten them?
+4. For a subsequent release, which fields are required in Quick QC and Purchasing/selection, and can the host loosen/tighten them?
 
 ### Hardware and technical feasibility
 
@@ -636,7 +650,7 @@ The SCA flavour wheel provides Release 1's established categories and colours, b
 10. What constitutes a stale temperature reading?
 11. Can pour detection and LED prompts be configured by the app in the pilot hardware?
 12. How are battery, calibration, firmware, and device health exposed?
-13. How will the canonical NDEF form enum be extended and versioned for all four Release 1 forms while preserving compatibility?
+13. Which values, if any, should a future approved protocol assign to Quick QC and Purchasing/selection while preserving compatibility? Release 1 reserves no values for them.
 
 ### Commercial and governance
 
@@ -648,12 +662,12 @@ The SCA flavour wheel provides Release 1's established categories and colours, b
 
 ## 15. Recommended validation plan
 
-Before full implementation, test a clickable prototype and a thin technical spike in four sessions:
+Before full implementation, test a clickable prototype and a thin technical spike in four Release 1 scenarios:
 
-1. **Daily QC:** 5–10 samples, quick approve/concern/reject decisions.
-2. **Purchasing:** 8–12 samples, blind identity, descriptors, and advance/hold/decline.
+1. **SCA CVA:** a representative professional session with visible and blind identity paths.
+2. **SCA Legacy 2004–2023:** a representative professional session preserving the full historical form meaning.
 3. **Team session:** 5+ tasters, at least two guests who have never seen the app.
-4. **High-volume simulation:** 50+ samples with deliberate wrong-code and connectivity failure cases.
+4. **High-volume simulation:** 50+ samples with deliberate wrong-code, unsupported-form, and connectivity failure cases.
 
 Measure:
 
@@ -666,7 +680,7 @@ Measure:
 - whether the NFC-tag workflow is valuable before Smart Cup data exists;
 - whether the export is usable without manual restructuring.
 
-The first engineering spike should validate the canonical NDEF format on standard NTAG stickers across target iOS/Android devices, full airplane-mode session operation, durable local event storage, explicit and idempotent results sharing, and blind-data isolation. Smart Cup transport should be validated separately and must not block the Release 1 decision.
+The first engineering spike should validate the canonical NDEF format on standard NTAG stickers across target iOS/Android devices, both approved form mappings, visible rejection of unsupported form values, full airplane-mode session operation, durable local event storage, explicit and idempotent results sharing, and blind-data isolation. Provider selection also requires repeated real-network evidence from mainland China across authentication, reconciliation, sharing, portal, and export paths with the complete transitive dependency inventory recorded. Smart Cup transport should be validated separately and must not block the Release 1 decision.
 
 ## 16. Evidence traceability
 
@@ -674,7 +688,7 @@ The first engineering spike should validate the canonical NDEF format on standar
 | --- | --- |
 | Scan cup to open the correct sample | Will: repeated wrong-sample entry; Chris: chain of custody; Judith/Ola/Diana: NFC traceability |
 | Guest join without accounts | Jose: invitation/login friction; Gelo: guest/session access; Ola: occasional users |
-| Quick QC form | Judith: simple commercial QC; Aulia: daily roast decisions; Will: yes/no/yes-but workflow |
+| Quick QC as a subsequent-release opportunity | Judith: simple commercial QC; Aulia: daily roast decisions; Will: yes/no/yes-but workflow |
 | Multiple cups per sample | Chris: six cups per green sample; Judith: table workflows; bundle assumptions challenged by Mauro |
 | Temperature-linked observations | Reza and Mauro: descriptors/temperature; Chris: defects as coffee cools; Sepide: consistent temperature |
 | Time/readiness prompts | Aulia and Gelo: missed four-minute break; Will: LED readiness prompts |
