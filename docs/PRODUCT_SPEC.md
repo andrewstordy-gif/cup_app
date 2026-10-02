@@ -70,7 +70,7 @@ The product is therefore best understood as a **sample-identity and sensory-capt
 - Support SCA CVA, legacy SCA, Quick QC, and purchasing/selection forms.
 - Operate without an internet connection throughout session setup and cupping; connectivity is required only when a participant deliberately shares results after completion.
 - Defer sensory timing to Release 2, where a Smart Cup can automatically detect brew start and give note times meaningful context.
-- Support blind cupping without exposing sample identity before reveal.
+- Support blind cupping by withholding protected coffee metadata from participant-facing Cup App surfaces until that participant explicitly completes the session.
 - After results are shared, give the host a clear view of completion, disagreement, and incomplete entries.
 - Produce exportable records that fit spreadsheet-based and existing-system workflows.
 - Launch with inexpensive, off-the-shelf, NDEF-compatible NFC tags attached to customers' existing cups.
@@ -122,7 +122,7 @@ The product is therefore best understood as a **sample-identity and sensory-capt
 2. **When the table is busy, let me capture a useful result without distracting me from tasting.**
 3. **When Smart Cups become available, link each observation to elapsed brew time and measured temperature.**
 4. **When a session ends, give me a record I can share, search, or move into the system my team already uses.**
-5. **When I run a blind session, hide identity during tasting but retain correct traceability for the host and final reveal.**
+5. **When I run a blind session, hide identity in the participant's Cup App workflow during tasting, retain correct traceability, and reveal the locally held metadata when that participant completes.**
 
 ## 5. Scope and release strategy
 
@@ -143,7 +143,7 @@ The product is therefore best understood as a **sample-identity and sensory-capt
 - Scanning the NFC cup adds the referenced session to the participant's app and opens that cup within the session. Tasting notes, scores, results, and participant data are never stored on the tag.
 - Account-free join by link/QR/session code with display name only.
 - Scan cup to open the correct tasting screen.
-- Blind mode with host-controlled reveal.
+- Blind mode with per-participant reveal when that participant explicitly completes the session; reveal persists on that device and is separate from sharing.
 - Four session forms: SCA CVA, legacy SCA, Quick QC, and Purchasing/selection. Each includes the descriptive inputs appropriate to that form.
 - Autosaved notes, descriptors, result, and optional score.
 - Native device voice capture/dictation for flavour notes, producing editable text with typed input as the fallback.
@@ -232,8 +232,8 @@ Account-free participants enter directly into one session and do not see host na
 8. Start the session.
 9. Share a QR code, link, short join code, or the NFC cups themselves. The active session remains available without internet.
 10. During offline cupping, each participant can monitor their own completion; the host sees combined team progress after devices share their results.
-11. End the session and, when appropriate, reveal blind identities.
-12. Participants decide whether to share their completed results. Once connectivity is available, shared results appear in the host's online portal, where the host can manage incomplete submissions and exports.
+11. End the host session when appropriate. This does not globally reveal or conceal identity on participant devices.
+12. Each participant's explicit completion has already revealed the locally held coffee metadata on that participant's device. Participants separately decide whether to share their completed results. Once connectivity is available, explicitly shared results appear in the host's online portal, where the host can manage incomplete submissions and exports.
 
 ### 6.3 Account-free participant flow: join and taste
 
@@ -245,7 +245,7 @@ Account-free participants enter directly into one session and do not see host na
 6. Record observations using large controls and short free text.
 7. Save or move to the next cup; autosave protects partial work.
 8. Re-scan any cup to resume its entry.
-9. Complete the session locally. Results remain private on the device unless the participant presses **Share results**. If they choose to share while offline, the app queues the upload and sends it when connectivity returns.
+9. Explicitly complete the session locally. In a blind session, that completion durably reveals the coffee metadata already held on this device and it remains revealed if the participant later reopens or edits results where policy allows. Completion/reveal creates no share consent, outbox item, or upload. Results remain private on the device unless the participant separately presses **Share results**; an offline share is then queued until connectivity returns.
 
 ### 6.4 Quick QC form
 
@@ -296,7 +296,7 @@ Release 1 stores observations locally and does not present note timing as sensor
 
 The authoritative format is the project's [NDEF protocol](NDEF_PROTOCOL.md), implemented by `src/services/nfcServiceMinimal.js` and classified by `src/services/nfcTagClassifier.js`. A standard NTAG sticker contains one Well-Known Text record carrying the compact NDEF4 JSON. A Smart Cup contains one NDEF message with four ordered Well-Known Text records; its fourth record uses the same session/sample payload. The product specification does not redefine those fields.
 
-For blind sessions, the data written to a participant-readable tag must not expose the protected coffee identity. Any name/origin field in the NDEF4 payload must use a neutral blind identifier or an equivalent protocol-safe representation until reveal.
+For blind sessions, NDEF4 may retain the real coffee name/origin in `n` and processing method in `p`. Cup App uses `m=b` plus the participant's local completion state to keep those fields out of every participant-facing app surface during tasting, then reveal the locally held metadata permanently on that device when the participant explicitly completes. Completion does not require a tag rewrite, internet connection, host-global reveal, reveal QR, or result upload. A participant deliberately inspecting raw tag bytes with a third-party NFC reader is outside the Release 1 threat model; NDEF still must never contain results, participant data, credentials, tenant secrets, or device secrets.
 
 ## 7. Functional requirements
 
@@ -319,8 +319,8 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | FR-010 | P0 | A host can create a session using SCA CVA, legacy SCA, Quick QC, or Purchasing/selection. | A session can be ready for cup assignment with only name and form supplied; the form identifier is included in the NDEF4 session/sample payload. |
 | FR-011 | P0 | A host can add, edit, reorder, and remove samples before the session starts. | Changes are reflected consistently in assignment and participant views. |
 | FR-012 | P0 | Minimal sample metadata includes name or code; optional fields include supplier, origin, process, lot, roast reference, sample stage, and notes. | Only one identifying field is required. |
-| FR-013 | P0 | Blind mode substitutes neutral codes for sample identity in participant views and tag data. | No protected identity field appears in participant UI, participant-readable NDEF data, or participant network payloads before reveal. |
-| FR-014 | P0 | A host can reveal identities after or during a session. | Reveal is explicit, logged, and immediately updates authorised views. |
+| FR-013 | P0 | Blind mode substitutes neutral codes for protected coffee metadata in participant-facing Cup App surfaces until that participant completes. | Before explicit participant completion, protected coffee metadata is absent from the participant UI, accessibility output, page titles, notifications, cached previews, ordinary app diagnostics, and participant network responses. NDEF4 may still contain the real `n` name/origin and `p` process under the section 6.7 threat-model exception. |
+| FR-014 | P0 | Explicit participant completion reveals the coffee metadata already held locally for that participant. | Completion and reveal are recorded durably and atomically, work offline, remain visible on that device during later permitted review/editing, and do not create share consent, an outbox item, or an upload. No host-global reveal, reveal QR, network refresh, or tag rewrite is required. |
 | FR-015 | P1 | A host can duplicate a prior session. | Samples and form settings copy; results, participants, and cup assignments do not. |
 
 ### 7.3 Cup assignment and scanning
@@ -410,7 +410,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 - Autosave state must be visible but quiet.
 - A scan must always result in one of four explicit states: assigned, unassigned, unknown, or unsupported.
 - Offline state must be calm and normal rather than presented as an error. The interface must show whether results are private/local, queued for sharing, sharing, shared, or need attention.
-- Blind sessions must never leak identity in screen readers, page titles, URLs, cached preview text, or client payloads.
+- Before that participant completes, blind sessions must not display protected coffee metadata in participant-facing UI, screen readers, page titles, URLs, notifications, cached preview text, ordinary diagnostics, or participant network responses. Encrypted local retention of metadata read from NDEF4 is allowed solely to support the completion reveal.
 - Temperature must include units and freshness; colour alone cannot communicate stage or warning state.
 - Cup identifiers must be sensory-neutral; do not require bright colour coding.
 - The account-free participant workflow must not contain pricing, account-upgrade, or unrelated organisation controls.
@@ -484,7 +484,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 - A completed response remains private on the participant's device until an explicit share action creates an upload.
 - Raw responses are retained when excluded from aggregates.
 - Form version is immutable once a response exists.
-- Blind identity must be absent from participant-readable tag data and access-controlled at the API boundary, not only hidden in the UI.
+- In blind mode, protected coffee metadata may be present in raw NDEF4 under section 6.7 but must be excluded from participant-facing Cup App projections until that participant completes. Participant network responses remain filtered at the API boundary; UI hiding alone is insufficient for data obtained from service APIs.
 - Temperature values must carry provenance and measurement time.
 
 ## 10. Non-functional requirements
@@ -510,11 +510,11 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 - Organisation data is tenant-isolated.
 - Participant credentials/references are session-scoped and can be created locally without an online authentication round trip.
 - A session ID written to a tag must be unguessable or cryptographically verifiable; possession grants only the account-free participant access intended for that session.
-- Blind sample identity is withheld server-side from participants until reveal.
+- Blind sample identity is withheld from Release 1 participant network responses. Local completion reveals only metadata already retained from NDEF4 and requires no server round trip or completion upload.
 - The app must obtain the participant's clear consent each time completed local results are shared with the host.
 - Data is encrypted in transit and at rest.
 - Hosts can remove participant display names or delete sessions in line with the retention policy.
-- Audit sensitive host actions: cup reassignment, blind reveal, result exclusion, and session reopen/close.
+- Audit sensitive host actions: cup reassignment, identity-mode changes, result exclusion, and session reopen/close. Participant completion/reveal state is durable locally and is not treated as host-global reveal or share consent.
 - Do not expose device secrets or use raw NFC identifiers as authentication credentials.
 
 ### 10.4 Accessibility
@@ -557,7 +557,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 - Manual fallback used and reason.
 - Response started, autosaved, submitted, excluded.
 - Smart Cup sensor data available/stale/unavailable (Release 2).
-- Blind reveal performed.
+- Participant completion and local blind reveal recorded locally; completion/reveal alone emits no network analytics event and never records the protected metadata as an analytics property.
 - Portal summary viewed and export generated.
 - **Share results** selected; sharing started/completed/failed/retried.
 
@@ -610,7 +610,7 @@ The SCA flavour wheel provides Release 1's established categories and colours, b
 | Smart Cup work delays the NFC-tag release | Time-to-market goal is missed | Keep all sensor work out of Release 1 acceptance; preserve extension points but validate hardware in a separate Release 2 workstream |
 | Scope expands into a full data platform | Pilot becomes slow and expensive | Hold non-goals; export-first; require evidence before adding lifecycle or enterprise features |
 | Forms are too simple for experts or too dense for casual tasters | Low adoption at the table | Test all four Release 1 forms in real sessions; add constrained templates rather than a broad builder |
-| Blind identity leaks through client data | Invalid blind sessions and lost trust | Enforce server-side field filtering and add automated blind-session security tests |
+| Blind identity appears in Cup App before participant completion | Invalid blind sessions and lost trust | Enforce participant-facing projection filtering, server-side response filtering, durable per-participant completion state, and automated blind-session tests while treating deliberate third-party raw NDEF inspection as out of scope |
 | Account-free participants create duplicate identities | Fragmented team results | Use session-scoped device continuity; let host merge/rename shared submissions with audit history |
 | Sensor readings are stale or inaccurate | Misleading sensory conclusions | Display freshness/provenance, never invent continuity, surface calibration/status, allow no-sensor completion |
 | Hardware price limits deployment | Teams never reach useful scale | Support stickers, partial adoption, pilots, and mixed cup types from day one |
@@ -719,7 +719,7 @@ The Cup App is ready for a customer pilot when:
 - a complete multi-participant session can run in airplane mode from first cup scan through local submission;
 - results remain private/local until **Share results** is pressed, and interrupted or repeated sharing does not lose or duplicate events;
 - Release 1 can complete without a brew timer, note-timing interface, or Smart Cup service;
-- blind sample data is verified absent from unauthorised client responses;
+- protected coffee metadata is verified absent from participant-facing Cup App surfaces and unauthorised network responses before that participant completes, while real NDEF4 name/origin and process are covered by the documented raw-tag threat-model exception;
 - local draft recovery and online-portal export round-trip tests pass;
 - at least one realistic session with 10 samples and 5 tasters completes without developer intervention;
 - the exported CSV is accepted by the pilot customer's real spreadsheet workflow;

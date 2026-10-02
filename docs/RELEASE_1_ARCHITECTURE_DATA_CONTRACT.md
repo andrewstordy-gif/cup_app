@@ -149,11 +149,12 @@ Required fields:
 - `access_grant_ref` (null only for `provisional_local`; otherwise references the authoritative grant in section 10.3)
 - `privacy_notice_version`, `privacy_accepted_at`
 - `completion_state`, `completed_at`
+- `identity_projection_state`: `hidden` or `revealed_after_completion`, and `identity_revealed_at` when revealed
 - `participant_revision`, a monotonically increasing session-local aggregate revision
 - `access_expires_at` (null only for `provisional_local`; every authoritative grant supplies a finite policy-derived value)
 - `created_at`, `updated_at`
 
-A participant belongs to exactly one session. An access grant MUST be session-scoped and MUST NOT authorise another session or organisation. Local identity continuity MAY survive restart on the same device. It MUST NOT be silently promoted to a host account or cross-session identity.
+A participant belongs to exactly one session. An access grant MUST be session-scoped and MUST NOT authorise another session or organisation. Local identity continuity MAY survive restart on the same device. It MUST NOT be silently promoted to a host account or cross-session identity. In a blind Session, the transaction that explicitly changes `completion_state` to `complete` also changes `identity_projection_state` from `hidden` to `revealed_after_completion` and records `identity_revealed_at`. That identity transition is monotonic for the retained local record: reopening or editing a Response cannot set it back to `hidden`. It is durable for this participant/device and does not create share consent or network work.
 
 ### 5.4 Session
 
@@ -192,7 +193,7 @@ Required fields:
 - optional Release 1 metadata: `external_reference`, `supplier`, `origin`, `process`, `lot`, `roast_reference`, `sample_stage`, `notes`
 - `created_at`, `updated_at`
 
-A Sample is the coffee being evaluated. It is not a cup and MUST NOT store a physical NFC identifier. `blind_code` is neutral participant-facing identity; protected metadata remains in host-authorised storage and projections.
+A Sample is the coffee being evaluated. It is not a cup and MUST NOT store a physical NFC identifier. `blind_code` is the neutral participant-facing identity before completion. Protected metadata remains in host-authorised storage and may also be retained encrypted in participant-local storage when read from NDEF4, but participant-facing projections MUST withhold it until that participant completes.
 
 ### 5.6 Cup
 
@@ -321,7 +322,7 @@ Required fields:
 - before/after metadata with protected fields minimized
 - `created_at`
 
-Audit events are append-only. Release 1 MUST audit cup reassignment, blind reveal, result exclusion/inclusion, session complete/reopen/archive, and identity-affecting changes. Audit payloads MUST obey the same blind and tenant-isolation rules as normal data.
+Audit events are append-only. Release 1 MUST audit cup reassignment, Session identity-mode changes, result exclusion/inclusion, session complete/reopen/archive, and other host identity-affecting changes. Participant completion and its local reveal are persisted atomically in the participant aggregate; they are not a host-global reveal and do not create a network Audit Event or share operation. Audit payloads MUST obey the same blind and tenant-isolation rules as normal data.
 
 ### 5.12 Provisional cold-bootstrap entity shapes
 
@@ -340,7 +341,7 @@ These shapes exist only in participant-local storage after section 10.1 bootstra
 **Provisional Sample**
 
 - `authority_state = provisional`
-- local `sample_id`, provisional `session_id`, validated protocol position, and participant-safe NDEF name/blind label/process fields
+- local `sample_id`, provisional `session_id`, validated protocol position, neutral blind label, and any real NDEF name/origin/process fields retained as encrypted protected presentation data
 - protected host-only metadata absent; fields not present in NDEF are `null`, never inferred
 - the same evidence hash/provenance reference as the bootstrap transaction
 - `created_at`, `updated_at`
@@ -439,7 +440,7 @@ An ingestion request MUST contain:
 - every participant Response in the Session at the aggregate cut and its immutable events through the corresponding vector revision;
 - client-created times and app/build version for diagnostics.
 
-The envelope MUST NOT include unrelated sessions, unshared later revisions, hidden host-only identity in blind mode, device secrets, or analytics data.
+The envelope MUST NOT include unrelated sessions, unshared later revisions, device secrets, credentials, tenant-only data, or analytics data. Participant completion/reveal does not itself create or enqueue this envelope. Protected coffee metadata already known to the host SHOULD be represented by authoritative Sample aliases rather than redundantly copied from participant-local NDEF evidence.
 
 ### 8.1.1 Canonical bytes and hash
 
@@ -506,7 +507,7 @@ The service MUST atomically:
 
 1. authenticate/validate the session-scoped grant and tenant/session relationship;
 2. validate schema and form versions;
-3. enforce blind-safe fields;
+3. enforce completion-aware blind projection and NDEF-exception field rules;
 4. independently canonicalize and recompute the snapshot hash, then compare the idempotency identifier and digest;
 5. insert previously unseen responses/events and preserve raw records;
 6. update portal read models only from accepted shared data;
@@ -525,20 +526,20 @@ Only after this durable transaction commits may the service return success. The 
 
 ### 8.4 Conflict handling
 
-The system MUST NOT use timestamp-only last-write-wins for responses, session identity, cup assignment, or blind reveal.
+The system MUST NOT use timestamp-only last-write-wins for responses, session identity, cup assignment, or participant completion/reveal state.
 
 - Immutable shared snapshots never mutate in place.
 - A new explicitly shared revision is stored as a later revision linked to the earlier accepted snapshot.
 - Divergent response revisions from the same base are both preserved and flagged for authorised resolution.
 - Concurrent Cup Assignments that violate uniqueness are rejected or quarantined; the app never guesses which sample is correct.
 - Session form/version conflicts block ingestion because response meaning cannot be inferred safely.
-- Blind/open state conflicts choose the more restrictive participant projection until an authorised, audited host decision resolves them.
+- Blind/open Session-mode conflicts choose the more restrictive participant projection until an authorised, audited host decision resolves the mode. This conflict rule does not reverse a participant's already persisted post-completion reveal on that device.
 
 ## 9. Blind-data classification and projections
 
 ### 9.1 Data classes
 
-- **Protected sample identity:** display name when identifying, origin, supplier, process, lot, roast reference, external reference, notes, and any value that can reveal the coffee.
+- **Protected sample identity in Cup App presentation:** display name when identifying, origin, supplier, process, lot, roast reference, external reference, notes, and any value that can reveal the coffee. NDEF4's documented `n` name/origin and `p` process are an explicit raw-tag threat-model exception, not permission to display them early in Cup App.
 - **Neutral participant identity:** `blind_code`, neutral session label, sample position, form metadata, and Cup Assignment reference.
 - **Participant result data:** participant display name, responses, notes, descriptors, completion, consent, and share status.
 - **Operational data:** non-secret identifiers, schema versions, state flags, error codes, and timestamps.
@@ -547,20 +548,23 @@ Classification is conservative: when a field may reveal sample identity, treat i
 
 ### 9.2 Projection rules
 
-| Projection | Before reveal | After authorised reveal |
+| Projection | Before this participant completes | After this participant completes |
 | --- | --- | --- |
 | Host-authorised local/service view | Protected identity allowed | Protected identity allowed |
-| Account-free participant UI/accessibility tree | Neutral code only | Identity allowed only after current reveal state is obtained through an authorised path |
-| Participant offline cache/package | Neutral code and minimum tasting data only | Add revealed identity through a versioned authorised update; do not assume stale caches changed |
-| Participant network response/share envelope | No protected identity | May include revealed identity only when authorised and needed |
-| NFC NDEF4 | Neutral blind identifier in `n`; no protected identity elsewhere | Rewriting policy remains an explicit host action governed by NDEF write verification |
-| QR/link/manual join package | No protected identity | May include revealed identity only through authorised package refresh |
+| Account-free participant UI/accessibility tree | Neutral blind code only; no protected coffee metadata in any participant-facing surface | Locally held coffee metadata is visible for this participant/device and remains visible during later permitted review/editing |
+| Participant encrypted offline cache/package | May retain protected `n`/`p` values read from NDEF4, but participant-facing selectors expose only the neutral blind projection | The same local values become eligible for the revealed participant projection; no download is required |
+| Participant network response | No protected coffee metadata; server/API filtering remains mandatory | Still no protected coffee metadata in Release 1; local reveal does not depend on a service response |
+| Share envelope/outbox | No item exists without a separate **Share results** action | Completion/reveal still creates no item; a later explicit share follows sections 5.10 and 8 and need not duplicate coffee metadata already identified by Sample aliases |
+| NFC NDEF4 | Real coffee name/origin `n` and process `p` may remain with `m=b`; raw inspection is outside the Release 1 threat model | Tag bytes are unchanged; completion requires no rewrite |
+| QR/link/manual join package | Neutral identity only | Still neutral in Release 1; no reveal QR or refresh is required |
 | Logs, crash reports, analytics | No protected identity, free-text notes, credentials, or raw tag secrets | Same restriction after reveal |
-| Portal | Host-authorised identity plus explicitly shared results | Same, with reveal audit state |
+| Portal | Host-authorised identity plus explicitly shared results | Same; participant completion/reveal does not imply that results were shared |
 
-Blind protection MUST be enforced when selecting/serializing data, not by hiding already-delivered fields in UI. Page titles, URLs, notifications, screen-reader labels, cached previews, database views accessible to the participant role, and API error details are part of the projection boundary.
+Blind protection MUST be enforced by the participant-facing projection boundary. In blind mode before completion, selectors/serializers for UI, page titles, URLs, notifications, screen-reader labels, cached previews, production diagnostics, participant API responses, and API error details MUST omit protected coffee metadata even when encrypted local storage contains `n`/`p` from NDEF4. General UI components MUST receive the neutral projection rather than broad Sample or raw-NDEF objects. Service/API projection filtering remains mandatory and cannot be replaced with visual hiding.
 
-Reveal is an explicit, authorised, audited state transition. Offline participants may remain on the safe blind projection until they receive a valid reveal update; lack of connectivity MUST NOT cause the app to guess or expose identity.
+Reveal is the local consequence of this participant explicitly completing the blind Session. In one durable local transaction the app validates completion, records completion and reveal timestamps, and switches that participant/device to `revealed_after_completion`. The transition works offline, requires no host-global state, server refresh, reveal QR, or tag rewrite, and is not reversed by reopening/editing the local result or by later host Session closure/archive. It does not create consent, an outbox item, a Share Operation, or any upload. Only an applicable deletion/reset operation may later remove the locally held data.
+
+Deliberate inspection of raw tag contents using a third-party NFC reader is outside the Release 1 threat model. This narrow exception does not weaken protection for participant results, notes, credentials, access grants, tenant data, device secrets, service responses, logs, analytics, or any field not expressly allowed by `NDEF_PROTOCOL.md`.
 
 ### 9.3 Encryption and key management
 
@@ -570,7 +574,7 @@ All Cup App data other than the deliberately participant-readable canonical NDEF
 
 - Every mobile/service, portal/service, service-to-service, export download/upload, backup transfer, key-management, and administrative connection MUST use an authenticated encrypted transport with certificate/peer validation and downgrade/plaintext disabled.
 - Authentication, access grants, join capabilities, result snapshots, exports, keys, and credentials MUST never be sent over plaintext or an unauthenticated encrypted channel. Redirects, retries, diagnostics, and health endpoints MUST NOT create an exception.
-- The NDEF radio/tag payload is not confidential under the current protocol. Therefore it is restricted to the participant-safe allowlist in sections 9 and 11 and MUST contain no secret, credential, protected identity in blind mode, or result data.
+- The NDEF radio/tag payload is not confidential under the current protocol. Its allowlist may include the real NDEF4 `n` name/origin and `p` process in blind mode under section 9.2, but MUST contain no result, note, participant data, credential, access grant, tenant secret, device secret, or other protected metadata outside the canonical NDEF contract.
 
 **At rest**
 
@@ -630,7 +634,7 @@ Minimum content:
 - neutral session name, session status, form key/version, and identity mode;
 - authoritative session-scoped participant access material or the restricted provisional-local access state defined below;
 - privacy notice version;
-- known ordered Samples using participant-safe fields (`sample_id`, `blind_code` or open display label, position); the package MAY grow as additional NFC cups are scanned, and MUST NOT imply that an NFC-only join already contains unscanned samples;
+- known ordered Samples using participant-facing fields (`sample_id`, `blind_code` or open display label, position), plus encrypted protected `n`/`p` metadata for a blind Sample when it was read from NDEF4; the package MAY grow as additional NFC cups are scanned, MUST keep protected values out of pre-completion projections, and MUST NOT imply that an NFC-only join already contains unscanned samples;
 - active Cup Assignment resolution data for NFC, QR, and manual codes;
 - form definition and validation rules needed for local capture;
 - local participant identity and existing Response/Event state;
@@ -653,18 +657,18 @@ The bootstrap transaction MUST:
 4. find or create one persisted provisional Session using the exact section 5.12 shape, keyed by normalized `public_session_ref`, with Organisation/Host authority explicitly unavailable;
 5. find or create the section 5.12 provisional Sample, Cup, and Cup Assignment observation keyed within that Session by protocol position `z`, canonical NFC identifier, and parsed payload intent, with Organisation/assigner authority explicitly unavailable;
 6. create or reuse a cryptographically random local participant ID and a `provisional_local` session access record;
-7. persist the participant-safe package, raw canonical NDEF evidence, parser/profile version, and provisional-to-authoritative mapping rows; and
+7. persist the participant package, encrypted raw canonical NDEF evidence, any protected NDEF4 `n`/`p` presentation metadata, parser/profile version, and provisional-to-authoritative mapping rows; and
 8. only then open the scanned cup's Response.
 
 Provisional domain IDs are normal cryptographically random UUIDs generated once and persisted. They are not derived from public tag data and are marked `authority_state = provisional`. `organisation_id`, `host_user_id`, and `assigned_by_user_id` remain null/absent according to section 5.12; the app MUST NOT generate stand-ins. Repeating the same scan returns the same provisional Session, Sample, Cup Assignment observation, participant continuity, and Response; it does not duplicate them. A different payload for the same normalized reference/position/identifier is retained as conflict evidence and returns `unknown` until reconciled.
 
 The current NDEF payload has a form key but no independent form-version field. Therefore each supported NDEF protocol profile and `f` value MUST map to exactly one immutable bundled pair `(form_key, form_version)` and a form-definition hash. That registry entry is the provisional Session's form contract. If an app supports more than one form version for the same unversioned NDEF profile/key, cold bootstrap is `unsupported`; it MUST NOT select the newest version. Adding an on-tag version requires a separately approved NDEF protocol change. FR-028B still prevents production bootstrap/write mappings for the three forms without approved `f` values.
 
-`provisional_local` is evidence of physical possession for local, participant-safe use of exactly one `public_session_ref`. It permits offline capture and local completion only. It is not a service bearer token, does not identify an Organisation, cannot read host data or another Session, and cannot by itself upload results. The app may queue an explicitly consented share while still provisional, but transport waits until the access and identity reconciliation below succeeds.
+`provisional_local` is evidence of physical possession for local use of exactly one `public_session_ref`. It permits offline capture and local completion only. In a blind Session, its participant-facing projection remains neutral until that participant completes, even though encrypted storage may retain real `n`/`p` values from the tag. It is not a service bearer token, does not identify an Organisation, cannot read host data or another Session, and cannot by itself upload results. The app may queue an explicitly consented share while still provisional, but transport waits until the access and identity reconciliation below succeeds.
 
 ### 10.2 Online reconciliation
 
-When connectivity returns, the app presents the normalized `public_session_ref`, participant-safe NDEF evidence, provisional participant continuity, and any separate QR/link capability it holds to the provider-neutral SessionAccess boundary. The service validates the reference/capability, session status, tenant, canonical form/version, mode, sample position, Cup, and active Assignment, then returns an authoritative package plus a service-valid session-scoped grant. This exchange does not upload results and does not imply share consent.
+When connectivity returns, the app presents the normalized `public_session_ref`, canonical NDEF evidence, provisional participant continuity, and any separate QR/link capability it holds to the provider-neutral SessionAccess boundary. The service validates the reference/capability, session status, tenant, canonical form/version, mode, sample position, Cup, and active Assignment, then returns an authoritative package plus a service-valid session-scoped grant. This exchange does not upload results, alter local completion/reveal state, or imply share consent.
 
 Reconciliation MUST be one idempotent local transaction keyed by normalized `public_session_ref` and authoritative identifiers:
 
@@ -673,6 +677,7 @@ Reconciliation MUST be one idempotent local transaction keyed by normalized `pub
 - rewrite or resolve foreign keys through the alias map without changing event content, local revisions, participant aggregate revisions, or consent snapshots;
 - merge only records whose public reference, normalized NFC identity, sample position, form key/version, and identity mode agree;
 - record the service package/version, validated Organisation/Host/assigner provenance, and replace `provisional_local` with the service-valid session-scoped grant;
+- preserve the participant's durable `identity_projection_state`; reconciliation or a later package MUST NOT re-hide an already completed participant's locally revealed metadata or reveal an incomplete participant;
 - leave queued share snapshot bytes byte-for-byte immutable and place authoritative alias bindings only in the separately validated transport wrapper excluded from the snapshot hash.
 
 Repeating the same authoritative package produces no additional rows or revisions. Provisional rows remain provenance evidence and are excluded by construction from authoritative repositories/views before and after reconciliation. A domain-ID collision with different content, missing validated Organisation/Host/assigner authority, mismatched form/version or mode, unknown/revoked session, conflicting Sample/Assignment, or duplicate authoritative mapping is quarantined. Local observations remain readable and are never discarded; sharing stays visibly failed/blocked until an authorised resolution or a new join artifact establishes scope. The app MUST NOT silently attach local results to a merely similar service record.
@@ -687,24 +692,24 @@ Each grant has or resolves server-side to these immutable claims:
 - authoritative `organisation_id` and `session_id` derived by the service, never accepted as scope merely because the client supplied them;
 - `access_subject_id` bound to one account-free participant/session continuity and its registered `local_device_scope_id` where applicable;
 - explicit audience identifying the participant-safe API/service;
-- least-privilege scopes selected from `participant_session_read`, `own_results_share`, and `revealed_identity_read`; no host, billing, membership, other-participant, or cross-session scope;
+- least-privilege scopes selected from `participant_session_read` and `own_results_share`; no identity-reveal, host, billing, membership, other-participant, or cross-session scope;
 - `issued_at`, optional future `not_before`, mandatory finite `expires_at`, policy version, and current status/revocation version.
 
 The actual lifetime is a Product Owner policy value, but issuance MUST reject a missing, null, non-finite, already expired, or non-positive configured lifetime. No sentinel date means “never.” The service caps expiry at the configured Session/participant-access boundary and does not let a refresh silently exceed policy.
 
 The grant is either cryptographically signed/authenticated so alteration is detectable, or is a cryptographically random opaque bearer whose complete claims/status live in an integrity-protected service record. Client-readable claims are untrusted until verified. Raw grants and refresh/capability material are stored only in platform secure credential storage, excluded from ordinary device backups where supported, and never placed in NDEF, URLs, analytics, crash reports, clipboard, or logs. Bulk app-data encryption alone is not sufficient credential storage.
 
-Every service read, share, reveal refresh, reconciliation continuation, and deletion-related participant request MUST validate:
+Every service read, share, reconciliation continuation, and deletion-related participant request MUST validate:
 
 1. cryptographic/opaque integrity, issuer, format/key version, audience, and finite `not_before`/`expires_at`;
 2. current grant/subject/session revocation status and the configured revocation-propagation bound;
 3. exact authoritative tenant, Session, access subject, device continuity where bound, and requested scope;
-4. current Session state and the policy matrix for join, participant-safe read, share-after-completion/closure, reveal read, and archive/delete behavior; and
+4. current Session state and the policy matrix for join, participant-safe read, share-after-completion/closure, and archive/delete behavior; and
 5. request-specific bindings, including the immutable Share Operation ID/hash for result ingestion.
 
 Validation derives query tenant/session scope from the verified grant and server records. A client path/body identifier can only narrow that scope and a mismatch fails closed. Expired, revoked, wrong-audience, wrong-session, wrong-tenant, wrong-subject, or insufficient-scope use returns no protected data and no distinguishable resource-existence detail.
 
-Grant revocation is supported by grant, participant, and Session. Session deletion revokes immediately; closure/archive behavior follows a mandatory configured access-state matrix with finite share/reveal grace where allowed. If that matrix or a required duration is unset, the operation is denied. Reveal is never encoded as an irrevocable grant claim: each reveal read checks current authorised reveal state and returns the allowlisted projection. Revocation cannot make already delivered offline revealed data secret again, so connected clients apply the applicable deletion/cache policy and the limitation is recorded.
+Grant revocation is supported by grant, participant, and Session. Session deletion revokes immediately; closure/archive behavior follows a mandatory configured access-state matrix with finite share grace where allowed. If that matrix or a required duration is unset, the operation is denied. Release 1 participant service responses remain blind-safe and do not supply the local reveal. Local completion reveal does not depend on a grant claim or service read and remains visible on that device. Revocation cannot make metadata already revealed offline secret again, so connected clients apply the applicable deletion/cache policy and the limitation is recorded.
 
 Refresh/replacement requires either a still-valid grant with refresh permission represented server-side or renewed proof from a permitted join artifact/capability. It repeats current Session, subject, audience, scope, revocation, and policy checks; issues a new `grant_id`; and revokes/replaces the old grant under a finite configured overlap bound. An expired or revoked grant alone cannot refresh itself. Reconciliation swaps `provisional_local` for the new protected grant atomically with authoritative aliases; failure leaves only local private access.
 
@@ -717,7 +722,8 @@ All physical encoding follows `NDEF_PROTOCOL.md`.
 - Standard NTAG stickers contain one Well-Known Text record with NDEF4 JSON.
 - Smart Cups use the four-record protocol, but Smart Cup behavior is not required for Release 1 completion.
 - NDEF contains session/sample resolution metadata only, never tasting or participant data.
-- Blind sessions use a neutral identifier for NDEF4 `n`.
+- In blind sessions NDEF4 may retain the real coffee name/origin in `n` and processing method in `p`; `m=b` makes Cup App use the neutral pre-completion participant projection. Deliberate third-party raw inspection is outside the Release 1 threat model.
+- Participant completion reveal changes durable local presentation state only. It never requires a tag rewrite and never adds completion, consent, share, result, credential, or tenant data to NDEF.
 - Assignment is not successful until the intended full payload is written and verified.
 - An interrupted or mismatched write produces a visible failed/unverified state.
 - A later assignment replaces the earlier session/sample payload only after verification.
@@ -735,6 +741,8 @@ Interfaces may use different names in code, but MUST preserve these semantics.
 transact(mutations) -> committed revision
 loadOfflinePackage(public_session_ref) -> package | not_found
 appendTastingEvent(event, expected_response_revision) -> response projection
+completeParticipantAndReveal(participant_id, expected_participant_revision) -> committed local projection
+loadParticipantProjection(participant_id) -> neutral | revealed_after_completion
 createShareOperation(participant_id, expected_participant_revision, consent) -> queued immutable snapshot
 claimQueuedShare(now) -> operation | none
 recordShareAttempt(operation_id, attempt)
@@ -755,7 +763,6 @@ issueParticipantGrant(validated_join_evidence, access_subject, privacy_acceptanc
 validateGrant(grant, audience, required_scope, authoritative_context) -> verified context | denied
 refreshOrReplaceGrant(grant_or_renewed_join_proof) -> replacement grant | denied
 revokeGrant(authoritative_scope, reason)
-refreshRevealProjection(grant, package_version)
 ```
 
 The interface supports offline-prepared artifacts. Grant expiry and every closure/archive grace are mandatory finite policy inputs rather than hard-coded durations. Issuance and use fail closed when any required policy, binding, integrity check, or current revocation state is unavailable.
@@ -768,11 +775,11 @@ resolve(identifier, metadata, offline_package) -> assigned | unassigned | unknow
 stageAssignment(cup_id, sample_id, complete_payload) -> staged intent
 advanceAssignmentWrite(intent_id) -> durable lifecycle state
 recoverAssignmentIntent(intent_id, fresh_read) -> durable lifecycle state
-encodeAssignment(assignment, participant_safe_sample, protocol_version) -> records
+encodeAssignment(assignment, ndef_allowlisted_sample, protocol_version) -> records
 writeAndVerify(records) -> verified result | explicit failure
 ```
 
-The domain passes participant-safe data to encoding. The adapter MUST NOT fetch protected identity or invent enum mappings.
+The domain passes only canonical NDEF-allowlisted data to encoding. That may include real `n`/`p` metadata in blind mode, but the adapter MUST NOT fetch results, participant data, credentials, tenant-only fields, or other protected metadata, and MUST NOT invent enum mappings.
 
 ### 12.4 ShareTransport and Ingestion
 
@@ -787,8 +794,8 @@ Transport uses the authenticated encrypted channel from section 9.3. Provider ti
 
 ```text
 projectForHost(authorised_context, aggregate)
-projectForParticipant(session_access, reveal_state)
-projectForNfc(session, participant_safe_sample)
+projectForParticipant(session_access, participant_completion_state)
+projectForNfc(session, ndef_allowlisted_sample)
 recordAudit(actor, action, target, minimized_before_after)
 ```
 
@@ -872,7 +879,7 @@ Prototype temperature/time snapshots are preserved as legacy raw metadata for lo
 | Feedback/defect saves persist rows but do not implement a unified response revision/event acknowledgement contract | Cannot yet prove all acknowledged observations or conflict handling | Reliability/migration work | Introduce transactional event plus projection boundary |
 | Flavour and feedback rows include temperature/time snapshots | Release 1 must not present note time as sensory data; validated sensor provenance is Release 2 | Out of Release 1 behavior; preserve-only migration data | Retain as legacy metadata, do not surface as validated context |
 | Current database has no durable outbox, consent snapshot, or idempotency key | FR-064 is not implemented | Implementation gap | Implement explicit consented Share Operation/outbox later |
-| Current data has no server-side blind projection or tenant boundary | UI hiding cannot satisfy FR-013/security requirements | Security implementation gap | Enforce allowlisted projections and authorisation service-side |
+| Current data has no participant-completion projection boundary, server-side blind response projection, or tenant boundary | Broad UI objects or API responses could expose coffee metadata early even though raw NDEF4 is an approved exception | Security implementation gap | Enforce completion-aware allowlisted app projections and service authorisation/filtering |
 | Current local database and migration path do not evidence encrypted storage or platform-secured keys | Sensitive offline data may be readable outside the application boundary | Security implementation gap | Introduce and verify the section 9.3 protected-store migration before production capture |
 | Current prototype has no service-issued participant grant, revocation state, or finite access-policy enforcement | NFC/session references could be mistaken for authorisation | Security implementation gap | Implement section 10.3 issuance/verification before service participant access |
 | Current prototype has no idempotent deletion/anonymisation operation or cross-surface tombstone propagation | Retained projections, outbox data, exports, or restores could resurrect deleted data | Privacy implementation gap | Implement section 9.4 lifecycle and restore manifests before production retention claims |
@@ -934,9 +941,9 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 
 ### 15.5 Blindness, privacy, and tenancy
 
-37. Before reveal, protected identity is absent—not merely hidden—from participant UI/accessibility output, NFC, offline cache/package, URLs, logs, analytics, and network responses.
-38. Blind NDEF4 `n` contains only the neutral identifier.
-39. Reveal requires an authorised explicit action and creates an Audit Event.
+37. Before this participant explicitly completes a blind Session, protected coffee metadata is absent from participant-facing UI/accessibility output, page titles, URLs, notifications, cached previews, ordinary diagnostics, analytics, and participant network responses. Encrypted local storage may retain real NDEF4 `n`/`p`, but only the neutral projection reaches those surfaces.
+38. Blind NDEF4 may contain real coffee name/origin `n` and process `p` with `m=b`, but contains no result, note, participant data, completion/reveal state, share state, credential, access grant, tenant secret, or device secret. A third-party reader can inspect the allowed raw metadata and is outside the Release 1 threat model.
+39. Explicit participant completion and `revealed_after_completion` commit atomically offline. Reveal immediately uses locally held metadata, survives restart and later permitted review/editing on that device, requires no host-global reveal/network refresh/reveal QR/tag rewrite, and creates no consent, outbox item, Share Operation, or upload.
 40. A provisional-local record cannot call service APIs; a reconciled session-scoped participant grant cannot read or share another session.
 41. Cross-organisation identifiers supplied by a client cannot escape server-side tenant scoping.
 42. Free-text notes and protected sample identity never appear as analytics properties.
@@ -965,7 +972,7 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 56. Tampering or using a wrong issuer, key/version, audience, tenant, Session, access subject, bound device, scope, time window, or request-specific Share Operation/hash is denied without protected data or resource-existence detail.
 57. Expired or revoked grants and grants for a closed, archived, or deleted Session follow the mandatory access-state matrix on every read, share, reveal, refresh, reconciliation continuation, and deletion-related participant request; an unset matrix/duration denies access.
 58. Refresh/replacement repeats current validation, produces a new random grant ID, and revokes/replaces the old grant within the finite overlap bound; an expired or revoked grant alone cannot refresh or extend itself.
-59. Reveal access checks the current authorised reveal state for every read; possession of a previously valid token does not disclose newly restricted identity, while tests record the unavoidable limitation for identity already delivered offline.
+59. Local post-completion reveal is participant/device-scoped and is not reversed by grant refresh/revocation or host Session closure/archive; Release 1 participant service responses remain blind-safe before and after completion. Tests preserve the limitation that already revealed offline metadata cannot be made secret again, while deletion/reset may remove it under policy.
 60. Replayed authorised issuance is idempotent or rotates under the replacement rule; bounded/rate-limited guessing receives generic non-enumerating responses, and raw references, capabilities, grants, names, or protected identities never enter security logs.
 61. Participant display-name anonymisation removes the name from all controlled primary, raw, projection, cache, queue, quarantine, export, replica, migration, and applicable synchronized local surfaces while preserving response semantics and only the minimized audit/tombstone fields from section 9.4.
 62. Session deletion propagates to every controlled surface, revokes grants/download links, and creates a compact tombstone that rejects a late queued/replayed share and prevents read-model, migration, or backup restore from resurrecting content.
@@ -1005,7 +1012,7 @@ Recommended sequencing:
 2. Session-level form/mode, Sample/Cup/Assignment separation, and migration validation.
 3. Participant, Response, append-only Tasting Event, and transactional acknowledgement.
 4. Versioned offline package plus NFC/QR/manual deterministic resolution.
-5. Blind-safe projections and session/tenant authorisation, reviewed for security/privacy.
+5. Completion-aware blind participant projections and session/tenant authorisation, reviewed for security/privacy.
 6. Explicit Share Operation/outbox and idempotent ingestion.
 7. Portal read models, exclusions/audit, history, and exports.
 
@@ -1018,7 +1025,7 @@ This contract does not redesign UI. Existing Home and Cupping screens can adopt 
 - Home reads a Session projection and explicit Cup resolution state instead of inferring product state from legacy rows.
 - Cupping reads one session-level form/version and identity mode, a participant-safe Sample projection, and a Response projection.
 - Existing save controls call the transactional event boundary and show saved only after durable acknowledgement.
-- Existing completion controls set local completion; a separate **Share results** action creates consent and the outbox item.
+- Existing completion controls atomically set local completion and, for a blind Session, permanently reveal locally held coffee metadata for that participant/device; a separate **Share results** action creates consent and the outbox item.
 - Status elements map to `private/local`, `complete`, `queued`, `sharing`, `shared`, and `failed` without changing visual styling in this task.
 - Active Session and future portal views consume only authorised projections; host aggregates contain only explicitly shared results.
 - Scan flows consume the four explicit resolution outcomes and retain the current manual fallback route.
@@ -1033,7 +1040,7 @@ An implementation claiming conformance MUST identify the exact commit and provid
 - transaction/crash-recovery tests for acknowledged observations and outbox creation;
 - offline end-to-end tests for the prepared host and participant flows;
 - idempotency, replay, divergent-content, and conflict tests;
-- blind projection and tenant/session authorisation tests at serialization/API boundaries;
+- completion-aware blind projection and tenant/session authorisation tests at UI/accessibility/cache/diagnostic and serialization/API boundaries, including the explicit raw-NDEF exception;
 - NDEF serializer/parser conformance tests and real-device evidence where physical behavior is claimed;
 - review by an independent architecture reviewer and security/privacy reviewer;
 - explicit limitations for policy parameters and FR-028B.
