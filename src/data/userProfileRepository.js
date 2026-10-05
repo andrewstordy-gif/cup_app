@@ -1,14 +1,10 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { generateDomainId } from "../utils/secureIdentifiers";
 
 const USER_PROFILE_STORAGE_KEY = "cup_app:user_profile";
 
 function generateProfileUuid() {
-  const randomUuid = globalThis?.crypto?.randomUUID?.();
-  if (randomUuid) {
-    return randomUuid;
-  }
-
-  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 18)}`;
+  return generateDomainId();
 }
 
 function normalizeProfile(value) {
