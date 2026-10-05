@@ -1,3 +1,5 @@
+import { generateDomainId, generateSessionReference } from "../../../utils/secureIdentifiers";
+
 export const SESSION_STATUS = {
   DRAFT:       "draft",
   PENDING:     "pending",
@@ -192,23 +194,11 @@ export function normalizePositiveInteger(value, fallback = 0) {
 }
 
 export function generateSessionUUID() {
-  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
-  const bytes = new Uint8Array(14);
-  globalThis?.crypto?.getRandomValues?.(bytes);
-
-  if (bytes.some((byte) => byte !== 0)) {
-    return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join("");
-  }
-
-  let id = "";
-  for (let index = 0; index < 14; index += 1) {
-    id += alphabet[Math.floor(Math.random() * alphabet.length)];
-  }
-  return id;
+  return generateSessionReference();
 }
 
 export function generateRecordId() {
-  return generateSessionUUID();
+  return generateDomainId();
 }
 
 export function formatSessionDisplayId(sessionUUID) {

@@ -7,7 +7,7 @@ const { transformSync } = require("@babel/core");
 
 const rootDir = path.resolve(__dirname, "..");
 
-function requireAppModule(relativePath) {
+function requireAppModule(relativePath, mocks = {}) {
   const filename = path.join(rootDir, relativePath);
   const source = fs.readFileSync(filename, "utf8");
   const { code } = transformSync(source, {
@@ -19,9 +19,24 @@ function requireAppModule(relativePath) {
   const mod = new Module(filename, module);
   mod.filename = filename;
   mod.paths = Module._nodeModulePaths(path.dirname(filename));
-  mod._compile(code, filename);
+  const originalLoad = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (Object.hasOwn(mocks, request)) {
+      return mocks[request];
+    }
+    return originalLoad.call(this, request, parent, isMain);
+  };
+  try {
+    mod._compile(code, filename);
+  } finally {
+    Module._load = originalLoad;
+  }
   return mod.exports;
 }
+
+const secureIdentifiers = requireAppModule("src/utils/secureIdentifiers.js", {
+  "expo-crypto": { getRandomValues: (bytes) => require("node:crypto").webcrypto.getRandomValues(bytes) },
+});
 
 const {
   NFC_TAG_TYPES,
@@ -35,7 +50,9 @@ const {
   normalizeCupUuid,
   normalizePositiveInteger,
   resolveCupUUIDFromReadResult,
-} = requireAppModule("src/features/cupping/constants/sessionDetails.js");
+} = requireAppModule("src/features/cupping/constants/sessionDetails.js", {
+  "../../../utils/secureIdentifiers": secureIdentifiers,
+});
 
 let failures = 0;
 

@@ -1,4 +1,5 @@
 import { getLocalDatabase } from "./localDatabase";
+import { generateDomainId } from "../utils/secureIdentifiers";
 import {
   getSessionDateLabel,
   getSessionTypeLabel,
@@ -8,12 +9,7 @@ import {
 } from "../features/cupping/constants/sessionDetails";
 
 function generateId() {
-  const randomUuid = globalThis?.crypto?.randomUUID?.();
-  if (randomUuid) {
-    return randomUuid;
-  }
-
-  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 18)}`;
+  return generateDomainId();
 }
 
 function normalizeCupUuid(value) {
@@ -203,6 +199,7 @@ function calculateFinalScore({
 
 export async function saveSessionWithSamples({
   sessionUUID,
+  existingSessionId = null,
   sessionDisplayId,
   sessionName,
   sessionType,
@@ -214,6 +211,11 @@ export async function saveSessionWithSamples({
   const trimmedSessionName = cleanString(sessionName);
   if (!trimmedSessionName) {
     throw new Error("Session name is required before saving.");
+  }
+
+  const normalizedSessionId = cleanString(sessionUUID);
+  if (!normalizedSessionId) {
+    throw new Error("Secure session reference is unavailable. Please reopen this session.");
   }
 
   const normalizedSamples = (samples || [])
@@ -236,12 +238,13 @@ export async function saveSessionWithSamples({
 
   const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
-  const sessionId = cleanString(sessionUUID) || generateId();
-  const sessionUuidValue = cleanString(sessionUUID) || sessionId;
+  const sessionId = normalizedSessionId;
+  const sessionUuidValue = normalizedSessionId;
   const displayIdValue = cleanString(sessionDisplayId) || `SESSION-${sessionUuidValue.slice(0, 8).toUpperCase()}`;
   const sessionStatusValue = cleanString(status).toLowerCase() || "pending";
 
   await db.withTransactionAsync(async () => {
+    await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
     const existingSession = await db.getFirstAsync(
       "SELECT created_at FROM sessions WHERE id = ?",
       [sessionId]
@@ -338,6 +341,31 @@ export async function saveSessionWithSamples({
     sessionId,
     savedSampleCount: normalizedSamples.length,
   };
+}
+
+async function assertSessionReferenceAvailableWithDb(db, reference, existingSessionId) {
+  const normalizedReference = cleanString(reference);
+  const normalizedExistingId = cleanString(existingSessionId);
+  if (!normalizedReference) {
+    throw new Error("Secure session reference is unavailable. Please reopen this session.");
+  }
+
+  const existing = await db.getFirstAsync(
+    "SELECT id FROM sessions WHERE id = ? OR session_uuid = ? LIMIT 1",
+    [normalizedReference, normalizedReference]
+  );
+  if (normalizedExistingId) {
+    if (normalizedReference !== normalizedExistingId || existing?.id !== normalizedExistingId) {
+      throw new Error("Session reference changed or is missing. Reopen the saved session before editing.");
+    }
+  } else if (existing) {
+    throw new Error("Session reference is already in use. Reopen the new-session screen and try again.");
+  }
+}
+
+export async function assertSessionReferenceAvailable(reference, existingSessionId = null) {
+  const db = await getLocalDatabase();
+  return assertSessionReferenceAvailableWithDb(db, reference, existingSessionId);
 }
 
 export async function listSessions() {

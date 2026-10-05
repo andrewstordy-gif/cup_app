@@ -49,6 +49,7 @@ import {
   SESSION_TYPE_OPTIONS,
 } from "../constants/sessionDetails";
 import {
+  assertSessionReferenceAvailable,
   deleteSessionById,
   findPendingSessionByCupUUID,
   getSessionById,
@@ -136,8 +137,9 @@ export function CuppingSessionDetailsScreen({
 }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
-  const [sessionUUID, setSessionUUID] = useState(() => generateSessionUUID());
-  const [sessionDisplayId, setSessionDisplayId] = useState(() => formatSessionDisplayId(sessionUUID));
+  const [sessionUUID, setSessionUUID] = useState("");
+  const [sessionDisplayId, setSessionDisplayId] = useState("");
+  const savedSessionIdRef = useRef(sessionId);
   const [sessionDate, setSessionDate] = useState(() => formatSessionDate(new Date()));
   const [sessionName, setSessionName] = useState("");
   const [sessionType, setSessionType] = useState(null);
@@ -199,11 +201,22 @@ export function CuppingSessionDetailsScreen({
 
     const loadSessionForEditing = async () => {
       if (!sessionId) {
-        const nextSessionUUID = generateSessionUUID();
+        let nextSessionUUID;
+        try {
+          nextSessionUUID = generateSessionUUID();
+        } catch (error) {
+          if (!isCancelled) {
+            setSessionUUID("");
+            setSessionDisplayId("");
+            setScanStatusMessage(error?.message || "Secure session reference is unavailable.");
+          }
+          return;
+        }
         if (isCancelled) {
           return;
         }
 
+        savedSessionIdRef.current = null;
         setSessionUUID(nextSessionUUID);
         setSessionDisplayId(formatSessionDisplayId(nextSessionUUID));
         setSessionDate(formatSessionDate(new Date()));
@@ -226,6 +239,7 @@ export function CuppingSessionDetailsScreen({
         }
 
         const loadedUuid = loaded.sessionUUID || loaded.id || generateSessionUUID();
+        savedSessionIdRef.current = loaded.id;
         setSessionUUID(loadedUuid);
         setSessionDisplayId(loaded.sessionDisplayId || formatSessionDisplayId(loadedUuid));
         setSessionDate(loaded.sessionDate || formatSessionDate(new Date()));
@@ -519,8 +533,10 @@ export function CuppingSessionDetailsScreen({
     setIsNfcWriting(true);
 
     try {
+      await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
       setScanStatusMessage("Scan cup to write session data...");
       const writeResult = await readAndWriteNdefMinimal(async (result) => {
+        await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
         const parsed = result?.parsed || {};
         const tag = result?.tag;
         const tagClassification = classifyNfcTagReadResult(result);
@@ -651,6 +667,7 @@ export function CuppingSessionDetailsScreen({
 
       await saveSessionWithSamples({
         sessionUUID,
+        existingSessionId: savedSessionIdRef.current,
         sessionDisplayId,
         sessionDate,
         sessionName: effectiveSessionName,
@@ -659,6 +676,7 @@ export function CuppingSessionDetailsScreen({
         status: sessionStatus,
         samples: nextSamples,
       });
+      savedSessionIdRef.current = sessionUUID;
       setSessionName(effectiveSessionName);
       setSamples(nextSamples);
       setIsSessionDirty(true);
@@ -1038,7 +1056,11 @@ export function CuppingSessionDetailsScreen({
     setIsSaving(true);
 
     try {
-      const result = await saveSessionWithSamples(formState);
+      const result = await saveSessionWithSamples({
+        ...formState,
+        existingSessionId: savedSessionIdRef.current,
+      });
+      savedSessionIdRef.current = result.sessionId;
       setIsSessionDirty(false);
       setScanStatusMessage(`Session saved locally (${result.savedSampleCount} samples).`);
       if (onSaveSuccess) {
