@@ -322,6 +322,10 @@ Use this for day-to-day NFC testing.
 
 The current manual release route is Xcode archive upload:
 
+`app.json` is the human-edited reference for the public app version and platform build numbers. The current pre-release iOS baseline is `0.1.0 (5)`: `0.1.0` is the public version, while `5` is the iOS build number. Android has a separate `versionCode` counter; it need not equal the iOS build number. Keep `app.json`, `package.json`, and the checked-in native projects aligned, then run `node scripts/check-app-version.js` before making a distributable build. The iOS Info.plist reads its values from Xcode's `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` settings.
+
+Each new TestFlight or App Store iOS upload needs a build number higher than the previous upload for that public version. Do not increment it merely for a local development rebuild, and do not present such a rebuild as a new release. For each distributed or user-test build, record the exact Git commit, platform, Debug/Release or EAS configuration, public version, platform build identifier, and distribution destination. Per the operating model, user-test builds come from an identified `main` commit or tag, not a task branch.
+
 1. Open `ios/cup.xcworkspace` in Xcode.
 2. Select the app target.
 3. Confirm the selected Apple Developer team is the personal CUP app team, not IKAWA LTD.
@@ -335,7 +339,7 @@ The current manual release route is Xcode archive upload:
 
 Do not use the IKAWA LTD Apple Developer team for CUP app TestFlight releases.
 
-The version shown in Organizer is `MARKETING_VERSION (CURRENT_PROJECT_VERSION)`, for example `0.1.0 (2)`.
+The version shown in Organizer is `MARKETING_VERSION (CURRENT_PROJECT_VERSION)`, currently `0.1.0 (5)`.
 
 ### EAS Build For TestFlight
 
