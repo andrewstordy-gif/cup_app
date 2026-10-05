@@ -8,6 +8,10 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
+## [2026-10-05] — Codex Release Manager
+
+- R1-006 aligned the checked-in iOS public version to the existing `0.1.0 (5)` baseline, made Info.plist derive its version/build values from Xcode settings, and added a focused cross-platform version check and build-identification guidance. No app behaviour or build number changed; no build was distributed. Merged through [PR #10](https://github.com/andrewstordy-gif/cup_app/pull/10) at `aacafa9588560aa9b665145fecad6004b1661b6d`.
+
 ## [2026-10-01] — Codex
 
 - Added `docs/PRODUCT_SPEC.md` as the top-level product authority and `docs/NDEF_PROTOCOL.md` as the subordinate canonical NFC protocol specification. The protocol now identifies FR-028B as an unresolved Release 1 blocker requiring an approved Product Owner/protocol decision.
