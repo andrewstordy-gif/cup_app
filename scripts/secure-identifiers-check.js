@@ -9,6 +9,7 @@ const { transformSync } = require("@babel/core");
 const rootDir = path.resolve(__dirname, "..");
 let randomValues = (bytes) => require("node:crypto").webcrypto.getRandomValues(bytes);
 let existingSession = null;
+let conflictingReferenceOwner = null;
 let databaseWrites = 0;
 let storedProfile = null;
 let cryptoModuleAvailable = true;
@@ -21,8 +22,13 @@ const cryptoMock = {
 
 const db = {
   async getFirstAsync(sql, args) {
-    if (sql.includes("FROM sessions WHERE id = ? OR session_uuid = ?")) {
+    if (sql.includes("FROM sessions WHERE id = ? LIMIT 1")) {
       return existingSession ? { id: existingSession } : null;
+    }
+    if (sql.includes("FROM sessions WHERE session_uuid = ? LIMIT 1")) {
+      return conflictingReferenceOwner
+        ? { id: conflictingReferenceOwner }
+        : existingSession ? { id: existingSession } : null;
     }
     return null;
   },
@@ -129,6 +135,12 @@ async function main() {
     /already in use/
   );
   await repository.assertSessionReferenceAvailable(collision, collision);
+  conflictingReferenceOwner = "other-session";
+  await assert.rejects(
+    repository.assertSessionReferenceAvailable(collision, collision),
+    /changed or is missing/
+  );
+  conflictingReferenceOwner = null;
   await assert.rejects(
     repository.assertSessionReferenceAvailable(collision, "another-session"),
     /changed or is missing/

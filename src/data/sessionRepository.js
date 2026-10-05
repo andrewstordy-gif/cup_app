@@ -350,15 +350,23 @@ async function assertSessionReferenceAvailableWithDb(db, reference, existingSess
     throw new Error("Secure session reference is unavailable. Please reopen this session.");
   }
 
-  const existing = await db.getFirstAsync(
-    "SELECT id FROM sessions WHERE id = ? OR session_uuid = ? LIMIT 1",
-    [normalizedReference, normalizedReference]
+  const existingById = await db.getFirstAsync(
+    "SELECT id FROM sessions WHERE id = ? LIMIT 1",
+    [normalizedReference]
+  );
+  const existingByReference = await db.getFirstAsync(
+    "SELECT id FROM sessions WHERE session_uuid = ? LIMIT 1",
+    [normalizedReference]
   );
   if (normalizedExistingId) {
-    if (normalizedReference !== normalizedExistingId || existing?.id !== normalizedExistingId) {
+    if (
+      normalizedReference !== normalizedExistingId ||
+      existingById?.id !== normalizedExistingId ||
+      (existingByReference && existingByReference.id !== normalizedExistingId)
+    ) {
       throw new Error("Session reference changed or is missing. Reopen the saved session before editing.");
     }
-  } else if (existing) {
+  } else if (existingById || existingByReference) {
     throw new Error("Session reference is already in use. Reopen the new-session screen and try again.");
   }
 }
