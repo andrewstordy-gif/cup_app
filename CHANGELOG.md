@@ -10,6 +10,7 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ## [2026-10-05] — Codex Release Manager
 
+- R1-005 replaced insecure fallback generation for new local IDs and 14-character NFC/session references with offline-capable cryptographic randomness, and added local collision guards that fail safely instead of overwriting another session. Existing prototype records and tag format were not migrated or changed. Independent and security reviews passed; the rebuilt iPhone offline creation/save/reopen check passed, while exact physical tag read-back and cloud sharing remain unverified. Merged through [PR #12](https://github.com/andrewstordy-gif/cup_app/pull/12) at `fa80421ea9d17fad4d91742e5510370ebce76b15`. No new build was distributed.
 - R1-006 aligned the checked-in iOS public version to the existing `0.1.0 (5)` baseline, made Info.plist derive its version/build values from Xcode settings, and added a focused cross-platform version check and build-identification guidance. No app behaviour or build number changed; no build was distributed. Merged through [PR #10](https://github.com/andrewstordy-gif/cup_app/pull/10) at `aacafa9588560aa9b665145fecad6004b1661b6d`.
 
 ## [2026-10-01] — Codex
