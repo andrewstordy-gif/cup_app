@@ -28,6 +28,7 @@
     { "id": "body_level", "type": "optional_integer", "minimum": 1, "maximum": 5, "provenance": "paper observation" }
   ],
   "validation": [
+    "response_identity_and_form_match_independently_trusted_session_pin",
     "cup_count_integer_1_to_8",
     "cup_sets_ascending_unique_one_based_within_count",
     "mandatory_absent_or_null_unassessed_except_explicit_null_scored_defect",

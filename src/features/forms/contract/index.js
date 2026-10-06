@@ -5,8 +5,8 @@ const legacy = require('./manifests/legacy.json');
 const PROFILE = 'ndef4-r1';
 const ADAPTED_LABEL = 'Adapted — five-cup-equivalent Cup App score';
 const REGISTRY = Object.freeze([
-  Object.freeze({ profile: PROFILE, f: 1, form_key: 'sca_cva_affective_104_2024', form_version: '1.0.0', form_hash: 'b15503229b53a2f63036919e06a4c884ccffe5106b3bd4c2d5277c306c1a6c15' }),
-  Object.freeze({ profile: PROFILE, f: 2, form_key: 'scaa_legacy_2009a_cupapp', form_version: '1.0.0', form_hash: '8a567afd740196124ed267c10d843e2d5c3382ddcbba3c2d2c440b6840d385d7' }),
+  Object.freeze({ profile: PROFILE, f: 1, form_key: 'sca_cva_affective_104_2024', form_version: '1.0.0', form_hash: '0a840b335b4af50d18db3cf210d503b870285c1706710ff803e7633103ad310d' }),
+  Object.freeze({ profile: PROFILE, f: 2, form_key: 'scaa_legacy_2009a_cupapp', form_version: '1.0.0', form_hash: 'c915e4678f968567091e7eb4b24e97fe19506ebd58bcdd0dbdec2433ea4fb2d4' }),
 ]);
 const MANIFESTS = Object.freeze({ 1: cva, 2: legacy });
 
@@ -153,10 +153,29 @@ function validateLegacy(response, manifest, n, errors, complete) {
   }
 }
 
-// Identity is the session-pinned triple; response values are assessed separately.
+// expectedSession must come from the caller's independently trusted Session,
+// never from the untrusted response envelope or its NDEF evidence. Without it,
+// a self-consistent form response could be attached to a different form Session.
 // Drafts can be incomplete but never yield a final score/export projection.
-function validateResponse({ profile, f, identity, cup_count, response, complete = false }, registry = REGISTRY) {
+function validateResponse(input, expectedSession, registry = REGISTRY) {
   const errors = [];
+  if (!plain(input)) return { ok: false, errors: ['response_envelope:invalid_object'] };
+  if (!plain(expectedSession)) return { ok: false, errors: ['trusted_session:required'] };
+  const { profile, f, identity, cup_count, response, complete = false } = input;
+  const pinned = resolveForm(expectedSession.profile, expectedSession.f, registry);
+  if (!pinned.ok || !plain(expectedSession.identity) || Object.keys(expectedSession.identity).length !== 3 ||
+      expectedSession.identity.form_key !== pinned.identity.form_key ||
+      expectedSession.identity.form_version !== pinned.identity.form_version ||
+      expectedSession.identity.form_hash !== pinned.identity.form_hash) {
+    return { ok: false, errors: ['trusted_session:unsupported_form_mapping'] };
+  }
+  if (profile !== expectedSession.profile || f !== expectedSession.f || !plain(identity) ||
+      Object.keys(identity).length !== 3 ||
+      identity.form_key !== expectedSession.identity.form_key ||
+      identity.form_version !== expectedSession.identity.form_version ||
+      identity.form_hash !== expectedSession.identity.form_hash) {
+    errors.push('session_form_mismatch');
+  }
   const resolved = resolveForm(profile, f, registry);
   if (!resolved.ok) errors.push(resolved.error);
   if (!cupCountValid(cup_count)) errors.push('cup_count:out_of_range');
@@ -191,8 +210,8 @@ function centsText(cents) {
   return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, '0')}`;
 }
 
-function scoreResponse(input) {
-  const validation = validateResponse({ ...input, complete: true });
+function scoreResponse(input, expectedSession) {
+  const validation = validateResponse(plain(input) ? { ...input, complete: true } : input, expectedSession);
   if (!validation.ok) return { ok: false, errors: validation.errors };
   const { f, cup_count: n, response, identity } = input;
   let value;

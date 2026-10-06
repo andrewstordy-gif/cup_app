@@ -3,12 +3,17 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { canonicalize, sha256 } = require('../src/features/forms/contract/canonical');
-const { PROFILE, REGISTRY, resolveForm, validateResponse, scoreResponse } = require('../src/features/forms/contract');
+const { PROFILE, REGISTRY, resolveForm, validateResponse: validateRaw, scoreResponse: scoreRaw } = require('../src/features/forms/contract');
 
 let checks = 0;
 function equal(actual, expected, message) { assert.deepEqual(actual, expected, message); checks += 1; }
 function yes(condition, message) { assert.ok(condition, message); checks += 1; }
 const identity = f => resolveForm(PROFILE, f).identity;
+// Test convenience only. Production callers must obtain this separately from
+// the trusted Session, not derive it from the response being validated.
+const sessionFor = input => ({ profile: input.profile, f: input.f, identity: identity(input.f) });
+const validateResponse = input => validateRaw(input, sessionFor(input));
+const scoreResponse = input => scoreRaw(input, sessionFor(input));
 const cups = n => Array.from({ length: n }, (_, i) => i + 1);
 const cva = (n, rating = 5) => ({
   profile: PROFILE, f: 1, identity: identity(1), cup_count: n,
@@ -55,6 +60,24 @@ yes(!resolveForm('wrong-profile', 1).ok);
 yes(!resolveForm(PROFILE, 1, [...REGISTRY, REGISTRY[0]]).ok, 'Ambiguous registry must fail');
 yes(!resolveForm(PROFILE, 1, []).ok, 'Absent registry entry must fail');
 yes(!resolveForm(PROFILE, 1, [{ ...REGISTRY[0], form_hash: '0'.repeat(64) }]).ok, 'Changed hash must fail');
+for (const malformed of [null, undefined, false, 1, [], 'response']) {
+  const result = validateRaw(malformed, sessionFor(cva(5)));
+  yes(!result.ok && result.errors.includes('response_envelope:invalid_object'));
+  const scored = scoreRaw(malformed, sessionFor(cva(5)));
+  yes(!scored.ok && scored.errors.includes('response_envelope:invalid_object'));
+}
+for (const input of [cva(5), legacy(5)]) {
+  yes(validateRaw(input).errors.includes('trusted_session:required'));
+  yes(scoreRaw(input).errors.includes('trusted_session:required'));
+}
+const cvaSession = sessionFor(cva(5));
+const legacySession = sessionFor(legacy(5));
+yes(validateRaw(legacy(5), cvaSession).errors.includes('session_form_mismatch'));
+yes(scoreRaw(legacy(5), cvaSession).errors.includes('session_form_mismatch'));
+yes(validateRaw(cva(5), legacySession).errors.includes('session_form_mismatch'));
+yes(scoreRaw(cva(5), legacySession).errors.includes('session_form_mismatch'));
+yes(validateRaw(cva(5), { ...cvaSession, identity: { ...cvaSession.identity, form_hash: '0'.repeat(64) } }).errors.includes('trusted_session:unsupported_form_mapping'));
+yes(validateRaw(cva(5), { ...cvaSession, f: 2 }).errors.includes('trusted_session:unsupported_form_mapping'));
 
 equal(scoreResponse(cva(5)).display_score, '79.00');
 equal(scoreResponse(cva(5, 9)).display_score, '100.00');

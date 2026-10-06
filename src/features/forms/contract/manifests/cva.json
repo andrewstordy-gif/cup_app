@@ -18,6 +18,7 @@
     { "id": "evenly_defective_all_cups", "type": "boolean", "required_for_completion": true, "provenance": "Cup App explicit coherence evidence for SCA-104 exception" }
   ],
   "validation": [
+    "response_identity_and_form_match_independently_trusted_session_pin",
     "cup_count_integer_1_to_8",
     "cup_sets_ascending_unique_one_based_within_count",
     "mandatory_absent_or_null_unassessed_except_explicit_null_defect_type",
