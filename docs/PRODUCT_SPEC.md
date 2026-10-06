@@ -285,7 +285,8 @@ Purchasing/selection is not a Release 1 form and has no assigned NDEF form value
 - In Release 1, **SCA CVA means the CVA Affective Assessment only**. Descriptive, Physical, and Extrinsic CVA assessments are not additional Release 1 forms. Preserve the existing Affective UI where it works, subject to source-derived validation.
 - Their scoring, descriptive inputs, validation, and calculated values are versioned independently so historical responses retain their original meaning.
 - The Legacy form preserves the meaning of its own marked quality scales, cup-by-cup checks, and defect deductions; it is not the CVA Affective button-based input with a different label.
-- Both Release 1 forms allow 1–8 physical cups per sample, as in the current cup-count selector. This does not by itself define how a non-five-cup Legacy total is calculated or labelled.
+- Both Release 1 forms allow 1–8 physical cups per sample, as in the current cup-count selector.
+- For Legacy Uniformity, one cup always scores 10. With `n` cups from 2–8, the score is `10 × c ÷ n`, where `c` is the number of cups the taster judges consistent (`0 ≤ c ≤ n`). With five cups this equals the historical 2-points-per-consistent-cup rule. This Cup App adaptation does not settle the other cup-wise attributes, defects, or the label for a non-five-cup total.
 - The host selects the form for the session; participants do not select or change it during tasting.
 - The product may simplify screen layout for use at the table, but it must preserve the meaning and required fields of the selected form.
 
