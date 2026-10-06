@@ -362,7 +362,7 @@ export function CuppingSessionDetailsScreen({
   const isSessionFormLoading = Boolean(sessionId) && sessionForm?.loadedSessionId !== sessionId;
 
   const openSessionTypeMenu = () => {
-    if (isSessionLocked) {
+    if (isSessionLocked || !isSessionFormSupported) {
       return;
     }
 
@@ -1215,19 +1215,21 @@ export function CuppingSessionDetailsScreen({
               onChangeText={setSessionName}
               placeholder="Enter session name"
               placeholderTextColor={colors.action}
-              style={[styles.input, { marginTop: 4 * scale }, isSessionLocked && styles.metaInputDisabled]}
-              editable={!isSessionLocked}
-              selectTextOnFocus={!isSessionLocked}
+              style={[styles.input, { marginTop: 4 * scale }, (isSessionLocked || !isSessionFormSupported) && styles.metaInputDisabled]}
+              editable={!isSessionLocked && isSessionFormSupported}
+              selectTextOnFocus={!isSessionLocked && isSessionFormSupported}
               accessibilityLabel="Session name"
+              accessibilityState={{ disabled: isSessionLocked || !isSessionFormSupported }}
             />
           </View>
 
           <Pressable
             ref={sessionTypeRowRef}
             onPress={openSessionTypeMenu}
+            disabled={isSessionLocked || !isSessionFormSupported}
             accessibilityRole="button"
             accessibilityLabel="Select session type"
-            accessibilityState={{ expanded: Boolean(sessionTypeAnchor), disabled: isSessionLocked }}
+            accessibilityState={{ expanded: Boolean(sessionTypeAnchor), disabled: isSessionLocked || !isSessionFormSupported }}
             style={[styles.metaRow, { paddingBottom: 14 * scale }]}
           >
             <Text style={styles.metaLabel}>Session Type</Text>
@@ -1236,7 +1238,7 @@ export function CuppingSessionDetailsScreen({
                 style={[
                   styles.metaValue,
                   !sessionType && styles.metaValuePlaceholder,
-                  isSessionLocked && styles.metaValueDisabled,
+                  (isSessionLocked || !isSessionFormSupported) && styles.metaValueDisabled,
                 ]}
               >
                 {sessionType ? getSessionTypeLabel(sessionType) : "Select type"}
@@ -1245,7 +1247,7 @@ export function CuppingSessionDetailsScreen({
                 name="chevron-down"
                 role="icon_navigation"
                 size={22}
-                color={isSessionLocked ? colors.muted : colors.inkSoft}
+                color={isSessionLocked || !isSessionFormSupported ? colors.muted : colors.inkSoft}
               />
             </View>
           </Pressable>
@@ -1318,7 +1320,7 @@ export function CuppingSessionDetailsScreen({
 
       </ScreenContainer>
 
-      {isSessionComplete ? (
+      {!isSessionFormSupported ? null : isSessionComplete ? (
         <View style={styles.uploadFooter}>
           <Pressable
             onPress={() => {}}

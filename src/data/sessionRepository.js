@@ -755,8 +755,8 @@ export async function upsertSessionSampleFromCupMetadata({
   const nextCuppingMode = requireTagCuppingMode(
     cuppingMode === "b" || cuppingMode === "o" ? { m: cuppingMode } : { cuppingMode }
   );
-  if (existing && existing.cuppingMode !== nextCuppingMode) {
-    throw new Error("Cup cupping mode conflicts with its stored sample. No local record was changed.");
+  if ((pinnedSession.samples || []).some((sample) => sample.cuppingMode !== nextCuppingMode)) {
+    throw new Error("Cup cupping mode conflicts with its stored session samples. No local record was changed.");
   }
   const nextSampleNumber = normalizePositiveInteger(
     sampleNumber,
@@ -833,9 +833,9 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     if (!isPinnedCva(existingSession)) {
       throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
     }
-    const existingSample = await findSampleInSessionByCupUUID({ sessionId: existingSession.id, cupUUID: normalizedCupUUID });
-    if (existingSample && (existingSample.cuppingForm !== 1 || existingSample.cuppingMode !== tagMode)) {
-      throw new Error("The cup form or cupping mode conflicts with its stored sample. No local record was changed.");
+    const trustedSession = await getSessionById(existingSession.id);
+    if ((trustedSession?.samples || []).some((sample) => sample.cuppingForm !== 1 || sample.cuppingMode !== tagMode)) {
+      throw new Error("The cup form or cupping mode conflicts with stored session samples. No local record was changed.");
     }
   }
 

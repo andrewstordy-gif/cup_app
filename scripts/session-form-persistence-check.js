@@ -118,10 +118,24 @@ async function main() {
   const afterConflictingScan = await reopenedRepository.getSessionById(quickStartId);
   assert.equal(afterConflictingScan.sessionName, 'Quick tasting', 'conflicting tag must not overwrite session metadata');
   assert.equal(afterConflictingScan.samples[0].cuppingMode, 'blind', 'conflicting tag must not reveal a blind sample');
+  await assert.rejects(reopenedRepository.resolveActiveSampleFromCupMetadata({
+    cupUUID: 'NEW-CUP', metadata: {
+      f: 1, m: 'o', u: quickStartId, e: 'Untrusted new-cup title',
+      n: 'Untrusted new coffee', p: 1, y: 1,
+    },
+  }), /form or cupping mode conflicts/);
+  const afterNewCupConflict = await reopenedRepository.getSessionById(quickStartId);
+  assert.equal(afterNewCupConflict.sessionName, 'Quick tasting', 'new-cup conflict must not update Session');
+  assert.equal(afterNewCupConflict.samples.length, 1, 'new-cup conflict must not insert an open sample');
+  assert.equal(afterNewCupConflict.samples[0].cuppingMode, 'blind');
   await assert.rejects(reopenedRepository.upsertSessionSampleFromCupMetadata({
     sessionId: quickStartId, cupUUID: 'CUP-1', cuppingForm: 1, cuppingMode: 'open',
   }), /mode conflicts/);
   assert.equal((await reopenedRepository.getSessionById(quickStartId)).samples[0].cuppingMode, 'blind');
+  await assert.rejects(reopenedRepository.upsertSessionSampleFromCupMetadata({
+    sessionId: quickStartId, cupUUID: 'ANOTHER-CUP', cuppingForm: 1, cuppingMode: 'open',
+  }), /mode conflicts/);
+  assert.equal((await reopenedRepository.getSessionById(quickStartId)).samples.length, 1);
   const oldReopened = await reopenedRepository.getSessionById('oldprototype01');
   assert.equal(oldReopened.cuppingForm, null, 'old row remains unversioned after restart');
   console.log('Session-form SQLite migration, pin, quick-start save, and simulated reopen passed.');
