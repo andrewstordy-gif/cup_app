@@ -288,7 +288,9 @@ Purchasing/selection is not a Release 1 form and has no assigned NDEF form value
 - Both Release 1 forms allow 1–8 physical cups per sample, as in the current cup-count selector.
 - For Legacy Uniformity, one cup always scores 10. With `n` cups from 2–8, the score is `10 × c ÷ n`, where `c` is the number of cups the taster judges consistent (`0 ≤ c ≤ n`).
 - For Legacy Sweetness and Clean Cup, assess each cup separately. For each attribute and `n` cups from 1–8, its sample score is `10 × q ÷ n`, where `q` is the number of cups judged to qualify for that attribute (`0 ≤ q ≤ n`). With one cup, each of these attributes scores either 0 or 10; unlike them, one-cup Uniformity is always 10.
-- With five cups, these three cup-wise calculations reproduce the historical 2-points-per-qualifying-cup rule. For other counts they are Cup App adaptations. Any displayed non-five-cup Legacy total must be clearly labelled as adapted, not presented as an unqualified standard five-cup SCAA result. This decision does not settle how defects affect a non-five-cup total.
+- With five cups, these three cup-wise calculations reproduce the historical 2-points-per-qualifying-cup rule. For other counts they are Cup App adaptations.
+- For each Legacy taint or fault affecting `a` of `n` cups (`1 ≤ n ≤ 8`, `0 ≤ a ≤ n`), the deduction is `severity × a × 5 ÷ n`, where severity is 2 for a taint or 4 for a fault. With five cups this reproduces the historical per-affected-cup deduction; for other counts it is a five-cup-equivalent Cup App adaptation.
+- Any displayed non-five-cup Legacy total must be clearly labelled as adapted, not presented as an unqualified standard five-cup SCAA result. The exact form-definition version, numeric precision, and presentation require independent design review before implementation.
 - The host selects the form for the session; participants do not select or change it during tasting.
 - The product may simplify screen layout for use at the table, but it must preserve the meaning and required fields of the selected form.
 
