@@ -1,0 +1,53 @@
+{
+  "canonicalization_version": "cup-form-definition-jcs-v1",
+  "protocol_profile": "ndef4-r1",
+  "ndef_form_value": 2,
+  "form_key": "scaa_legacy_2009a_cupapp",
+  "form_version": "1.0.0",
+  "source": {
+    "edition": "SCAA Protocols VERSION 21NOV2009A, scoring/procedure",
+    "sha256": "09a1def1e1f19fc171b4b2c34a3b11e3292372926df7ff0d3105cbf0b5a2d401",
+    "sections": "pages 3-7",
+    "paper_form": { "edition": "Undated SCAA Official Cupping Form, field/layout reference", "sha256": "993a2c6eaadb2ace5111e6ceee4b6523c28e3d0027de4137061e3eab1c80445d" },
+    "corroboration": { "edition": "SCAA Cupping Protocols April 2005", "sha256": "a3da427261d78fab58352f442e9c990d19a354d50d9a75c11a3e3bdce11c78b0" }
+  },
+  "fields": [
+    { "id": "quality_ratings", "type": "ordered_integer_quarter_unit_mapping", "required_for_completion": true, "keys": ["fragrance_aroma", "flavor", "aftertaste", "acidity", "body", "balance", "overall"], "minimum": 24, "maximum": 39, "provenance": "2009 protocol explicit quality scale; paper 10 endpoint not selectable" },
+    { "id": "consistent_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCAA five-cup check; one-cup automatic 10 and other counts Cup App adaptation" },
+    { "id": "sweet_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCAA five-cup check; other counts Cup App adaptation" },
+    { "id": "clean_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCAA five-cup check; other counts Cup App adaptation" },
+    { "id": "scored_defect", "type": "assessed_nullable_single_defect", "required_for_completion": true, "kinds": ["taint", "fault"], "severity": { "taint": 2, "fault": 4 }, "provenance": "2009 protocol and one paper-form defect row" },
+    { "id": "roast_shade_tick", "type": "optional_integer", "minimum": 1, "maximum": 4, "provenance": "paper four shaded positions, not calibrated roast units" },
+    { "id": "roast_level_note", "type": "optional_text", "provenance": "paper observation" },
+    { "id": "aroma_qualities", "type": "optional_text", "provenance": "paper observation" },
+    { "id": "notes", "type": "optional_text", "provenance": "paper observation" },
+    { "id": "dry_aroma_intensity", "type": "optional_integer", "minimum": 1, "maximum": 5, "provenance": "paper observation" },
+    { "id": "break_aroma_intensity", "type": "optional_integer", "minimum": 1, "maximum": 5, "provenance": "paper observation" },
+    { "id": "wet_aroma_intensity", "type": "optional_integer", "minimum": 1, "maximum": 5, "provenance": "2009 protocol optional observation" },
+    { "id": "acidity_intensity", "type": "optional_integer", "minimum": 1, "maximum": 5, "provenance": "paper observation" },
+    { "id": "body_level", "type": "optional_integer", "minimum": 1, "maximum": 5, "provenance": "paper observation" }
+  ],
+  "validation": [
+    "response_identity_and_form_match_independently_trusted_session_pin",
+    "cup_count_integer_1_to_8",
+    "cup_sets_ascending_unique_one_based_within_count",
+    "mandatory_absent_or_null_unassessed_except_explicit_null_scored_defect",
+    "one_cup_consistent_set_exactly_one",
+    "one_scored_defect_row_only",
+    "scored_defect_cups_not_clean",
+    "no_unknown_response_fields"
+  ],
+  "scoring": {
+    "quality_sum": "sum(quality_quarter_units)/4",
+    "uniformity": "10*consistent_count/cup_count",
+    "sweetness": "10*sweet_count/cup_count",
+    "clean_cup": "10*clean_count/cup_count",
+    "defect_deduction": "severity*affected_count*5/cup_count",
+    "final": "quality_sum+uniformity+sweetness+clean_cup-defect_deduction",
+    "rounding": "exact_fraction_then_decimal_half_up_to_2_places_once_final",
+    "display_decimals": 2,
+    "five_cup_label": "SCAA Legacy five-cup score",
+    "other_cup_label": "Adapted — five-cup-equivalent Cup App score",
+    "other_cup_provenance": "Product Owner-approved Cup App adaptation, not specified by 2009 SCAA protocol"
+  }
+}

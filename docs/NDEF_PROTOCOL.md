@@ -115,7 +115,7 @@ The read parser expands `n`, `p`, `y`, `i`, `z`, `e`, `t`, `d`, and `u` to `coff
 
 ### Cupping form `f`
 
-`1` SCA CVA; `2` SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
+`1` SCA CVA Affective Assessment only; `2` SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). No separate Release 1 value is assigned to CVA Descriptive, Physical, or Extrinsic assessments.
 
 #### Approved Release 1 mapping — FR-028B
 

@@ -282,7 +282,16 @@ Purchasing/selection is not a Release 1 form and has no assigned NDEF form value
 ### 6.6 SCA forms
 
 - Release 1 supports both SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
+- In Release 1, **SCA CVA means the CVA Affective Assessment only**. Descriptive, Physical, and Extrinsic CVA assessments are not additional Release 1 forms. Preserve the existing Affective UI where it works, subject to source-derived validation.
 - Their scoring, descriptive inputs, validation, and calculated values are versioned independently so historical responses retain their original meaning.
+- The Legacy form preserves the meaning of its own marked quality scales, cup-by-cup checks, and defect deductions; it is not the CVA Affective button-based input with a different label.
+- Both Release 1 forms allow 1–8 physical cups per sample, as in the current cup-count selector.
+- For CVA Affective Assessment, let `n` be the physical cup count (`1 ≤ n ≤ 8`), `u` the number of non-uniform cups, and `d` the number of defective cups, with each count between 0 and `n`. Deduct `2 × u × 5 ÷ n` for non-uniformity and `4 × d × 5 ÷ n` for defects before the CVA final-score rounding. At five cups these are the SCA-104 per-cup deductions. At any other cup count this is a five-cup-equivalent Cup App adaptation, preserving the current prototype policy; any displayed non-five-cup CVA total must be clearly labelled as adapted rather than presented as an unqualified standard five-cup SCA result. Source-derived defect and rounding validation remain part of the versioned form contract.
+- For Legacy Uniformity, one cup always scores 10. With `n` cups from 2–8, the score is `10 × c ÷ n`, where `c` is the number of cups the taster judges consistent (`0 ≤ c ≤ n`).
+- For Legacy Sweetness and Clean Cup, assess each cup separately. For each attribute and `n` cups from 1–8, its sample score is `10 × q ÷ n`, where `q` is the number of cups judged to qualify for that attribute (`0 ≤ q ≤ n`). With one cup, each of these attributes scores either 0 or 10; unlike them, one-cup Uniformity is always 10.
+- With five cups, these three cup-wise calculations reproduce the historical 2-points-per-qualifying-cup rule. For other counts they are Cup App adaptations.
+- For each Legacy taint or fault affecting `a` of `n` cups (`1 ≤ n ≤ 8`, `0 ≤ a ≤ n`), the deduction is `severity × a × 5 ÷ n`, where severity is 2 for a taint or 4 for a fault. With five cups this reproduces the historical per-affected-cup deduction; for other counts it is a five-cup-equivalent Cup App adaptation.
+- Any displayed non-five-cup Legacy total must be clearly labelled as adapted, not presented as an unqualified standard five-cup SCAA result. The exact form-definition version, numeric precision, and presentation require independent design review before implementation.
 - The host selects the form for the session; participants do not select or change it during tasting.
 - The product may simplify screen layout for use at the table, but it must preserve the meaning and required fields of the selected form.
 
@@ -333,7 +342,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | --- | --- | --- | --- |
 | FR-019 | P0 | A host can add an existing cup with an attached off-the-shelf NFC tag as an NFC cup. | Cup App creates a reusable NFC cup record and verifies that the attached tag can be read and written. |
 | FR-020 | P0 | An added NFC cup has a reusable identity. | The NFC cup can be named once and reassigned between sessions while its stored session reference is updated. |
-| FR-021 | P0 | A host can assign one or more cups to one sample. | The system supports common 1-, 3-, 5-, and 6-cup-per-sample workflows without special cases. |
+| FR-021 | P0 | A host can assign one or more cups to one sample. | Both Release 1 forms support 1–8 physical cups per sample, including common 1-, 3-, 5-, and 6-cup workflows, without special cases in assignment. |
 | FR-022 | P0 | A cup cannot be assigned to two samples in the same live session. | A duplicate assignment is blocked with a corrective message. |
 | FR-023 | P0 | Scanning a cup in a live session opens the correct assigned record. | The resolved sample/cup pairing is deterministic and logged. |
 | FR-024 | P0 | Manual code/search fallback is available when NFC is unsupported or fails. | A taster can continue without losing work, and the UI labels that identity was manually selected. |
@@ -581,7 +590,7 @@ Login and invitation friction is one of the clearest complaints about existing s
 
 ### 12.3 Multiple cups per sample
 
-Professional workflows vary from one cup per sample to six or more. The data model treats cup assignment as many-to-one rather than assuming one smart cup per sample or one fixed bundle.
+Professional workflows vary in cup count. Both Release 1 forms support 1–8 physical cups per sample. The data model treats cup assignment as many-to-one rather than assuming one smart cup per sample or one fixed bundle.
 
 ### 12.4 Two Release 1 forms, one per session
 

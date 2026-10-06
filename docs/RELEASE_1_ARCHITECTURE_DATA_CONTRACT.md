@@ -40,6 +40,8 @@ Unresolved duration values do not permit an indefinite or missing production pol
 
 FR-028B is resolved for the two Release 1 forms: `NDEF4.f=1` means SCA CVA and `NDEF4.f=2` means SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). These are the only Release 1 form values. Quick QC and Purchasing/selection are subsequent-release concepts with no assigned or reserved values. Implementations MUST reject an unknown or unsupported `f` visibly and MUST NOT guess, silently map it to SCA CVA, or invent, persist, or transmit a production value for a future form.
 
+For this mapping, Release 1 SCA CVA is the Affective Assessment only. CVA Descriptive, Physical, and Extrinsic assessments are not additional Release 1 forms. The SCA Legacy form has its own versioned field and scoring meaning; its marked quality scales, cup-by-cup checks, and defect deductions must not be represented by the CVA Affective input contract.
+
 ## 3. Architectural boundaries and ownership
 
 Release 1 has four logical boundaries. They may be deployed together or separately, but MUST communicate through explicit contracts.
