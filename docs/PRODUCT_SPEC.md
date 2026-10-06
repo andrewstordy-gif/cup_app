@@ -282,7 +282,9 @@ Purchasing/selection is not a Release 1 form and has no assigned NDEF form value
 ### 6.6 SCA forms
 
 - Release 1 supports both SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
+- In Release 1, **SCA CVA means the CVA Affective Assessment only**. Descriptive, Physical, and Extrinsic CVA assessments are not additional Release 1 forms. Preserve the existing Affective UI where it works, subject to source-derived validation.
 - Their scoring, descriptive inputs, validation, and calculated values are versioned independently so historical responses retain their original meaning.
+- The Legacy form preserves the meaning of its own marked quality scales, cup-by-cup checks, and defect deductions; it is not the CVA Affective button-based input with a different label.
 - The host selects the form for the session; participants do not select or change it during tasting.
 - The product may simplify screen layout for use at the table, but it must preserve the meaning and required fields of the selected form.
 
