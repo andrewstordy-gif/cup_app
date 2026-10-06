@@ -286,7 +286,9 @@ Purchasing/selection is not a Release 1 form and has no assigned NDEF form value
 - Their scoring, descriptive inputs, validation, and calculated values are versioned independently so historical responses retain their original meaning.
 - The Legacy form preserves the meaning of its own marked quality scales, cup-by-cup checks, and defect deductions; it is not the CVA Affective button-based input with a different label.
 - Both Release 1 forms allow 1–8 physical cups per sample, as in the current cup-count selector.
-- For Legacy Uniformity, one cup always scores 10. With `n` cups from 2–8, the score is `10 × c ÷ n`, where `c` is the number of cups the taster judges consistent (`0 ≤ c ≤ n`). With five cups this equals the historical 2-points-per-consistent-cup rule. This Cup App adaptation does not settle the other cup-wise attributes, defects, or the label for a non-five-cup total.
+- For Legacy Uniformity, one cup always scores 10. With `n` cups from 2–8, the score is `10 × c ÷ n`, where `c` is the number of cups the taster judges consistent (`0 ≤ c ≤ n`).
+- For Legacy Sweetness and Clean Cup, assess each cup separately. For each attribute and `n` cups from 1–8, its sample score is `10 × q ÷ n`, where `q` is the number of cups judged to qualify for that attribute (`0 ≤ q ≤ n`). With one cup, each of these attributes scores either 0 or 10; unlike them, one-cup Uniformity is always 10.
+- With five cups, these three cup-wise calculations reproduce the historical 2-points-per-qualifying-cup rule. For other counts they are Cup App adaptations. Any displayed non-five-cup Legacy total must be clearly labelled as adapted, not presented as an unqualified standard five-cup SCAA result. This decision does not settle how defects affect a non-five-cup total.
 - The host selects the form for the session; participants do not select or change it during tasting.
 - The product may simplify screen layout for use at the table, but it must preserve the meaning and required fields of the selected form.
 
