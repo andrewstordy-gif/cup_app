@@ -23,12 +23,31 @@ function requireCvaTag(metadata) {
   if (rawFormValue(metadata) !== 1) throw new Error('Cup form is missing, unsupported, or does not match SCA CVA. No tasting form was opened.');
 }
 
+function requireTagCuppingMode(metadata) {
+  if (!metadata || typeof metadata !== 'object') throw new Error('Cup cupping mode is missing or unsupported. No tasting form was opened.');
+  const compact = metadata.m;
+  const alias = metadata.cuppingMode;
+  const fromCompact = compact === 'b' ? 'blind' : compact === 'o' ? 'open' : null;
+  const fromAlias = alias === 'blind' ? 'blind' : alias === 'open' ? 'open' : null;
+  if ((!fromCompact && !fromAlias) || (compact !== undefined && !fromCompact) ||
+      (alias !== undefined && !fromAlias) || (fromCompact && fromAlias && fromCompact !== fromAlias)) {
+    throw new Error('Cup cupping mode is missing, unsupported, or conflicting. No tasting form was opened.');
+  }
+  return fromCompact || fromAlias;
+}
+
 function isPinnedCva(session) {
   const identity = cvaIdentity();
   return session?.cuppingForm === identity.f &&
     session?.formKey === identity.form_key &&
     session?.formVersion === identity.form_version &&
     session?.formHash === identity.form_hash;
+}
+
+function isSessionFormReady(sessionId, loadedForm) {
+  return sessionId
+    ? loadedForm?.loadedSessionId === sessionId && isPinnedCva(loadedForm)
+    : loadedForm?.f === 1 && loadedForm?.form_hash === cvaIdentity().form_hash;
 }
 
 function requireCvaRoute(session, sample, metadata) {
@@ -38,4 +57,4 @@ function requireCvaRoute(session, sample, metadata) {
   }
 }
 
-module.exports = { PROFILE, UNSUPPORTED_MESSAGE, cvaIdentity, rawFormValue, requireCvaTag, isPinnedCva, requireCvaRoute };
+module.exports = { PROFILE, UNSUPPORTED_MESSAGE, cvaIdentity, rawFormValue, requireCvaTag, requireTagCuppingMode, isPinnedCva, isSessionFormReady, requireCvaRoute };

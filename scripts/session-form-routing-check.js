@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const {
   cvaIdentity, rawFormValue, requireCvaTag, isPinnedCva,
-  requireCvaRoute, UNSUPPORTED_MESSAGE,
+  requireCvaRoute, requireTagCuppingMode, isSessionFormReady, UNSUPPORTED_MESSAGE,
 } = require('../src/features/forms/sessionFormRoute');
 
 const identity = cvaIdentity();
@@ -23,6 +23,15 @@ for (const metadata of [null, {}, { f: '1' }, { f: 2 }, { f: 99 }, { f: 1.5 }, {
 assert.equal(rawFormValue({ f: '1' }), null);
 assert.equal(rawFormValue({ f: 2 }), 2);
 assert.equal(isPinnedCva(session), true);
+assert.equal(isSessionFormReady('saved-1', null), false, 'existing session must remain disabled during asynchronous load');
+assert.equal(isSessionFormReady('saved-1', { ...session, loadedSessionId: 'saved-2' }), false);
+assert.equal(isSessionFormReady('saved-1', { ...session, loadedSessionId: 'saved-1' }), true);
+assert.equal(isSessionFormReady(null, identity), true);
+assert.equal(requireTagCuppingMode({ m: 'b' }), 'blind');
+assert.equal(requireTagCuppingMode({ m: 'o' }), 'open');
+for (const metadata of [{}, { m: 'x' }, { m: 'b', cuppingMode: 'open' }, { m: 'o', cuppingMode: 'blind' }]) {
+  assert.throws(() => requireTagCuppingMode(metadata), /mode is missing, unsupported, or conflicting/);
+}
 assert.doesNotThrow(() => requireCvaTag({ f: 1 }));
 assert.doesNotThrow(() => requireCvaRoute(session, sample, { f: 1 }));
 assert.doesNotThrow(() => requireCvaRoute(session, sample)); // Normal local sample-open.

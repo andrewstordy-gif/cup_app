@@ -1,6 +1,6 @@
 import { getLocalDatabase } from "./localDatabase";
 import { generateDomainId } from "../utils/secureIdentifiers";
-import { cvaIdentity, isPinnedCva, requireCvaTag } from "../features/forms/sessionFormRoute";
+import { cvaIdentity, isPinnedCva, requireCvaTag, requireTagCuppingMode } from "../features/forms/sessionFormRoute";
 import {
   getSessionDateLabel,
   getSessionTypeLabel,
@@ -570,6 +570,18 @@ export async function getSessionById(sessionId) {
   };
 }
 
+async function assertPinnedCvaSessionWithDb(db, sessionId) {
+  const row = await db.getFirstAsync(
+    `SELECT cupping_form AS cuppingForm, form_key AS formKey,
+            form_version AS formVersion, form_hash AS formHash
+     FROM sessions WHERE id = ? LIMIT 1`,
+    [sessionId]
+  );
+  if (!isPinnedCva(row)) {
+    throw new Error("This older or unsupported prototype session is read-only. No record was changed.");
+  }
+}
+
 export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) {
   const normalizedSessionId = cleanString(sessionId);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
@@ -740,7 +752,12 @@ export async function upsertSessionSampleFromCupMetadata({
     throw new Error("Cup form does not match the session form. No sample was changed.");
   }
   const nextCuppingForm = 1;
-  const nextCuppingMode = normalizeCuppingModeKey(cuppingMode ?? existing?.cuppingMode);
+  const nextCuppingMode = requireTagCuppingMode(
+    cuppingMode === "b" || cuppingMode === "o" ? { m: cuppingMode } : { cuppingMode }
+  );
+  if (existing && existing.cuppingMode !== nextCuppingMode) {
+    throw new Error("Cup cupping mode conflicts with its stored sample. No local record was changed.");
+  }
   const nextSampleNumber = normalizePositiveInteger(
     sampleNumber,
     Number(existing?.sampleNumber) || nextCupIndex + 1
@@ -801,6 +818,7 @@ export async function upsertSessionSampleFromCupMetadata({
 export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } = {}) {
   // Validate the raw tag before local fallback or any database write.
   requireCvaTag(metadata);
+  const tagMode = requireTagCuppingMode(metadata);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
   const sessionUUID = normalizeSessionUuid(
     metadata?.sessionUUID ?? metadata?.u
@@ -816,8 +834,8 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
       throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
     }
     const existingSample = await findSampleInSessionByCupUUID({ sessionId: existingSession.id, cupUUID: normalizedCupUUID });
-    if (existingSample && existingSample.cuppingForm !== 1) {
-      throw new Error("The cup sample form conflicts with its session. No local record was changed.");
+    if (existingSample && (existingSample.cuppingForm !== 1 || existingSample.cuppingMode !== tagMode)) {
+      throw new Error("The cup form or cupping mode conflicts with its stored sample. No local record was changed.");
     }
   }
 
@@ -838,7 +856,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     process: metadata?.coffeeProcess ?? metadata?.p,
     cupNumber: metadata?.cupNumber ?? metadata?.y,
     cuppingForm: metadata?.cuppingForm ?? metadata?.f,
-    cuppingMode: metadata?.cuppingMode ?? metadata?.m,
+    cuppingMode: tagMode,
     sampleNumber: metadata?.sampleNumber ?? metadata?.z,
   });
 
@@ -1046,6 +1064,7 @@ export async function activateSession(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return;
   const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1056,6 +1075,7 @@ export async function resetSessionToPending(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
   const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'complete'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1067,6 +1087,7 @@ export async function manuallyMarkSessionComplete(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
   const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'complete', updated_at = ? WHERE id = ?`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1105,6 +1126,8 @@ export async function deleteSampleFromSession(sampleId) {
     "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
     [normalizedSampleId]
   );
+  if (!sample?.sessionId) return { deleted: false };
+  await assertPinnedCvaSessionWithDb(db, sample.sessionId);
   await db.runAsync("DELETE FROM samples WHERE id = ?", [normalizedSampleId]);
   if (sample?.sessionId) {
     await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
@@ -1118,13 +1141,15 @@ export async function markSessionCompleteIfAllSamplesComplete(sessionId) {
     return { updated: false, status: null };
   }
 
+  const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+
   const sampleStatusMap = await getSessionSampleFinalStatus(normalizedSessionId);
   const statusEntries = Object.values(sampleStatusMap || {});
   if (statusEntries.length === 0) {
     return { updated: false, status: null };
   }
 
-  const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
   const allComplete = statusEntries.every((entry) => Boolean(entry?.isComplete));
   if (!allComplete) {

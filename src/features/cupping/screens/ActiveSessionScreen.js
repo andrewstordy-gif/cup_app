@@ -4,6 +4,7 @@ import { TypographyAuditText as Text } from "../../../components/ui/TypographyAu
 import { Header } from "../../../components/ui/Header";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { AppIcon } from "../../../components/ui/AppIcon";
+import { isPinnedCva } from "../../forms/sessionFormRoute";
 import {
   deleteSampleFromSession,
   getSessionCompletionSummary,
@@ -569,9 +570,10 @@ export function ActiveSessionScreen({
         let targetId = sessionId;
         if (!targetId) {
           const sessions = await listSessions();
-          const active = (sessions || []).find(
+          const pending = (sessions || []).filter(
             (item) => String(item.status || "").toLowerCase() !== "complete"
           );
+          const active = pending.find(isPinnedCva) || pending[0];
           targetId = active?.id || null;
         }
 
@@ -585,7 +587,7 @@ export function ActiveSessionScreen({
 
         const fullSession = await getSessionById(targetId);
         const finalStatus = await getSessionSampleFinalStatus(targetId);
-        const rows = await Promise.all(
+        const rows = !isPinnedCva(fullSession) ? (fullSession?.samples || []).map((sample) => ({ ...sample })) : await Promise.all(
           (fullSession?.samples || []).map(async (sample, index) => {
             const feedback = await getSampleFeedback(sample.id);
             const defects = await getSampleDefects(sample.id);
@@ -641,10 +643,11 @@ export function ActiveSessionScreen({
     }
     return formatStatus(session.status);
   }, [session]);
+  const isSupportedForm = isPinnedCva(session);
 
   const handleMarkComplete = async () => {
     const sid = sessionIdRef.current || session?.id;
-    if (!sid) return;
+    if (!sid || !isSupportedForm) return;
     setIsMarkingComplete(true);
     try {
       const summary = await getSessionCompletionSummary(sid);
@@ -664,7 +667,7 @@ export function ActiveSessionScreen({
   };
 
   const handleShare = async () => {
-    if (!session) return;
+    if (!session || !isSupportedForm) return;
     const lines = [];
     lines.push(`CUP Session: ${session.sessionName || "Untitled"}`);
     if (session.sessionDate) lines.push(`Date: ${session.sessionDate}`);
@@ -687,6 +690,7 @@ export function ActiveSessionScreen({
   };
 
   const handleDeleteSample = async (sampleId) => {
+    if (!isSupportedForm) return;
     try {
       await deleteSampleFromSession(sampleId);
       reload();
@@ -726,6 +730,8 @@ export function ActiveSessionScreen({
               <MetaRow label="Session Name" value={session.sessionName} scale={scale} />
               <MetaRow label="Session Type" value={getSessionTypeLabel(session.sessionType)} scale={scale} />
               <MetaRow label="Status" value={status} scale={scale} />
+              <MetaRow label="Form" value={isSupportedForm ? "SCA CVA — Affective Assessment" : "Older prototype — read-only"} scale={scale} />
+              {!isSupportedForm ? <Text style={styles.emptyBody}>Scoring and session actions are unavailable for this older prototype record. Start a new SCA CVA session to taste.</Text> : null}
             </View>
 
             {/* Cups section header */}
@@ -738,7 +744,7 @@ export function ActiveSessionScreen({
               style={styles.cupList}
               onLayout={(e) => { cupListY.current = e.nativeEvent.layout.y; }}
             >
-              {cups.map((cup, index) => (
+              {cups.map((cup, index) => isSupportedForm ? (
                 <ActiveSessionCupRow
                   key={cup.id}
                   cup={cup}
@@ -770,6 +776,10 @@ export function ActiveSessionScreen({
                       : undefined
                   }
                 />
+              ) : (
+                <View key={cup.id} style={styles.emptyState}>
+                  <Text style={styles.emptyBody}>Sample {index + 1} — older prototype record</Text>
+                </View>
               ))}
             </View>
           </>
@@ -783,7 +793,7 @@ export function ActiveSessionScreen({
         )}
       </ScrollView>
 
-      {mode === "new" ? (
+      {mode === "new" && isSupportedForm ? (
         <View style={[styles.footer, { paddingHorizontal: 26 * scale }]}>
           <FullPageButton
             label="EDIT SESSION"
@@ -792,7 +802,7 @@ export function ActiveSessionScreen({
             accessibilityLabel="Edit session"
           />
         </View>
-      ) : mode === "pending" ? (
+      ) : mode === "pending" && isSupportedForm ? (
         <View style={[styles.footer, { paddingHorizontal: 26 * scale, gap: 10 * scale }]}>
           <FullPageButton
             label="MARK COMPLETE"
@@ -810,7 +820,7 @@ export function ActiveSessionScreen({
             style={styles.scanButton}
           />
         </View>
-      ) : mode === "complete" ? (
+      ) : mode === "complete" && isSupportedForm ? (
         <View style={[styles.footer, { paddingHorizontal: 26 * scale, gap: 10 * scale }]}>
           <FullPageButton
             label="UPLOAD RESULTS"
