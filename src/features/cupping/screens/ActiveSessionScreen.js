@@ -616,6 +616,7 @@ export function ActiveSessionScreen({
         );
 
         if (!isCancelled) {
+          setExpandedCupId(null);
           setSession(fullSession);
           setCups(rows);
         }
