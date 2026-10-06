@@ -285,6 +285,7 @@ Purchasing/selection is not a Release 1 form and has no assigned NDEF form value
 - In Release 1, **SCA CVA means the CVA Affective Assessment only**. Descriptive, Physical, and Extrinsic CVA assessments are not additional Release 1 forms. Preserve the existing Affective UI where it works, subject to source-derived validation.
 - Their scoring, descriptive inputs, validation, and calculated values are versioned independently so historical responses retain their original meaning.
 - The Legacy form preserves the meaning of its own marked quality scales, cup-by-cup checks, and defect deductions; it is not the CVA Affective button-based input with a different label.
+- Both Release 1 forms allow 1–8 physical cups per sample, as in the current cup-count selector. This does not by itself define how a non-five-cup Legacy total is calculated or labelled.
 - The host selects the form for the session; participants do not select or change it during tasting.
 - The product may simplify screen layout for use at the table, but it must preserve the meaning and required fields of the selected form.
 
@@ -335,7 +336,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | --- | --- | --- | --- |
 | FR-019 | P0 | A host can add an existing cup with an attached off-the-shelf NFC tag as an NFC cup. | Cup App creates a reusable NFC cup record and verifies that the attached tag can be read and written. |
 | FR-020 | P0 | An added NFC cup has a reusable identity. | The NFC cup can be named once and reassigned between sessions while its stored session reference is updated. |
-| FR-021 | P0 | A host can assign one or more cups to one sample. | The system supports common 1-, 3-, 5-, and 6-cup-per-sample workflows without special cases. |
+| FR-021 | P0 | A host can assign one or more cups to one sample. | Both Release 1 forms support 1–8 physical cups per sample, including common 1-, 3-, 5-, and 6-cup workflows, without special cases in assignment. |
 | FR-022 | P0 | A cup cannot be assigned to two samples in the same live session. | A duplicate assignment is blocked with a corrective message. |
 | FR-023 | P0 | Scanning a cup in a live session opens the correct assigned record. | The resolved sample/cup pairing is deterministic and logged. |
 | FR-024 | P0 | Manual code/search fallback is available when NFC is unsupported or fails. | A taster can continue without losing work, and the UI labels that identity was manually selected. |
@@ -583,7 +584,7 @@ Login and invitation friction is one of the clearest complaints about existing s
 
 ### 12.3 Multiple cups per sample
 
-Professional workflows vary from one cup per sample to six or more. The data model treats cup assignment as many-to-one rather than assuming one smart cup per sample or one fixed bundle.
+Professional workflows vary in cup count. Both Release 1 forms support 1–8 physical cups per sample. The data model treats cup assignment as many-to-one rather than assuming one smart cup per sample or one fixed bundle.
 
 ### 12.4 Two Release 1 forms, one per session
 
