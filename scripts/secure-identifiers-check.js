@@ -7,10 +7,13 @@ const path = require("node:path");
 const { transformSync } = require("@babel/core");
 
 const rootDir = path.resolve(__dirname, "..");
+const { cvaIdentity } = require("../src/features/forms/sessionFormRoute");
 let randomValues = (bytes) => require("node:crypto").webcrypto.getRandomValues(bytes);
 let existingSession = null;
 let conflictingReferenceOwner = null;
 let databaseWrites = 0;
+let lastSessionInsert = null;
+let existingSessionIsUnversioned = false;
 let storedProfile = null;
 let cryptoModuleAvailable = true;
 
@@ -22,6 +25,10 @@ const cryptoMock = {
 
 const db = {
   async getFirstAsync(sql, args) {
+    if (sql.includes("SELECT created_at, cupping_form AS cuppingForm")) {
+      return existingSession ? { created_at: "2026-10-01T00:00:00.000Z", cuppingForm: existingSessionIsUnversioned ? null : 1,
+        formKey: cvaIdentity().form_key, formVersion: cvaIdentity().form_version, formHash: cvaIdentity().form_hash } : null;
+    }
     if (sql.includes("FROM sessions WHERE id = ? LIMIT 1")) {
       return existingSession ? { id: existingSession } : null;
     }
@@ -32,8 +39,9 @@ const db = {
     }
     return null;
   },
-  async runAsync() {
+  async runAsync(sql, args) {
     databaseWrites += 1;
+    if (sql.includes("INSERT INTO sessions")) lastSessionInsert = args;
   },
   async withTransactionAsync(callback) {
     return callback();
@@ -93,7 +101,7 @@ async function main() {
     const reference = details.generateSessionUUID();
     assert.match(reference, sessionPattern);
     assert.notEqual(reference, "NO-SESSION");
-    assert.equal(details.buildCompactSessionMetadata({ sessionUUID: reference }).u, reference);
+    assert.equal(details.buildCompactSessionMetadata({ sessionUUID: reference, cuppingForm: 1 }).u, reference);
   }
 
   randomValues = (bytes) => bytes.fill(0);
@@ -148,8 +156,9 @@ async function main() {
   await assert.rejects(
     repository.saveSessionWithSamples({
       sessionUUID: collision,
+      cuppingForm: 1,
       sessionName: "Collision",
-      samples: [{ cupUUID: "CUP-1" }],
+      samples: [{ cupUUID: "CUP-1", cuppingForm: 1 }],
     }),
     /already in use/
   );
@@ -157,11 +166,30 @@ async function main() {
   const edited = await repository.saveSessionWithSamples({
     sessionUUID: collision,
     existingSessionId: collision,
+    cuppingForm: 1,
     sessionName: "Existing session",
-    samples: [{ id: "legacy-sample-id", cupUUID: "CUP-1" }],
+    samples: [{ id: "legacy-sample-id", cupUUID: "CUP-1", cuppingForm: 1 }],
   });
   assert.equal(edited.sessionId, collision);
   assert.ok(databaseWrites > 0, "an explicitly owned existing session remains editable");
+  assert.equal(lastSessionInsert[8], 1);
+  assert.equal(lastSessionInsert[9], cvaIdentity().form_key);
+  assert.equal(lastSessionInsert[10], cvaIdentity().form_version);
+  assert.equal(lastSessionInsert[11], cvaIdentity().form_hash);
+  existingSessionIsUnversioned = true;
+  const writesBeforeOldRow = databaseWrites;
+  await assert.rejects(repository.saveSessionWithSamples({
+    sessionUUID: collision, existingSessionId: collision, cuppingForm: 1,
+    sessionName: "Older prototype", samples: [{ cupUUID: "CUP-1", cuppingForm: 1 }],
+  }), /older or unsupported prototype session/);
+  assert.equal(databaseWrites, writesBeforeOldRow, "old unversioned rows must not be rewritten as versioned CVA");
+  for (const badForm of [undefined, "1", 2, 99]) {
+    const writesBeforeRejectedTag = databaseWrites;
+    await assert.rejects(repository.resolveActiveSampleFromCupMetadata({
+      cupUUID: "CUP-1", metadata: { u: collision, f: badForm },
+    }), /form is missing, unsupported/);
+    assert.equal(databaseWrites, writesBeforeRejectedTag, "unsupported scan must fail before any local write or fallback");
+  }
   existingSession = null;
   await repository.assertSessionReferenceAvailable(collision);
   console.log("Secure identifier and local collision checks passed.");

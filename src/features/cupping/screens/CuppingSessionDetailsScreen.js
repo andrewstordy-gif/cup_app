@@ -10,6 +10,7 @@ import { AppIcon } from "../../../components/ui/AppIcon";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
+import { cvaIdentity, isPinnedCva, UNSUPPORTED_MESSAGE } from "../../forms/sessionFormRoute";
 import { typography } from "../../../theme/typography";
 import {
   readAndWriteNdefMinimal,
@@ -38,7 +39,6 @@ import {
   generateSessionUUID,
   getSessionStatusBadgeLabel,
   getSessionTypeLabel,
-  normalizeCuppingFormKey,
   normalizeCuppingModeKey,
   normalizeProcessKey,
   normalizePositiveInteger,
@@ -155,7 +155,7 @@ export function CuppingSessionDetailsScreen({
   const [sheetProcess, setSheetProcess] = useState("");
   const [sheetCupNumber, setSheetCupNumber] = useState(5);
   const [isSheetCupNumberDefault, setIsSheetCupNumberDefault] = useState(true);
-  const [sheetCuppingForm, setSheetCuppingForm] = useState(1);
+  const [sessionForm, setSessionForm] = useState(() => cvaIdentity());
   const [sheetCuppingMode, setSheetCuppingMode] = useState("blind");
   const [isSheetCuppingModeDefault, setIsSheetCuppingModeDefault] = useState(true);
   const [sheetErrors, setSheetErrors] = useState({});
@@ -224,6 +224,7 @@ export function CuppingSessionDetailsScreen({
         setSessionType(quickStartSessionTypeValue ? String(quickStartSessionTypeValue) : null);
         setSamplesInSession("");
         setSessionStatus("new");
+        setSessionForm(cvaIdentity());
         setSamples([]);
         setIsSessionDirty(false);
         setSessionTypeAnchor(null);
@@ -247,6 +248,12 @@ export function CuppingSessionDetailsScreen({
         setSessionType(String(normalizeSessionTypeKey(loaded.sessionType) || 1));
         setSamplesInSession(String(loaded.samplesInSession || ""));
         setSessionStatus(loaded.status || "pending");
+        setSessionForm({
+          cuppingForm: loaded.cuppingForm,
+          formKey: loaded.formKey,
+          formVersion: loaded.formVersion,
+          formHash: loaded.formHash,
+        });
         setIsSessionDirty(false);
         setSamples(
           (loaded.samples || []).map((sample) =>
@@ -334,6 +341,7 @@ export function CuppingSessionDetailsScreen({
       sessionType,
       samplesInSession,
       status: sessionStatus,
+      cuppingForm: sessionForm.cuppingForm ?? sessionForm.f,
       samples,
     }),
     [
@@ -344,10 +352,12 @@ export function CuppingSessionDetailsScreen({
       sessionType,
       samplesInSession,
       sessionStatus,
+      sessionForm,
       samples,
     ]
   );
   const isSessionLocked = samples.length > 0;
+  const isSessionFormSupported = !sessionId || isPinnedCva(sessionForm);
 
   const openSessionTypeMenu = () => {
     if (isSessionLocked) {
@@ -374,6 +384,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleRemoveSample = (sampleId) => {
+    if (!isSessionFormSupported) return;
     setSamples((prev) => prev.filter((sample) => sample.id !== sampleId));
   };
 
@@ -391,12 +402,15 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleOpenAddSheet = () => {
+    if (!isSessionFormSupported) {
+      setScanStatusMessage(UNSUPPORTED_MESSAGE);
+      return;
+    }
     setEditingSampleId(null);
     setSheetCoffeeNameOrigin("");
     setSheetProcess("");
     setSheetCupNumber(5);
     setIsSheetCupNumberDefault(true);
-    setSheetCuppingForm(1);
     setSheetCuppingMode("blind");
     setIsSheetCuppingModeDefault(true);
     setSheetErrors({});
@@ -426,7 +440,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleOpenEditSheet = (sample) => {
-    if (!sample || sampleStatusById?.[sample.id]?.isComplete) {
+    if (!isSessionFormSupported || !sample || sampleStatusById?.[sample.id]?.isComplete) {
       return;
     }
 
@@ -437,7 +451,6 @@ export function CuppingSessionDetailsScreen({
     setSheetCupNumber(
       CUP_NUMBER_OPTIONS.includes(Number(sample.cupNumber)) ? Number(sample.cupNumber) : 5
     );
-    setSheetCuppingForm(normalizeCuppingFormKey(sample.cuppingForm) ?? 1);
     setSheetCuppingMode(normalizeCuppingModeKey(sample.cuppingMode));
     setIsSheetCuppingModeDefault(false);
     setSheetErrors({});
@@ -480,7 +493,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleSaveEditedSample = async () => {
-    if (!editingSampleId || !validateEditSheet()) {
+    if (!isSessionFormSupported || !editingSampleId || !validateEditSheet()) {
       return;
     }
 
@@ -488,7 +501,7 @@ export function CuppingSessionDetailsScreen({
     const overrides = {
       coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
       process: String(normalizeProcessKey(sheetProcess)),
-      cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+      cuppingForm: sessionForm.cuppingForm ?? sessionForm.f,
       cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
     };
 
@@ -502,7 +515,6 @@ export function CuppingSessionDetailsScreen({
 
     handleUpdateSample(editedSampleId, "coffeeNameOrigin", sheetCoffeeNameOrigin.trim());
     handleUpdateSample(editedSampleId, "process", String(normalizeProcessKey(sheetProcess)));
-    handleUpdateSample(editedSampleId, "cuppingForm", normalizeCuppingFormKey(sheetCuppingForm) ?? 1);
     handleUpdateSample(editedSampleId, "cuppingMode", normalizeCuppingModeKey(sheetCuppingMode));
     pendingCheckSampleOverridesRef.current = {
       ...pendingCheckSampleOverridesRef.current,
@@ -517,6 +529,10 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleScanCup = async () => {
+    if (!isSessionFormSupported || samples.some((sample) => sample.cuppingForm !== 1)) {
+      setScanStatusMessage(UNSUPPORTED_MESSAGE);
+      return;
+    }
     if (!validateAddSheet()) {
       return;
     }
@@ -600,7 +616,7 @@ export function CuppingSessionDetailsScreen({
           samplesInSession: sessionSampleCount,
           sampleNumber,
           cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
-          cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+          cuppingForm: sessionForm.cuppingForm ?? sessionForm.f,
           sessionName: effectiveSessionName,
           sessionType: normalizeSessionTypeKey(effectiveSessionType),
           sessionDate,
@@ -616,7 +632,7 @@ export function CuppingSessionDetailsScreen({
                     process: String(normalizeProcessKey(sheetProcess)),
                     cupUUID: normalizedDetectedCupUUID,
                     cupNumber: sheetCupNumber,
-                    cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+                    cuppingForm: sessionForm.cuppingForm ?? sessionForm.f,
                     sampleNumber,
                     verificationStatus: "pending",
                   }),
@@ -631,7 +647,7 @@ export function CuppingSessionDetailsScreen({
                       process: String(normalizeProcessKey(sheetProcess)),
                       cupUUID: normalizedDetectedCupUUID,
                       cupNumber: sheetCupNumber,
-                      cuppingForm: normalizeCuppingFormKey(sheetCuppingForm) ?? 1,
+                      cuppingForm: sessionForm.cuppingForm ?? sessionForm.f,
                       cuppingMode: normalizeCuppingModeKey(sheetCuppingMode),
                       sampleNumber,
                       verificationStatus: "pending",
@@ -667,6 +683,7 @@ export function CuppingSessionDetailsScreen({
 
       await saveSessionWithSamples({
         sessionUUID,
+        cuppingForm: sessionForm.cuppingForm ?? sessionForm.f,
         existingSessionId: savedSessionIdRef.current,
         sessionDisplayId,
         sessionDate,
@@ -865,6 +882,10 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleRewriteSample = async (sampleId, overrides = {}) => {
+    if (!isSessionFormSupported || samples.some((sample) => sample.cuppingForm !== 1)) {
+      setScanStatusMessage(UNSUPPORTED_MESSAGE);
+      return false;
+    }
     const sample = samples.find((entry) => entry.id === sampleId);
     if (!sample) {
       return false;
@@ -1089,7 +1110,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleCompleteSession = async () => {
-    if (!sessionId) {
+    if (!sessionId || !isSessionFormSupported) {
       return;
     }
 
@@ -1227,6 +1248,16 @@ export function CuppingSessionDetailsScreen({
             </View>
           </Pressable>
 
+          <View style={[styles.metaRow, { paddingBottom: 14 * scale }]}>
+            <Text style={styles.metaLabel}>Session Form</Text>
+            <Text style={[styles.metaValue, { marginTop: 4 * scale }]}>
+              {isSessionFormSupported ? "SCA CVA — Affective Assessment" : "Older or unsupported prototype form"}
+            </Text>
+            <Text style={styles.metaValueMuted}>
+              {isSessionFormSupported ? "Pinned for this session. SCA Legacy tasting is coming in a later build." : UNSUPPORTED_MESSAGE}
+            </Text>
+          </View>
+
           <View style={{ paddingBottom: 14 * scale, gap: spacing.sm }}>
             <Text style={styles.metaValueMuted} accessibilityLabel="Session date">
               {sessionDate}
@@ -1265,7 +1296,7 @@ export function CuppingSessionDetailsScreen({
             />
           ))}
 
-          {!isSessionComplete && !showInProgressFooter ? (
+          {!isSessionComplete && !showInProgressFooter && isSessionFormSupported ? (
             <FullPageButton
               label="ADD SAMPLE"
               onPress={handleOpenAddSheet}
@@ -1298,7 +1329,7 @@ export function CuppingSessionDetailsScreen({
         <ScreenFooter
           label="SCAN CUP"
           onPress={onScanCupForAssessment}
-          disabled={footerDisabled || typeof onScanCupForAssessment !== "function"}
+          disabled={footerDisabled || !isSessionFormSupported || typeof onScanCupForAssessment !== "function"}
           accessibilityLabel="Scan cup for assessment"
           buttonStyle={styles.scanFooterButton}
         />
@@ -1307,13 +1338,13 @@ export function CuppingSessionDetailsScreen({
           primaryLabel="COMPLETE SESSION"
           onPrimaryPress={handleCompleteSession}
           primaryLoading={isCompletingSession}
-          primaryDisabled={footerDisabled}
+          primaryDisabled={footerDisabled || !isSessionFormSupported}
           primaryAccessibilityLabel="Complete cupping session"
           primaryStyle={styles.completeButton}
           primaryTextStyle={styles.completeButtonText}
           secondaryLabel="SCAN CUP"
           onSecondaryPress={onScanCupForAssessment}
-          secondaryDisabled={footerDisabled || typeof onScanCupForAssessment !== "function"}
+          secondaryDisabled={footerDisabled || !isSessionFormSupported || typeof onScanCupForAssessment !== "function"}
           secondaryAccessibilityLabel="Scan cup for assessment"
           secondaryStyle={styles.scanFooterButton}
           secondaryTextStyle={styles.scanFooterButtonText}
@@ -1323,7 +1354,7 @@ export function CuppingSessionDetailsScreen({
           label="SAVE"
           onPress={handleSave}
           loading={isSaving}
-          disabled={footerDisabled}
+          disabled={footerDisabled || !isSessionFormSupported}
           accessibilityLabel="Save cupping session details"
         />
       )}
@@ -1352,7 +1383,7 @@ export function CuppingSessionDetailsScreen({
         process={sheetProcess}
         cupNumber={sheetCupNumber}
         isCupNumberDefault={isSheetCupNumberDefault}
-        cuppingForm={sheetCuppingForm}
+        cuppingForm={sessionForm.cuppingForm ?? sessionForm.f}
         cuppingMode={sheetCuppingMode}
         isCuppingModeDefault={isSheetCuppingModeDefault}
         errors={sheetErrors}
@@ -1364,7 +1395,6 @@ export function CuppingSessionDetailsScreen({
           setSheetCupNumber(value);
           setIsSheetCupNumberDefault(false);
         }}
-        onSelectCuppingForm={setSheetCuppingForm}
         onSelectCuppingMode={(value) => {
           setSheetCuppingMode(value);
           setIsSheetCuppingModeDefault(false);
