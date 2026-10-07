@@ -30,18 +30,18 @@ function Choice({ label, selected, onPress, disabled = false, accessibilityLabel
   </Pressable>;
 }
 
-function CupSet({ label, value, count, onChange, fixed = false }) {
+function CupSet({ label, value, count, onChange, fixed = false, readOnly = false }) {
   const selected = Array.isArray(value) ? value : [];
   return <View style={styles.section}>
     <Text style={styles.sectionTitle}>{label}</Text>
     <Text style={styles.hint}>{fixed ? 'One cup: Uniformity is always 10.' : value == null ? 'Not assessed yet' : selected.length ? `${selected.length} of ${count} cups` : 'Assessed: none qualify'}</Text>
     <View style={styles.wrap}>{Array.from({ length: count }, (_, i) => i + 1).map(cup =>
       <Choice key={cup} label={`Cup ${cup}`} accessibilityLabel={`${label}, cup ${cup}, ${selected.includes(cup) ? 'qualifies' : 'does not qualify'}`}
-        selected={selected.includes(cup)} disabled={fixed} onPress={() => onChange(selected.includes(cup) ? selected.filter(n => n !== cup) : [...selected, cup].sort((a,b) => a-b))} />
+        selected={selected.includes(cup)} disabled={fixed || readOnly} onPress={() => onChange(selected.includes(cup) ? selected.filter(n => n !== cup) : [...selected, cup].sort((a,b) => a-b))} />
     )}</View>
     {!fixed && <View style={styles.wrap}>
-      <Choice label="None qualify" selected={Array.isArray(value) && value.length === 0} onPress={() => onChange([])} />
-      <Choice label="Not assessed" selected={value == null} onPress={() => onChange(null)} />
+      <Choice label="None qualify" selected={Array.isArray(value) && value.length === 0} disabled={readOnly} onPress={() => onChange([])} />
+      <Choice label="Not assessed" selected={value == null} disabled={readOnly} onPress={() => onChange(null)} />
     </View>}
   </View>;
 }
@@ -56,6 +56,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const [message, setMessage] = useState('');
   const [qualityField, setQualityField] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [readOnly, setReadOnly] = useState(false);
   const queue = useRef(Promise.resolve());
 
   useEffect(() => {
@@ -65,6 +66,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       if (cancelled) return;
       setResponse(saved?.response || { quality_ratings: {}, consistent_cups: n === 1 ? [1] : null });
       setResult(saved?.result || null);
+      setReadOnly(Boolean(saved?.sessionComplete));
       setErrors(saved?.errors || []);
       setLoading(false);
     }).catch(error => { if (!cancelled) { setMessage(error?.message || 'Could not load Legacy response.'); setLoading(false); } });
@@ -72,7 +74,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   }, [sessionId, sampleId, n]);
 
   const edit = change => {
-    if (!response) return;
+    if (!response || readOnly) return;
     const next = change(response);
     setResponse(next);
     setResult(null);
@@ -86,7 +88,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   };
 
   const complete = async () => {
-    if (!response) return;
+    if (!response || readOnly) return;
     await queue.current;
     try {
       const saved = await saveLegacyResponse({ sessionId, sampleId, response, complete: true });
@@ -109,27 +111,30 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       <Text style={styles.heading}>{coffeeNameOrigin || 'Sample'}</Text>
       <Text style={styles.hint}>SCA Legacy (2004–2023) · Open Cupping · {n} {n === 1 ? 'cup' : 'cups'}</Text>
       <Text style={styles.hint}>Select the paper-form quarter marks. Your draft is saved on this device as you go.</Text>
+      {readOnly ? <Text style={styles.hint}>This Session is complete. Its Legacy result is read-only; reset the Session to Pending before editing.</Text> : null}
 
       <Text style={styles.sectionTitle}>Quality ratings</Text>
-      {QUALITY.map(([key, label]) => <Pressable key={key} onPress={() => setQualityField(key)} accessibilityRole="button"
+      {QUALITY.map(([key, label]) => <Pressable key={key} onPress={() => setQualityField(key)} disabled={readOnly} accessibilityRole="button"
+        accessibilityState={{ disabled: readOnly }}
         accessibilityLabel={`${label}, ${response.quality_ratings?.[key] == null ? 'not assessed' : scoreText(response.quality_ratings[key])}, choose rating`}
         style={styles.row}><Text style={styles.rowLabel}>{label}</Text><Text style={styles.rowValue}>{response.quality_ratings?.[key] == null ? 'Choose mark' : scoreText(response.quality_ratings[key])}</Text></Pressable>)}
 
-      <CupSet label="Uniformity" value={n === 1 ? [1] : response.consistent_cups} count={n} fixed={n === 1} onChange={value => edit(r => ({ ...r, consistent_cups: value }))} />
-      <CupSet label="Sweetness" value={response.sweet_cups} count={n} onChange={value => edit(r => ({ ...r, sweet_cups: value }))} />
-      <CupSet label="Clean Cup" value={response.clean_cups} count={n} onChange={value => edit(r => ({ ...r, clean_cups: value }))} />
+      <CupSet label="Uniformity" value={n === 1 ? [1] : response.consistent_cups} count={n} fixed={n === 1} readOnly={readOnly} onChange={value => edit(r => ({ ...r, consistent_cups: value }))} />
+      <CupSet label="Sweetness" value={response.sweet_cups} count={n} readOnly={readOnly} onChange={value => edit(r => ({ ...r, sweet_cups: value }))} />
+      <CupSet label="Clean Cup" value={response.clean_cups} count={n} readOnly={readOnly} onChange={value => edit(r => ({ ...r, clean_cups: value }))} />
 
       <View style={styles.section}><Text style={styles.sectionTitle}>One scored defect</Text>
         <Text style={styles.hint}>Choose no scored defect or one taint/fault. Affected cups cannot also be marked Clean Cup.</Text>
         <View style={styles.wrap}>
-          <Choice label="Not assessed" selected={defect === undefined} onPress={() => edit(r => { const { scored_defect, ...rest } = r; return rest; })} />
-          <Choice label="No scored defect" selected={defect === null} onPress={() => edit(r => ({ ...r, scored_defect: null }))} />
-          {['taint', 'fault'].map(kind => <Choice key={kind} label={kind === 'taint' ? 'Taint · 2' : 'Fault · 4'} selected={defect?.kind === kind}
+          <Choice label="Not assessed" selected={defect === undefined} disabled={readOnly} onPress={() => edit(r => { const { scored_defect, ...rest } = r; return rest; })} />
+          <Choice label="No scored defect" selected={defect === null} disabled={readOnly} onPress={() => edit(r => ({ ...r, scored_defect: null }))} />
+          {['taint', 'fault'].map(kind => <Choice key={kind} label={kind === 'taint' ? 'Taint · 2' : 'Fault · 4'} selected={defect?.kind === kind} disabled={readOnly}
             onPress={() => edit(r => ({ ...r, scored_defect: { kind, description: r.scored_defect?.description || '', affected_cups: r.scored_defect?.affected_cups || [] } }))} />)}
         </View>
         {defect && <><TextInput value={defect.description} onChangeText={value => edit(r => ({ ...r, scored_defect: { ...r.scored_defect, description: value } }))}
-          placeholder="Describe the defect" placeholderTextColor={colors.inkSoft} accessibilityLabel="Scored defect description" style={styles.input} />
+          placeholder="Describe the defect" placeholderTextColor={colors.inkSoft} accessibilityLabel="Scored defect description" editable={!readOnly} style={styles.input} />
           <CupSet label="Affected cups" value={defect.affected_cups} count={n}
+            readOnly={readOnly}
             onChange={value => edit(r => ({ ...r, scored_defect: { ...r.scored_defect, affected_cups: value || [] } }))} />
           {Array.isArray(response.clean_cups) && defect.affected_cups.some(cup => response.clean_cups.includes(cup)) ?
             <Text style={styles.error}>Affected cups cannot also be marked Clean Cup. Change one of those judgments.</Text> : null}
@@ -138,14 +143,14 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
 
       <View style={styles.section}><Text style={styles.sectionTitle}>Optional observations</Text>
         <Text style={styles.rowLabel}>Roast shade (paper-form position)</Text>
-        <View style={styles.wrap}>{[1,2,3,4].map(value => <Choice key={value} label={String(value)} selected={response.roast_shade_tick === value}
+        <View style={styles.wrap}>{[1,2,3,4].map(value => <Choice key={value} label={String(value)} selected={response.roast_shade_tick === value} disabled={readOnly}
           accessibilityLabel={`Roast shade position ${value} of 4`} onPress={() => edit(r => ({ ...r, roast_shade_tick: r.roast_shade_tick === value ? null : value }))} />)}</View>
         {OPTIONAL_TICKS.map(([key, label]) => <View key={key} style={styles.observation}><Text style={styles.rowLabel}>{label}</Text><View style={styles.wrap}>
-          {[1,2,3,4,5].map(value => <Choice key={value} label={String(value)} selected={response[key] === value} accessibilityLabel={`${label} ${value} of 5`}
+          {[1,2,3,4,5].map(value => <Choice key={value} label={String(value)} selected={response[key] === value} disabled={readOnly} accessibilityLabel={`${label} ${value} of 5`}
             onPress={() => edit(r => ({ ...r, [key]: r[key] === value ? null : value }))} />)}
         </View></View>)}
         {OPTIONAL_TEXT.map(([key, label]) => <View key={key} style={styles.observation}><Text style={styles.rowLabel}>{label}</Text>
-          <TextInput value={response[key] || ''} onChangeText={value => edit(r => ({ ...r, [key]: value }))} multiline
+          <TextInput value={response[key] || ''} onChangeText={value => edit(r => ({ ...r, [key]: value }))} multiline editable={!readOnly}
             placeholder={`Add ${label.toLowerCase()}`} placeholderTextColor={colors.inkSoft} accessibilityLabel={label} style={styles.input} />
         </View>)}
       </View>
@@ -160,9 +165,9 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
         <Text style={styles.total}>{result.display_score}</Text><Text style={styles.hint}>{result.label}</Text>
       </View> : <Text style={styles.hint}>No final score until this assessment is complete.</Text>}
       {message ? <Text style={styles.hint}>{message}</Text> : null}
-      <Pressable onPress={complete} accessibilityRole="button" accessibilityLabel="Complete Legacy assessment and calculate result" style={styles.completeButton}>
+      {!readOnly ? <Pressable onPress={complete} accessibilityRole="button" accessibilityLabel="Complete Legacy assessment and calculate result" style={styles.completeButton}>
         <Text style={styles.completeText}>COMPLETE & SCORE</Text>
-      </Pressable>
+      </Pressable> : null}
     </ScrollView>
     <Modal visible={Boolean(qualityField)} transparent animationType="fade" onRequestClose={() => setQualityField(null)}>
       <View style={styles.modalBackdrop}><View style={styles.modalPanel}>

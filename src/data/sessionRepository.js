@@ -1002,7 +1002,7 @@ export async function getLegacyResponse(sessionId, sampleId) {
     'SELECT form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cup_count AS cupCount, response_json AS responseJson, is_complete AS isComplete FROM legacy_responses WHERE session_id = ? AND sample_id = ? LIMIT 1',
     [sessionId, sampleId]
   );
-  if (!row) return null;
+  if (!row) return { response: null, complete: false, result: null, errors: [], sessionComplete: session.status === 'complete' };
   if (row.formKey !== trusted.identity.form_key || row.formVersion !== trusted.identity.form_version ||
       row.formHash !== trusted.identity.form_hash || Number(row.cupCount) !== Number(sample.cupNumber)) {
     throw new Error('Saved Legacy response identity or cup count conflicts with this session.');
@@ -1014,12 +1014,16 @@ export async function getLegacyResponse(sessionId, sampleId) {
   if (row.isComplete && !validation.ok) throw new Error(`Saved Legacy response is invalid: ${validation.errors.join(', ')}`);
   const result = row.isComplete ? scoreResponse(input, trusted) : null;
   if (row.isComplete && !result?.ok) throw new Error('Saved Legacy score could not be reproduced.');
-  return { response, complete: Boolean(row.isComplete), result, errors: validation.errors };
+  return { response, complete: Boolean(row.isComplete), result, errors: validation.errors,
+    sessionComplete: session.status === 'complete' };
 }
 
 export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false }) {
   const session = await getSessionById(sessionId);
   const trusted = trustedLegacySession(session);
+  if (session.status === 'complete') {
+    return { ok: false, errors: ['session:complete_read_only'] };
+  }
   const sample = session.samples.find((row) => row.id === sampleId);
   if (!sample || sample.cuppingForm !== 2 || sample.cuppingMode !== 'open') {
     throw new Error('Legacy sample identity does not match its session. No response was saved.');

@@ -174,6 +174,19 @@ async function main() {
   assert.equal(rejected.ok, false);
   assert.ok(rejected.errors.includes('scored_defect.affected_cups:marked_clean'));
   assert.equal((await reopened.getLegacyResponse('legacy-count-3', 'sample-3')).result.display_score, '79.33');
+  await reopened.manuallyMarkSessionComplete('legacy-count-5');
+  assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).sessionComplete, true);
+  const lockedSave = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-5', sampleId: 'sample-5',
+    response: { ...completedResponse(5), notes: 'Edit after completion' }, complete: false });
+  assert.equal(lockedSave.ok, false);
+  assert.ok(lockedSave.errors.includes('session:complete_read_only'));
+  assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).result.display_score, '86.00');
+  await reopened.resetSessionToPending('legacy-count-5');
+  assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).sessionComplete, false);
+  const reopenedEdit = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-5', sampleId: 'sample-5',
+    response: { ...completedResponse(5), notes: 'Edit after reset' }, complete: false });
+  assert.equal(reopenedEdit.ok, true);
+  assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).result, null);
   console.log('Legacy empty pin, Open-only mode, fail-closed scan, draft/reopen, 1/3/5/8-cup scoring passed.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
