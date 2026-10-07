@@ -39,5 +39,5 @@ assert.throws(() => requireCvaRoute({ ...session, formHash: null }, sample), /un
 assert.throws(() => requireCvaRoute({ ...session, cuppingForm: null }, sample), /unsupported or older prototype/);
 assert.throws(() => requireCvaRoute(session, { ...sample, cuppingForm: 2 }), /unsupported or older prototype/);
 assert.throws(() => requireCvaRoute(session, { ...sample, cuppingForm: null }), /unsupported or older prototype/);
-assert.match(UNSUPPORTED_MESSAGE, /Start a new SCA CVA session/);
+assert.match(UNSUPPORTED_MESSAGE, /Start a new supported SCA session/);
 console.log('Session-form route guards passed (CVA, Legacy, unknown, malformed, old, mismatch).');

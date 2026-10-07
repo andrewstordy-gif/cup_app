@@ -1,6 +1,7 @@
 import { getLocalDatabase } from "./localDatabase";
 import { generateDomainId } from "../utils/secureIdentifiers";
-import { cvaIdentity, isPinnedCva, requireCvaTag, requireTagCuppingMode } from "../features/forms/sessionFormRoute";
+import { formIdentity, isPinnedForm, requireFormTag, requireTagCuppingMode } from "../features/forms/sessionFormRoute";
+import { PROFILE, validateResponse, scoreResponse } from "../features/forms/contract";
 import {
   getSessionDateLabel,
   getSessionTypeLabel,
@@ -132,7 +133,11 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
       [normalizedSessionId]
     );
     const feedbackCount = Number(feedbackCountRow?.count) || 0;
-    if (feedbackCount > 0) {
+    const legacyCountRow = await db.getFirstAsync(
+      "SELECT COUNT(*) AS count FROM legacy_responses WHERE session_id = ?",
+      [normalizedSessionId]
+    );
+    if (feedbackCount > 0 || Number(legacyCountRow?.count) > 0) {
       nextStatus = "in_progress";
     }
   }
@@ -201,6 +206,7 @@ export async function saveSessionWithSamples({
   sessionUUID,
   existingSessionId = null,
   cuppingForm,
+  cuppingMode,
   sessionDisplayId,
   sessionName,
   sessionType,
@@ -209,10 +215,11 @@ export async function saveSessionWithSamples({
   sessionDate,
   samples,
 }) {
-  const pinnedForm = cvaIdentity();
-  if (cuppingForm !== pinnedForm.f) {
+  if (cuppingForm !== 1 && cuppingForm !== 2) {
     throw new Error("The session form is missing or unsupported. No session was saved.");
   }
+  const pinnedForm = formIdentity(cuppingForm);
+  if (cuppingForm === 2 && cuppingMode !== 'open') throw new Error('SCA Legacy currently requires Open Cupping. No session was saved.');
   const trimmedSessionName = cleanString(sessionName);
   if (!trimmedSessionName) {
     throw new Error("Session name is required before saving.");
@@ -237,11 +244,11 @@ export async function saveSessionWithSamples({
     }))
     .filter((sample) => sample.cupUUID);
 
-  if (normalizedSamples.length === 0) {
-    throw new Error("Add at least one cup sample before saving.");
-  }
   if (normalizedSamples.some((sample) => sample.cuppingForm !== pinnedForm.f)) {
-    throw new Error("A sample form does not match the session's SCA CVA form.");
+    throw new Error("A sample form does not match the session form.");
+  }
+  if (cuppingForm === 2 && normalizedSamples.some((sample) => sample.cuppingMode !== 'open')) {
+    throw new Error('SCA Legacy Blind Cupping is not yet available. No session or cup assignment was saved.');
   }
 
   const db = await getLocalDatabase();
@@ -254,11 +261,21 @@ export async function saveSessionWithSamples({
   await db.withTransactionAsync(async () => {
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
     const existingSession = await db.getFirstAsync(
-      "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash FROM sessions WHERE id = ?",
+      "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode, form_locked AS formLocked FROM sessions WHERE id = ?",
       [sessionId]
     );
-    if (existingSession && !isPinnedCva(existingSession)) {
-      throw new Error("This older or unsupported prototype session cannot be converted to a versioned SCA CVA session. Its data is unchanged.");
+    if (existingSession && (!isPinnedForm(existingSession, cuppingForm) ||
+        (cuppingForm === 2 && existingSession.cuppingMode !== 'open'))) {
+      if (!isPinnedForm(existingSession, existingSession.cuppingForm)) {
+        throw new Error('This older or unsupported prototype session cannot be converted to a versioned form. Its data is unchanged.');
+      }
+      if (existingSession.cuppingForm === 2 && existingSession.cuppingMode !== 'open') {
+        throw new Error('Legacy session Open mode is missing or conflicting. Its data is unchanged.');
+      }
+      const assigned = await db.getFirstAsync('SELECT COUNT(*) AS count FROM samples WHERE session_id = ?', [sessionId]);
+      if (Number(assigned?.count) > 0 || Number(existingSession.formLocked) === 1) {
+        throw new Error("An existing session's pinned form or mode cannot be changed after cup assignment. Its data is unchanged.");
+      }
     }
 
     const createdAt = existingSession?.created_at || nowIso;
@@ -267,8 +284,8 @@ export async function saveSessionWithSamples({
       `
         INSERT INTO sessions (
           id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date,
-          cupping_form, form_key, form_version, form_hash, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          cupping_form, form_key, form_version, form_hash, cupping_mode, form_locked, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           session_uuid = excluded.session_uuid,
           session_display_id = excluded.session_display_id,
@@ -281,6 +298,8 @@ export async function saveSessionWithSamples({
           form_key = excluded.form_key,
           form_version = excluded.form_version,
           form_hash = excluded.form_hash,
+          cupping_mode = excluded.cupping_mode,
+          form_locked = excluded.form_locked,
           updated_at = excluded.updated_at
       `,
       [
@@ -296,6 +315,8 @@ export async function saveSessionWithSamples({
         pinnedForm.form_key,
         pinnedForm.form_version,
         pinnedForm.form_hash,
+        cuppingForm === 2 ? 'open' : null,
+        Number(existingSession?.formLocked) === 1 || normalizedSamples.length > 0 ? 1 : 0,
         createdAt,
         nowIso,
       ]
@@ -347,7 +368,7 @@ export async function saveSessionWithSamples({
 
     const keepCupUuids = normalizedSamples.map((sample) => sample.cupUUID);
     if (keepCupUuids.length === 0) {
-      await db.runAsync("DELETE FROM samples WHERE session_id = ?", [sessionId]);
+      await db.runAsync('DELETE FROM samples WHERE session_id = ?', [sessionId]);
       return;
     }
 
@@ -418,6 +439,8 @@ export async function listSessions() {
         form_key AS formKey,
         form_version AS formVersion,
         form_hash AS formHash,
+        cupping_mode AS cuppingMode,
+        form_locked AS formLocked,
         updated_at AS updatedAt
       FROM sessions
       ORDER BY updated_at DESC
@@ -501,6 +524,8 @@ export async function findSessionBySessionUUID(sessionUUID) {
         form_key AS formKey,
         form_version AS formVersion,
         form_hash AS formHash,
+        cupping_mode AS cuppingMode,
+        form_locked AS formLocked,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM sessions
@@ -532,6 +557,8 @@ export async function getSessionById(sessionId) {
         form_key AS formKey,
         form_version AS formVersion,
         form_hash AS formHash,
+        cupping_mode AS cuppingMode,
+        form_locked AS formLocked,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM sessions
@@ -570,14 +597,14 @@ export async function getSessionById(sessionId) {
   };
 }
 
-async function assertPinnedCvaSessionWithDb(db, sessionId) {
+async function assertPinnedSessionWithDb(db, sessionId) {
   const row = await db.getFirstAsync(
     `SELECT cupping_form AS cuppingForm, form_key AS formKey,
-            form_version AS formVersion, form_hash AS formHash
+            form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode
      FROM sessions WHERE id = ? LIMIT 1`,
     [sessionId]
   );
-  if (!isPinnedCva(row)) {
+  if (!isPinnedForm(row, row?.cuppingForm) || (row.cuppingForm === 2 && row.cuppingMode !== 'open')) {
     throw new Error("This older or unsupported prototype session is read-only. No record was changed.");
   }
 }
@@ -624,8 +651,8 @@ export async function upsertSessionFromCupMetadata({
   samplesInSession,
   status = "new",
 } = {}) {
-  requireCvaTag({ f: cuppingForm });
-  const pinnedForm = cvaIdentity();
+  const f = requireFormTag({ f: cuppingForm });
+  const pinnedForm = formIdentity(f);
   const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
   if (!normalizedSessionUUID) {
     throw new Error("sessionUUID is required to upsert a session.");
@@ -634,29 +661,27 @@ export async function upsertSessionFromCupMetadata({
   const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
   const existing = await findSessionBySessionUUID(normalizedSessionUUID);
-  if (existing && !isPinnedCva(existing)) {
+  if (existing && !isPinnedForm(existing, f)) {
     throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
+  }
+  if (f === 2 && (!existing || existing.cuppingMode !== 'open')) {
+    throw new Error('SCA Legacy cup is not linked to a trusted local Open Cupping session. No local data was changed.');
   }
   const sessionId = cleanString(existing?.id) || normalizedSessionUUID;
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextStatus = cleanString(existing?.status || status).toLowerCase() || "new";
-  const nextSessionName = cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
-  const nextSessionType =
-    getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
-  const nextSessionDate =
-    getSessionDateLabel(sessionDate) ||
-    cleanString(existing?.sessionDate) ||
-    formatSessionDateFallback(new Date());
-  const nextSamplesInSession =
-    normalizePositiveInteger(samplesInSession, Number(existing?.samplesInSession) || 0);
+  const nextSessionName = f === 2 ? existing.sessionName : cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
+  const nextSessionType = f === 2 ? existing.sessionType : getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
+  const nextSessionDate = f === 2 ? existing.sessionDate : getSessionDateLabel(sessionDate) || cleanString(existing?.sessionDate) || formatSessionDateFallback(new Date());
+  const nextSamplesInSession = f === 2 ? Number(existing.samplesInSession) || 0 : normalizePositiveInteger(samplesInSession, Number(existing?.samplesInSession) || 0);
   const nextDisplayId = cleanString(existing?.sessionDisplayId) || `SESSION-${normalizedSessionUUID.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 
   await db.runAsync(
     `
       INSERT INTO sessions (
         id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date,
-        cupping_form, form_key, form_version, form_hash, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cupping_form, form_key, form_version, form_hash, cupping_mode, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         session_uuid = excluded.session_uuid,
         session_display_id = excluded.session_display_id,
@@ -669,6 +694,7 @@ export async function upsertSessionFromCupMetadata({
         form_key = excluded.form_key,
         form_version = excluded.form_version,
         form_hash = excluded.form_hash,
+        cupping_mode = excluded.cupping_mode,
         updated_at = excluded.updated_at
     `,
     [
@@ -684,6 +710,7 @@ export async function upsertSessionFromCupMetadata({
       pinnedForm.form_key,
       pinnedForm.form_version,
       pinnedForm.form_hash,
+      f === 2 ? 'open' : null,
       createdAt,
       nowIso,
     ]
@@ -702,6 +729,7 @@ export async function upsertSessionFromCupMetadata({
     formKey: pinnedForm.form_key,
     formVersion: pinnedForm.form_version,
     formHash: pinnedForm.form_hash,
+    cuppingMode: f === 2 ? 'open' : null,
     createdAt,
     updatedAt: nowIso,
   };
@@ -748,13 +776,20 @@ export async function upsertSessionSampleFromCupMetadata({
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextCupNumber = coerceCupNumber(cupNumber ?? existing?.cupNumber);
   const pinnedSession = await getSessionById(normalizedSessionId);
-  if (!isPinnedCva(pinnedSession) || cuppingForm !== 1 || (existing && existing.cuppingForm !== 1)) {
+  if (!isPinnedForm(pinnedSession, cuppingForm) || (existing && existing.cuppingForm !== cuppingForm)) {
     throw new Error("Cup form does not match the session form. No sample was changed.");
   }
-  const nextCuppingForm = 1;
+  const nextCuppingForm = cuppingForm;
+  if (nextCuppingForm === 2 && existing && Number(existing.cupNumber) !== nextCupNumber) {
+    const responseRow = await db.getFirstAsync('SELECT sample_id FROM legacy_responses WHERE sample_id = ? LIMIT 1', [existing.id]);
+    if (responseRow) throw new Error('Cannot change the cup count after a Legacy response was saved. No local record was changed.');
+  }
   const nextCuppingMode = requireTagCuppingMode(
     cuppingMode === "b" || cuppingMode === "o" ? { m: cuppingMode } : { cuppingMode }
   );
+  if (nextCuppingForm === 2 && (pinnedSession.cuppingMode !== 'open' || nextCuppingMode !== 'open')) {
+    throw new Error('SCA Legacy Blind Cupping is not yet available. No local record was changed.');
+  }
   if ((pinnedSession.samples || []).some((sample) => sample.cuppingMode !== nextCuppingMode)) {
     throw new Error("Cup cupping mode conflicts with its stored session samples. No local record was changed.");
   }
@@ -797,6 +832,8 @@ export async function upsertSessionSampleFromCupMetadata({
     ]
   );
 
+  await db.runAsync('UPDATE sessions SET form_locked = 1 WHERE id = ?', [normalizedSessionId]);
+
   await recomputeSessionProgressStatusWithDb(db, normalizedSessionId);
 
   return {
@@ -817,8 +854,12 @@ export async function upsertSessionSampleFromCupMetadata({
 
 export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } = {}) {
   // Validate the raw tag before local fallback or any database write.
-  requireCvaTag(metadata);
+  const f = requireFormTag(metadata);
   const tagMode = requireTagCuppingMode(metadata);
+  const rawCupCount = metadata?.cupNumber ?? metadata?.y;
+  if (f === 2 && (!Number.isInteger(rawCupCount) || rawCupCount < 1 || rawCupCount > 8 || tagMode !== 'open')) {
+    throw new Error('SCA Legacy cup count or Open mode is missing or unsupported. No local data was changed.');
+  }
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
   const sessionUUID = normalizeSessionUuid(
     metadata?.sessionUUID ?? metadata?.u
@@ -829,17 +870,29 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
   }
 
   const existingSession = await findSessionBySessionUUID(sessionUUID);
+  if (f === 2 && !existingSession) {
+    throw new Error('SCA Legacy cup is not linked to a trusted local Open Cupping session. No local data was changed.');
+  }
   if (existingSession) {
-    if (!isPinnedCva(existingSession)) {
+    if (!isPinnedForm(existingSession, f)) {
       throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
     }
     const trustedSession = await getSessionById(existingSession.id);
-    if ((trustedSession?.samples || []).some((sample) => sample.cuppingForm !== 1 || sample.cuppingMode !== tagMode)) {
+    if ((f === 2 && (trustedSession.cuppingMode !== 'open' || tagMode !== 'open')) ||
+        (trustedSession?.samples || []).some((sample) => sample.cuppingForm !== f || sample.cuppingMode !== tagMode)) {
       throw new Error("The cup form or cupping mode conflicts with stored session samples. No local record was changed.");
+    }
+    if (f === 2) {
+      const storedSample = trustedSession.samples.find(sample => normalizeCupUuid(sample.cupUUID) === normalizedCupUUID);
+      if (storedSample && (Number(storedSample.cupNumber) !== rawCupCount ||
+          storedSample.coffeeNameOrigin !== cleanString(metadata?.coffeeName ?? metadata?.n) ||
+          String(storedSample.process) !== String(metadata?.coffeeProcess ?? metadata?.p))) {
+        throw new Error('Legacy cup metadata conflicts with its trusted local assignment. No local record was changed.');
+      }
     }
   }
 
-  const session = await upsertSessionFromCupMetadata({
+  const session = f === 2 ? existingSession : await upsertSessionFromCupMetadata({
     sessionUUID,
     cuppingForm: metadata?.f ?? metadata?.cuppingForm,
     sessionName: metadata?.sessionName ?? metadata?.e,
@@ -926,6 +979,72 @@ export async function deleteSessionById(sessionId) {
   return { deleted: true };
 }
 
+function trustedLegacySession(session) {
+  if (!isPinnedForm(session, 2) || session.cuppingMode !== 'open') {
+    throw new Error('SCA Legacy Open Cupping session identity is unavailable. No response was changed.');
+  }
+  return {
+    profile: PROFILE,
+    f: 2,
+    identity: { form_key: session.formKey, form_version: session.formVersion, form_hash: session.formHash },
+  };
+}
+
+export async function getLegacyResponse(sessionId, sampleId) {
+  const session = await getSessionById(sessionId);
+  const trusted = trustedLegacySession(session);
+  const sample = session.samples.find((row) => row.id === sampleId);
+  if (!sample || sample.cuppingForm !== 2 || sample.cuppingMode !== 'open') {
+    throw new Error('Legacy sample identity does not match its session.');
+  }
+  const db = await getLocalDatabase();
+  const row = await db.getFirstAsync(
+    'SELECT form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cup_count AS cupCount, response_json AS responseJson, is_complete AS isComplete FROM legacy_responses WHERE session_id = ? AND sample_id = ? LIMIT 1',
+    [sessionId, sampleId]
+  );
+  if (!row) return null;
+  if (row.formKey !== trusted.identity.form_key || row.formVersion !== trusted.identity.form_version ||
+      row.formHash !== trusted.identity.form_hash || Number(row.cupCount) !== Number(sample.cupNumber)) {
+    throw new Error('Saved Legacy response identity or cup count conflicts with this session.');
+  }
+  let response;
+  try { response = JSON.parse(row.responseJson); } catch { throw new Error('Saved Legacy response is damaged.'); }
+  const input = { ...trusted, cup_count: Number(sample.cupNumber), response, complete: Boolean(row.isComplete) };
+  const validation = validateResponse(input, trusted);
+  if (row.isComplete && !validation.ok) throw new Error(`Saved Legacy response is invalid: ${validation.errors.join(', ')}`);
+  const result = row.isComplete ? scoreResponse(input, trusted) : null;
+  if (row.isComplete && !result?.ok) throw new Error('Saved Legacy score could not be reproduced.');
+  return { response, complete: Boolean(row.isComplete), result, errors: validation.errors };
+}
+
+export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false }) {
+  const session = await getSessionById(sessionId);
+  const trusted = trustedLegacySession(session);
+  const sample = session.samples.find((row) => row.id === sampleId);
+  if (!sample || sample.cuppingForm !== 2 || sample.cuppingMode !== 'open') {
+    throw new Error('Legacy sample identity does not match its session. No response was saved.');
+  }
+  const input = { ...trusted, cup_count: Number(sample.cupNumber), response, complete: Boolean(complete) };
+  const validation = validateResponse(input, trusted);
+  if (complete && !validation.ok) return { ok: false, errors: validation.errors };
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    return { ok: false, errors: ['response:invalid_object'] };
+  }
+  const result = complete ? scoreResponse(input, trusted) : null;
+  if (complete && !result?.ok) return { ok: false, errors: result?.errors || ['score:invalid'] };
+  const db = await getLocalDatabase();
+  await db.runAsync(
+    `INSERT INTO legacy_responses (sample_id, session_id, form_key, form_version, form_hash, cup_count, response_json, is_complete, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(sample_id) DO UPDATE SET response_json = excluded.response_json, is_complete = excluded.is_complete,
+       updated_at = excluded.updated_at`,
+    [sampleId, sessionId, trusted.identity.form_key, trusted.identity.form_version, trusted.identity.form_hash,
+      Number(sample.cupNumber), JSON.stringify(response), complete ? 1 : 0, new Date().toISOString()]
+  );
+  await recomputeSessionProgressStatusWithDb(db, sessionId);
+  return { ok: true, result, errors: validation.errors };
+}
+
 export async function getSessionSampleFinalStatus(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) {
@@ -933,6 +1052,23 @@ export async function getSessionSampleFinalStatus(sessionId) {
   }
 
   const db = await getLocalDatabase();
+  const session = await getSessionById(normalizedSessionId);
+  if (isPinnedForm(session, 2)) {
+    trustedLegacySession(session);
+    const rows = await db.getAllAsync(
+      'SELECT sample_id AS sampleId, is_complete AS isComplete FROM legacy_responses WHERE session_id = ?',
+      [normalizedSessionId]
+    );
+    const saved = new Map((rows || []).map((row) => [row.sampleId, row]));
+    const statuses = {};
+    for (const sample of session.samples) {
+      const row = saved.get(sample.id);
+      const complete = row ? await getLegacyResponse(normalizedSessionId, sample.id) : null;
+      statuses[sample.id] = { isComplete: Boolean(complete?.result?.ok), finalScore: complete?.result?.display_score || null,
+        resultLabel: complete?.result?.label || null, hasAnyFeedback: Boolean(row), scoresByField: {} };
+    }
+    return statuses;
+  }
   const samples = await db.getAllAsync(
     `
       SELECT id
@@ -1064,7 +1200,7 @@ export async function activateSession(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return;
   const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1075,7 +1211,7 @@ export async function resetSessionToPending(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
   const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'complete'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1087,7 +1223,7 @@ export async function manuallyMarkSessionComplete(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
   const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'complete', updated_at = ? WHERE id = ?`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1127,7 +1263,7 @@ export async function deleteSampleFromSession(sampleId) {
     [normalizedSampleId]
   );
   if (!sample?.sessionId) return { deleted: false };
-  await assertPinnedCvaSessionWithDb(db, sample.sessionId);
+  await assertPinnedSessionWithDb(db, sample.sessionId);
   await db.runAsync("DELETE FROM samples WHERE id = ?", [normalizedSampleId]);
   if (sample?.sessionId) {
     await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
@@ -1142,7 +1278,7 @@ export async function markSessionCompleteIfAllSamplesComplete(sessionId) {
   }
 
   const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
 
   const sampleStatusMap = await getSessionSampleFinalStatus(normalizedSessionId);
   const statusEntries = Object.values(sampleStatusMap || {});

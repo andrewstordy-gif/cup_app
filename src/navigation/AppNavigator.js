@@ -3,6 +3,7 @@ import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { TypographyAuditText as Text } from "../components/ui/TypographyAuditText";
 import { HomeScreen } from "../features/home/screens/HomeScreen";
 import { CuppingScreen } from "../features/cupping/screens/CuppingScreen";
+import { LegacyCuppingScreen } from "../features/forms/legacy/LegacyCuppingScreen";
 import { CuppingSessionScreen } from "../features/cupping/screens/CuppingSessionScreen";
 import { CuppingSessionDetailsScreen } from "../features/cupping/screens/CuppingSessionDetailsScreen";
 import { ActiveSessionScreen } from "../features/cupping/screens/ActiveSessionScreen";
@@ -25,7 +26,7 @@ import {
   looksLikeSmartCupUuid,
 } from "../services/nfcTagClassifier";
 import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
-import { requireCvaRoute, requireCvaTag, UNSUPPORTED_MESSAGE } from "../features/forms/sessionFormRoute";
+import { requireFormRoute, requireFormTag, UNSUPPORTED_MESSAGE } from "../features/forms/sessionFormRoute";
 import { logAppError } from "../services/errorLogger";
 import {
   activateSession,
@@ -301,15 +302,14 @@ export function AppNavigator() {
       tagClassification?.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
       tagClassification?.type === NFC_TAG_TYPES.EMPTY_TAG);
 
-  const canOpenCvaSample = async (sessionId, sample, metadata) => {
+  const canOpenSample = async (sessionId, sample, metadata) => {
     try {
       const session = sessionId ? await getSessionById(sessionId) : null;
       const storedSample = session?.samples?.find((entry) => entry.id === (sample?.sampleId || sample?.id));
-      requireCvaRoute(session, storedSample, metadata);
-      return true;
+      return requireFormRoute(session, storedSample, metadata);
     } catch (error) {
       showWarning("Form unavailable", error?.message || UNSUPPORTED_MESSAGE);
-      return false;
+      return null;
     }
   };
 
@@ -363,7 +363,7 @@ export function AppNavigator() {
         }
 
         const metadata = tagClassification.metadataPayload;
-        requireCvaTag(metadata);
+        requireFormTag(metadata);
         const importedSample = metadata
           ? await resolveActiveSampleFromCupMetadata({
               cupUUID: tagId,
@@ -379,7 +379,7 @@ export function AppNavigator() {
           return;
         }
 
-        requireCvaRoute(await getSessionById(activeSample.sessionId), activeSample, metadata);
+        const form = requireFormRoute(await getSessionById(activeSample.sessionId), activeSample, metadata);
 
         const ntagCupNumber = resolveCupNumberFromMetadata(metadata);
         setHomeTemperatureC(null);
@@ -405,6 +405,7 @@ export function AppNavigator() {
           },
           sessionId: activeSample.sessionId,
           sampleId: activeSample.sampleId,
+          cuppingForm: form,
           cupIndex: activeSample.cupIndex,
           cupTotal: activeSample.cupTotal,
           sampleNumber: activeSample.sampleNumber,
@@ -474,7 +475,7 @@ export function AppNavigator() {
       }
 
       const noSessionMode = isNoSessionMode(parsed);
-      if (!noSessionMode) requireCvaTag(parsed?.text4);
+      if (!noSessionMode) requireFormTag(parsed?.text4);
       const importedSample = noSessionMode
         ? null
         : await resolveActiveSampleFromCupMetadata({
@@ -509,7 +510,7 @@ export function AppNavigator() {
         setSleepDialogVisible(true);
         return;
       }
-      requireCvaRoute(await getSessionById(activeSample.sessionId), activeSample, parsed?.text4);
+      const form = requireFormRoute(await getSessionById(activeSample.sessionId), activeSample, parsed?.text4);
       const cupStatus = {
         state: cupState === 1 ? "READY" : cupState === BREWING_STATE ? "BREWING" : "CUPPING",
         temp: formatTemp(parsed?.text2?.temp),
@@ -530,6 +531,7 @@ export function AppNavigator() {
         cupStatus,
         sessionId: activeSample.sessionId,
         sampleId: activeSample.sampleId,
+        cuppingForm: form,
         cupIndex: activeSample.cupIndex,
         cupTotal: activeSample.cupTotal,
         sampleNumber: activeSample.sampleNumber,
@@ -805,6 +807,7 @@ export function AppNavigator() {
       cupStatus,
       sessionId: options.sessionId || selectedCupContext?.sessionId || sample.sessionId,
       sampleId: sample.id,
+      cuppingForm: sample.cuppingForm,
       cupIndex: index,
       cupTotal: total,
       sampleNumber: Number(sample.sampleNumber) || index + 1,
@@ -839,7 +842,7 @@ export function AppNavigator() {
     }
 
     const nextContext = buildContextFromSessionSample(samples[nextIndex], nextIndex, samples.length);
-    if (nextContext && await canOpenCvaSample(nextContext.sessionId, samples[nextIndex])) {
+    if (nextContext && await canOpenSample(nextContext.sessionId, samples[nextIndex])) {
       setSelectedCupContext(nextContext);
       setScanStatusMessage("");
       setRoute("Cupping"); // keep existing cuppingReturnRoute
@@ -848,7 +851,7 @@ export function AppNavigator() {
 
   const handleActiveSessionSamplePress = async (sample, index = 0, total = 1) => {
     const context = buildContextFromSessionSample(sample, index, total);
-    if (!context || !await canOpenCvaSample(context.sessionId, sample)) {
+    if (!context || !await canOpenSample(context.sessionId, sample)) {
       return;
     }
 
@@ -862,7 +865,7 @@ export function AppNavigator() {
       sessionId: selectedSessionId,
       isSessionComplete: Boolean(options.isSessionComplete),
     });
-    if (!context || !await canOpenCvaSample(context.sessionId, sample)) {
+    if (!context || !await canOpenSample(context.sessionId, sample)) {
       return;
     }
 
@@ -884,7 +887,7 @@ export function AppNavigator() {
       cupStateNumber: 1,
       cupStatus: { state: "READY", temp: "N/A", time: "00:00" },
     });
-    if (!context || !await canOpenCvaSample(sessionId, sample)) {
+    if (!context || !await canOpenSample(sessionId, sample)) {
       return;
     }
 
@@ -896,6 +899,12 @@ export function AppNavigator() {
 
   const content = useMemo(() => {
     if (route === "Cupping") {
+      if (selectedCupContext?.cuppingForm === 2) return (
+        <LegacyCuppingScreen key={selectedCupContext?.sampleId} sessionId={selectedCupContext.sessionId}
+          sampleId={selectedCupContext.sampleId} cupCount={selectedCupContext.defectsCupTotal}
+          coffeeNameOrigin={selectedCupContext.coffeeNameOrigin}
+          onBackPress={() => { setSelectedSessionId(selectedCupContext.sessionId); setRoute(cuppingReturnRoute); }} />
+      );
       return (
         <CuppingScreen
           key={selectedCupContext?.sampleId || selectedCupContext?.cupUUID || "cupping-screen"}
@@ -1017,7 +1026,7 @@ export function AppNavigator() {
           onBackPress={() => setRoute("Cupping Session")}
           onSamplePress={async (sample, index, total) => {
             const context = buildContextFromSessionSample(sample, index, total);
-            if (!context || !await canOpenCvaSample(context.sessionId, sample)) return;
+            if (!context || !await canOpenSample(context.sessionId, sample)) return;
             setSelectedCupContext({ ...context, isSessionComplete: true });
             setScanStatusMessage("");
             goToCupping("Complete Session");

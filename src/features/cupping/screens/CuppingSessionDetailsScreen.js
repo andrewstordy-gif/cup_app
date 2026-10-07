@@ -10,7 +10,7 @@ import { AppIcon } from "../../../components/ui/AppIcon";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
-import { cvaIdentity, isSessionFormReady, UNSUPPORTED_MESSAGE } from "../../forms/sessionFormRoute";
+import { cvaIdentity, formIdentity, isSessionFormReady, UNSUPPORTED_MESSAGE } from "../../forms/sessionFormRoute";
 import { typography } from "../../../theme/typography";
 import {
   readAndWriteNdefMinimal,
@@ -31,6 +31,7 @@ import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBa
 import {
   buildCompactSessionMetadata,
   CUP_NUMBER_OPTIONS,
+  CUPPING_FORM_OPTIONS,
   createPendingConflictError,
   createSample,
   doesMetadataMatchExpected,
@@ -39,6 +40,7 @@ import {
   generateSessionUUID,
   getSessionStatusBadgeLabel,
   getSessionTypeLabel,
+  getCuppingFormLabel,
   normalizeCuppingModeKey,
   normalizeProcessKey,
   normalizePositiveInteger,
@@ -109,6 +111,24 @@ function SessionTypeDropdown({ anchorRect, selected, onSelect, onDismiss, scale 
   );
 }
 
+function SessionFormDropdown({ anchorRect, selected, onSelect, onDismiss, scale }) {
+  if (!anchorRect) return null;
+  return (
+    <Modal visible transparent animationType="none" onRequestClose={onDismiss}>
+      <Pressable style={styles.dropdownBackdrop} onPress={onDismiss} />
+      <View style={[styles.dropdownMenu, { top: anchorRect.y + anchorRect.height, left: anchorRect.x, width: anchorRect.width }]}>
+        {CUPPING_FORM_OPTIONS.map((option, index) => (
+          <Pressable key={option.key} onPress={() => { onSelect(option.key); onDismiss(); }}
+            accessibilityRole="menuitem" accessibilityLabel={option.label}
+            style={[styles.dropdownOption, { paddingVertical: 14 * scale }, index < CUPPING_FORM_OPTIONS.length - 1 && styles.dropdownOptionBorder, selected === option.key && styles.dropdownOptionSelected]}>
+            <Text style={[styles.dropdownOptionText, selected === option.key && styles.dropdownOptionTextSelected]}>{option.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </Modal>
+  );
+}
+
 function canRepairSmartCupNdefShape(tagClassification) {
   return (
     tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
@@ -146,7 +166,9 @@ export function CuppingSessionDetailsScreen({
   const [samplesInSession, setSamplesInSession] = useState("");
   const [sessionStatus, setSessionStatus] = useState("pending");
   const sessionTypeRowRef = useRef(null);
+  const sessionFormRowRef = useRef(null);
   const [sessionTypeAnchor, setSessionTypeAnchor] = useState(null);
+  const [sessionFormAnchor, setSessionFormAnchor] = useState(null);
 
   const [samples, setSamples] = useState([]);
 
@@ -156,6 +178,7 @@ export function CuppingSessionDetailsScreen({
   const [sheetCupNumber, setSheetCupNumber] = useState(5);
   const [isSheetCupNumberDefault, setIsSheetCupNumberDefault] = useState(true);
   const [sessionForm, setSessionForm] = useState(() => sessionId ? null : cvaIdentity());
+  const [sessionMode, setSessionMode] = useState(null);
   const [sheetCuppingMode, setSheetCuppingMode] = useState("blind");
   const [isSheetCuppingModeDefault, setIsSheetCuppingModeDefault] = useState(true);
   const [sheetErrors, setSheetErrors] = useState({});
@@ -225,6 +248,7 @@ export function CuppingSessionDetailsScreen({
         setSamplesInSession("");
         setSessionStatus("new");
         setSessionForm(cvaIdentity());
+        setSessionMode(null);
         setSamples([]);
         setIsSessionDirty(false);
         setSessionTypeAnchor(null);
@@ -254,7 +278,9 @@ export function CuppingSessionDetailsScreen({
           formKey: loaded.formKey,
           formVersion: loaded.formVersion,
           formHash: loaded.formHash,
+          formLocked: Number(loaded.formLocked) === 1,
         });
+        setSessionMode(loaded.cuppingMode || null);
         setIsSessionDirty(false);
         setSamples(
           (loaded.samples || []).map((sample) =>
@@ -343,6 +369,7 @@ export function CuppingSessionDetailsScreen({
       samplesInSession,
       status: sessionStatus,
       cuppingForm: sessionForm?.cuppingForm ?? sessionForm?.f,
+      cuppingMode: sessionMode,
       samples,
     }),
     [
@@ -354,12 +381,30 @@ export function CuppingSessionDetailsScreen({
       samplesInSession,
       sessionStatus,
       sessionForm,
+      sessionMode,
       samples,
     ]
   );
-  const isSessionLocked = samples.length > 0;
-  const isSessionFormSupported = isSessionFormReady(sessionId, sessionForm);
+  const isSessionLocked = samples.length > 0 || Boolean(sessionForm?.formLocked);
+  const selectedForm = sessionForm?.cuppingForm ?? sessionForm?.f;
+  const isLegacy = selectedForm === 2;
+  const isSessionFormSupported = isSessionFormReady(sessionId, sessionForm) && (!isLegacy || sessionMode === 'open');
   const isSessionFormLoading = Boolean(sessionId) && sessionForm?.loadedSessionId !== sessionId;
+
+  const openSessionFormMenu = () => {
+    if (isSessionLocked || !isSessionFormSupported || isQuickStartSession) return;
+    sessionFormRowRef.current?.measure((x, y, w, h, pageX, pageY) => {
+      setSessionFormAnchor({ x: pageX, y: pageY, width: w, height: h });
+    });
+  };
+  const selectSessionForm = (f) => {
+    if (isSessionLocked || !isSessionFormSupported || isQuickStartSession) return;
+    const pin = formIdentity(f);
+    setSessionForm(sessionId ? { loadedSessionId: sessionId, cuppingForm: f, formKey: pin.form_key, formVersion: pin.form_version, formHash: pin.form_hash } : pin);
+    setSessionMode(f === 2 ? 'open' : null);
+    setScanStatusMessage(f === 2 ? 'Legacy currently supports Open Cupping only. Blind tasting is not yet available in this prototype.' : '');
+    setIsSessionDirty(true);
+  };
 
   const openSessionTypeMenu = () => {
     if (isSessionLocked || !isSessionFormSupported) {
@@ -413,8 +458,8 @@ export function CuppingSessionDetailsScreen({
     setSheetProcess("");
     setSheetCupNumber(5);
     setIsSheetCupNumberDefault(true);
-    setSheetCuppingMode("blind");
-    setIsSheetCuppingModeDefault(true);
+    setSheetCuppingMode(isLegacy ? "open" : "blind");
+    setIsSheetCuppingModeDefault(!isLegacy);
     setSheetErrors({});
     setScanStatusMessage("");
     setIsAddSheetVisible(true);
@@ -498,6 +543,10 @@ export function CuppingSessionDetailsScreen({
     if (!isSessionFormSupported || !editingSampleId || !validateEditSheet()) {
       return;
     }
+    if (isLegacy && (sessionMode !== 'open' || sheetCuppingMode !== 'open')) {
+      setScanStatusMessage('Legacy Blind Cupping is not yet available. No cup was written.');
+      return;
+    }
 
     const editedSampleId = editingSampleId;
     const overrides = {
@@ -531,8 +580,12 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleScanCup = async () => {
-    if (!isSessionFormSupported || samples.some((sample) => sample.cuppingForm !== 1)) {
+    if (!isSessionFormSupported || samples.some((sample) => sample.cuppingForm !== selectedForm)) {
       setScanStatusMessage(UNSUPPORTED_MESSAGE);
+      return;
+    }
+    if (isLegacy && (sessionMode !== 'open' || sheetCuppingMode !== 'open')) {
+      setScanStatusMessage('Legacy Blind Cupping is not yet available. No cup was written.');
       return;
     }
     if (!validateAddSheet()) {
@@ -551,6 +604,12 @@ export function CuppingSessionDetailsScreen({
     setIsNfcWriting(true);
 
     try {
+      if (isLegacy) {
+        // Trust the locally pinned Open mode even before the first cup exists.
+        await saveSessionWithSamples({ ...formState, sessionName: effectiveSessionName,
+          sessionType: effectiveSessionType, existingSessionId: savedSessionIdRef.current });
+        savedSessionIdRef.current = sessionUUID;
+      }
       await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
       setScanStatusMessage("Scan cup to write session data...");
       const writeResult = await readAndWriteNdefMinimal(async (result) => {
@@ -686,6 +745,7 @@ export function CuppingSessionDetailsScreen({
       await saveSessionWithSamples({
         sessionUUID,
         cuppingForm: sessionForm?.cuppingForm ?? sessionForm?.f,
+        cuppingMode: sessionMode,
         existingSessionId: savedSessionIdRef.current,
         sessionDisplayId,
         sessionDate,
@@ -884,7 +944,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleRewriteSample = async (sampleId, overrides = {}) => {
-    if (!isSessionFormSupported || samples.some((sample) => sample.cuppingForm !== 1)) {
+    if (!isSessionFormSupported || samples.some((sample) => sample.cuppingForm !== selectedForm)) {
       setScanStatusMessage(UNSUPPORTED_MESSAGE);
       return false;
     }
@@ -1252,15 +1312,19 @@ export function CuppingSessionDetailsScreen({
             </View>
           </Pressable>
 
-          <View style={[styles.metaRow, { paddingBottom: 14 * scale }]}>
+          <Pressable ref={sessionFormRowRef} onPress={openSessionFormMenu}
+            disabled={isSessionLocked || !isSessionFormSupported || isQuickStartSession}
+            accessibilityRole="button" accessibilityLabel="Select session form"
+            accessibilityState={{ disabled: isSessionLocked || !isSessionFormSupported || isQuickStartSession, expanded: Boolean(sessionFormAnchor) }}
+            style={[styles.metaRow, { paddingBottom: 14 * scale }]}>
             <Text style={styles.metaLabel}>Session Form</Text>
             <Text style={[styles.metaValue, { marginTop: 4 * scale }]}>
-              {isSessionFormLoading ? "Checking saved session form…" : isSessionFormSupported ? "SCA CVA — Affective Assessment" : "Older or unsupported prototype form"}
+              {isSessionFormLoading ? "Checking saved session form…" : isSessionFormSupported ? getCuppingFormLabel(selectedForm) : "Older or unsupported prototype form"}
             </Text>
             <Text style={styles.metaValueMuted}>
-              {isSessionFormLoading ? "Tasting actions are unavailable until the session form is checked." : isSessionFormSupported ? "Pinned for this session. SCA Legacy tasting is coming in a later build." : UNSUPPORTED_MESSAGE}
+              {isSessionFormLoading ? "Tasting actions are unavailable until the session form is checked." : isSessionFormSupported ? (isLegacy ? "Open Cupping only in this prototype. Blind Legacy tasting is not yet available." : "Pinned for this session once cups are assigned.") : UNSUPPORTED_MESSAGE}
             </Text>
-          </View>
+          </Pressable>
 
           <View style={{ paddingBottom: 14 * scale, gap: spacing.sm }}>
             <Text style={styles.metaValueMuted} accessibilityLabel="Session date">
@@ -1278,7 +1342,17 @@ export function CuppingSessionDetailsScreen({
             <Text style={styles.samplesHeading}>SAMPLES</Text>
           </View>
 
-          {samples.map((sample, index) => isSessionFormSupported ? (
+          {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
+            <Pressable key={sample.id} onPress={() => onOpenSample?.(sample, index, samples.length, { isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) })}
+              accessibilityRole="button" accessibilityLabel={`Open Legacy sample ${index + 1}`}
+              style={[styles.metaRow, { marginTop: 16 * scale, paddingBottom: 14 * scale }]}>
+              <Text style={styles.metaLabel}>Sample {sample.sampleNumber || index + 1}: {sample.coffeeNameOrigin}</Text>
+              <Text style={styles.metaValueMuted}>{sampleStatusById?.[sample.id]?.isComplete
+                ? `Legacy final score ${sampleStatusById[sample.id].finalScore}`
+                : sampleStatusById?.[sample.id]?.hasAnyFeedback ? "Legacy draft saved" : "Not assessed"}</Text>
+              {sampleStatusById?.[sample.id]?.resultLabel ? <Text style={styles.metaValueMuted}>{sampleStatusById[sample.id].resultLabel}</Text> : null}
+            </Pressable>
+          ) : isSessionFormSupported ? (
             <CoffeeSampleCard
               key={sample.id}
               sample={sample}
@@ -1320,7 +1394,7 @@ export function CuppingSessionDetailsScreen({
 
       </ScreenContainer>
 
-      {!isSessionFormSupported ? null : isSessionComplete ? (
+      {!isSessionFormSupported ? null : isSessionComplete && isLegacy ? null : isSessionComplete ? (
         <View style={styles.uploadFooter}>
           <Pressable
             onPress={() => {}}
@@ -1394,6 +1468,7 @@ export function CuppingSessionDetailsScreen({
         isCupNumberDefault={isSheetCupNumberDefault}
         cuppingForm={sessionForm?.cuppingForm ?? sessionForm?.f}
         cuppingMode={sheetCuppingMode}
+        lockedCuppingMode={isLegacy}
         isCuppingModeDefault={isSheetCuppingModeDefault}
         errors={sheetErrors}
         loading={isNfcWriting}
@@ -1455,6 +1530,13 @@ export function CuppingSessionDetailsScreen({
         selected={sessionType}
         onSelect={setSessionType}
         onDismiss={() => setSessionTypeAnchor(null)}
+        scale={scale}
+      />
+      <SessionFormDropdown
+        anchorRect={sessionFormAnchor}
+        selected={selectedForm}
+        onSelect={selectSessionForm}
+        onDismiss={() => setSessionFormAnchor(null)}
         scale={scale}
       />
     </View>

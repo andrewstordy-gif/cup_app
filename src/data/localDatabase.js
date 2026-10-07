@@ -71,6 +71,8 @@ async function runMigrations(db) {
       form_key TEXT,
       form_version TEXT,
       form_hash TEXT,
+      cupping_mode TEXT,
+      form_locked INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -154,6 +156,23 @@ async function runMigrations(db) {
       elapsed_seconds INTEGER,
       source_field TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Distinct raw Legacy response: never coerce these judgments into CVA feedback rows.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS legacy_responses (
+      sample_id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      form_key TEXT NOT NULL,
+      form_version TEXT NOT NULL,
+      form_hash TEXT NOT NULL,
+      cup_count INTEGER NOT NULL,
+      response_json TEXT NOT NULL,
+      is_complete INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
     );
@@ -342,6 +361,17 @@ async function runMigrations(db) {
     }
     await db.execAsync("PRAGMA user_version = 3;");
     userVersion = 3;
+  }
+
+  // Earlier prototype migration removes the old sample-inferred Session mode.
+  // Add the new trusted mode only after that migration; old rows stay NULL.
+  const modeColumns = await db.getAllAsync('PRAGMA table_info(sessions);');
+  if (!modeColumns.some((column) => column?.name === 'cupping_mode')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN cupping_mode TEXT;');
+  }
+  if (!modeColumns.some((column) => column?.name === 'form_locked')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN form_locked INTEGER NOT NULL DEFAULT 0;');
+    await db.execAsync('UPDATE sessions SET form_locked = 1 WHERE EXISTS (SELECT 1 FROM samples WHERE samples.session_id = sessions.id);');
   }
 
   if (userVersion < 4) {
