@@ -8,6 +8,10 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
+## [2026-10-07] — Codex Release Manager
+
+- R1-009 pins the existing SCA CVA Affective form to each newly created prototype Session, removes the per-sample form picker, and visibly blocks unsupported or mismatched form routes instead of opening CVA by default. Older unversioned prototype sessions remain present but read-only. Independent code/QA, architecture/security, and static UX reviews passed; Andrew's iPhone check confirmed a one-cup smart-cup assignment, NDEF4 `f=1`/matching Session reference, app reopen, and scan back to the CVA screen. This does **not** add the SCA Legacy tasting screen, protected production storage, cloud sharing, or complete blind isolation. Protected-main integration uses [PR #16](https://github.com/andrewstordy-gif/cup_app/pull/16); the integrated commit is recorded in `docs/tasks/R1-009.md`. No new app binary was distributed.
+
 ## [2026-10-05] — Codex Release Manager
 
 - R1-005 replaced insecure fallback generation for new local IDs and 14-character NFC/session references with offline-capable cryptographic randomness, and added local collision guards that fail safely instead of overwriting another session. Existing prototype records and tag format were not migrated or changed. Independent and security reviews passed; the rebuilt iPhone offline creation/save/reopen check passed, while exact physical tag read-back and cloud sharing remain unverified. Merged through [PR #12](https://github.com/andrewstordy-gif/cup_app/pull/12) at `fa80421ea9d17fad4d91742e5510370ebce76b15`. No new build was distributed.
