@@ -67,6 +67,10 @@ async function runMigrations(db) {
       samples_in_session INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'new',
       session_date TEXT NOT NULL,
+      cupping_form INTEGER,
+      form_key TEXT,
+      form_version TEXT,
+      form_hash TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -277,6 +281,16 @@ async function runMigrations(db) {
     : false;
   if (!hasSamplesInSessionColumn) {
     await db.execAsync("ALTER TABLE sessions ADD COLUMN samples_in_session INTEGER NOT NULL DEFAULT 0;");
+  }
+  // Nullable on purpose: existing prototype rows are not silently promoted to
+  // a versioned Release 1 form. Only new writes supply all four values.
+  for (const [name, type] of [
+    ["cupping_form", "INTEGER"], ["form_key", "TEXT"],
+    ["form_version", "TEXT"], ["form_hash", "TEXT"],
+  ]) {
+    if (!sessionColumns.some((column) => column?.name === name)) {
+      await db.execAsync(`ALTER TABLE sessions ADD COLUMN ${name} ${type};`);
+    }
   }
   // Migrate to new/pending/complete status model once. The in-memory migration
   // guard resets on cold starts, so persist this legacy rename with user_version.

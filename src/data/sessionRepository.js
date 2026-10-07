@@ -1,9 +1,9 @@
 import { getLocalDatabase } from "./localDatabase";
 import { generateDomainId } from "../utils/secureIdentifiers";
+import { cvaIdentity, isPinnedCva, requireCvaTag, requireTagCuppingMode } from "../features/forms/sessionFormRoute";
 import {
   getSessionDateLabel,
   getSessionTypeLabel,
-  normalizeCuppingFormKey,
   normalizeCuppingModeKey,
   normalizePositiveInteger,
 } from "../features/cupping/constants/sessionDetails";
@@ -200,6 +200,7 @@ function calculateFinalScore({
 export async function saveSessionWithSamples({
   sessionUUID,
   existingSessionId = null,
+  cuppingForm,
   sessionDisplayId,
   sessionName,
   sessionType,
@@ -208,6 +209,10 @@ export async function saveSessionWithSamples({
   sessionDate,
   samples,
 }) {
+  const pinnedForm = cvaIdentity();
+  if (cuppingForm !== pinnedForm.f) {
+    throw new Error("The session form is missing or unsupported. No session was saved.");
+  }
   const trimmedSessionName = cleanString(sessionName);
   if (!trimmedSessionName) {
     throw new Error("Session name is required before saving.");
@@ -223,7 +228,7 @@ export async function saveSessionWithSamples({
       id: cleanString(sample?.id) || generateId(),
       cupUUID: normalizeCupUuid(sample?.cupUUID),
       cupNumber: coerceCupNumber(sample?.cupNumber),
-      cuppingForm: normalizeCuppingFormKey(sample?.cuppingForm) ?? 1,
+      cuppingForm: sample?.cuppingForm,
       cuppingMode: normalizeCuppingModeKey(sample?.cuppingMode),
       sampleNumber: normalizePositiveInteger(sample?.sampleNumber, index + 1),
       coffeeNameOrigin: cleanString(sample?.coffeeNameOrigin),
@@ -234,6 +239,9 @@ export async function saveSessionWithSamples({
 
   if (normalizedSamples.length === 0) {
     throw new Error("Add at least one cup sample before saving.");
+  }
+  if (normalizedSamples.some((sample) => sample.cuppingForm !== pinnedForm.f)) {
+    throw new Error("A sample form does not match the session's SCA CVA form.");
   }
 
   const db = await getLocalDatabase();
@@ -246,17 +254,21 @@ export async function saveSessionWithSamples({
   await db.withTransactionAsync(async () => {
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
     const existingSession = await db.getFirstAsync(
-      "SELECT created_at FROM sessions WHERE id = ?",
+      "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash FROM sessions WHERE id = ?",
       [sessionId]
     );
+    if (existingSession && !isPinnedCva(existingSession)) {
+      throw new Error("This older or unsupported prototype session cannot be converted to a versioned SCA CVA session. Its data is unchanged.");
+    }
 
     const createdAt = existingSession?.created_at || nowIso;
 
     await db.runAsync(
       `
         INSERT INTO sessions (
-          id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date,
+          cupping_form, form_key, form_version, form_hash, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           session_uuid = excluded.session_uuid,
           session_display_id = excluded.session_display_id,
@@ -265,6 +277,10 @@ export async function saveSessionWithSamples({
           samples_in_session = excluded.samples_in_session,
           status = excluded.status,
           session_date = excluded.session_date,
+          cupping_form = excluded.cupping_form,
+          form_key = excluded.form_key,
+          form_version = excluded.form_version,
+          form_hash = excluded.form_hash,
           updated_at = excluded.updated_at
       `,
       [
@@ -276,6 +292,10 @@ export async function saveSessionWithSamples({
         normalizePositiveInteger(samplesInSession, normalizedSamples.length),
         sessionStatusValue,
         cleanString(sessionDate),
+        pinnedForm.f,
+        pinnedForm.form_key,
+        pinnedForm.form_version,
+        pinnedForm.form_hash,
         createdAt,
         nowIso,
       ]
@@ -283,9 +303,12 @@ export async function saveSessionWithSamples({
 
     for (const sample of normalizedSamples) {
       const existingSample = await db.getFirstAsync(
-        "SELECT id, created_at FROM samples WHERE session_id = ? AND cup_uuid = ?",
+        "SELECT id, created_at, cupping_form AS cuppingForm FROM samples WHERE session_id = ? AND cup_uuid = ?",
         [sessionId, sample.cupUUID]
       );
+      if (existingSample && existingSample.cuppingForm !== pinnedForm.f) {
+        throw new Error("An existing sample has a different form. Its session and cup assignment were not changed.");
+      }
 
       const sampleId = existingSample?.id || sample.id || generateId();
       const sampleCreatedAt = existingSample?.created_at || nowIso;
@@ -391,6 +414,10 @@ export async function listSessions() {
         samples_in_session AS samplesInSession,
         status,
         session_date AS sessionDate,
+        cupping_form AS cuppingForm,
+        form_key AS formKey,
+        form_version AS formVersion,
+        form_hash AS formHash,
         updated_at AS updatedAt
       FROM sessions
       ORDER BY updated_at DESC
@@ -470,6 +497,10 @@ export async function findSessionBySessionUUID(sessionUUID) {
         samples_in_session AS samplesInSession,
         status,
         session_date AS sessionDate,
+        cupping_form AS cuppingForm,
+        form_key AS formKey,
+        form_version AS formVersion,
+        form_hash AS formHash,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM sessions
@@ -497,6 +528,10 @@ export async function getSessionById(sessionId) {
         samples_in_session AS samplesInSession,
         status,
         session_date AS sessionDate,
+        cupping_form AS cuppingForm,
+        form_key AS formKey,
+        form_version AS formVersion,
+        form_hash AS formHash,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM sessions
@@ -535,6 +570,18 @@ export async function getSessionById(sessionId) {
   };
 }
 
+async function assertPinnedCvaSessionWithDb(db, sessionId) {
+  const row = await db.getFirstAsync(
+    `SELECT cupping_form AS cuppingForm, form_key AS formKey,
+            form_version AS formVersion, form_hash AS formHash
+     FROM sessions WHERE id = ? LIMIT 1`,
+    [sessionId]
+  );
+  if (!isPinnedCva(row)) {
+    throw new Error("This older or unsupported prototype session is read-only. No record was changed.");
+  }
+}
+
 export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) {
   const normalizedSessionId = cleanString(sessionId);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
@@ -570,12 +617,15 @@ export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) 
 
 export async function upsertSessionFromCupMetadata({
   sessionUUID,
+  cuppingForm,
   sessionName,
   sessionType,
   sessionDate,
   samplesInSession,
   status = "new",
 } = {}) {
+  requireCvaTag({ f: cuppingForm });
+  const pinnedForm = cvaIdentity();
   const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
   if (!normalizedSessionUUID) {
     throw new Error("sessionUUID is required to upsert a session.");
@@ -584,6 +634,9 @@ export async function upsertSessionFromCupMetadata({
   const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
   const existing = await findSessionBySessionUUID(normalizedSessionUUID);
+  if (existing && !isPinnedCva(existing)) {
+    throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
+  }
   const sessionId = cleanString(existing?.id) || normalizedSessionUUID;
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextStatus = cleanString(existing?.status || status).toLowerCase() || "new";
@@ -601,8 +654,9 @@ export async function upsertSessionFromCupMetadata({
   await db.runAsync(
     `
       INSERT INTO sessions (
-        id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date,
+        cupping_form, form_key, form_version, form_hash, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         session_uuid = excluded.session_uuid,
         session_display_id = excluded.session_display_id,
@@ -611,6 +665,10 @@ export async function upsertSessionFromCupMetadata({
         samples_in_session = excluded.samples_in_session,
         status = excluded.status,
         session_date = excluded.session_date,
+        cupping_form = excluded.cupping_form,
+        form_key = excluded.form_key,
+        form_version = excluded.form_version,
+        form_hash = excluded.form_hash,
         updated_at = excluded.updated_at
     `,
     [
@@ -622,6 +680,10 @@ export async function upsertSessionFromCupMetadata({
       nextSamplesInSession,
       nextStatus,
       nextSessionDate,
+      pinnedForm.f,
+      pinnedForm.form_key,
+      pinnedForm.form_version,
+      pinnedForm.form_hash,
       createdAt,
       nowIso,
     ]
@@ -636,6 +698,10 @@ export async function upsertSessionFromCupMetadata({
     samplesInSession: nextSamplesInSession,
     status: nextStatus,
     sessionDate: nextSessionDate,
+    cuppingForm: pinnedForm.f,
+    formKey: pinnedForm.form_key,
+    formVersion: pinnedForm.form_version,
+    formHash: pinnedForm.form_hash,
     createdAt,
     updatedAt: nowIso,
   };
@@ -681,8 +747,17 @@ export async function upsertSessionSampleFromCupMetadata({
   const sampleId = cleanString(existing?.id) || generateId();
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextCupNumber = coerceCupNumber(cupNumber ?? existing?.cupNumber);
-  const nextCuppingForm = normalizeCuppingFormKey(cuppingForm ?? existing?.cuppingForm) ?? 1;
-  const nextCuppingMode = normalizeCuppingModeKey(cuppingMode ?? existing?.cuppingMode);
+  const pinnedSession = await getSessionById(normalizedSessionId);
+  if (!isPinnedCva(pinnedSession) || cuppingForm !== 1 || (existing && existing.cuppingForm !== 1)) {
+    throw new Error("Cup form does not match the session form. No sample was changed.");
+  }
+  const nextCuppingForm = 1;
+  const nextCuppingMode = requireTagCuppingMode(
+    cuppingMode === "b" || cuppingMode === "o" ? { m: cuppingMode } : { cuppingMode }
+  );
+  if ((pinnedSession.samples || []).some((sample) => sample.cuppingMode !== nextCuppingMode)) {
+    throw new Error("Cup cupping mode conflicts with its stored session samples. No local record was changed.");
+  }
   const nextSampleNumber = normalizePositiveInteger(
     sampleNumber,
     Number(existing?.sampleNumber) || nextCupIndex + 1
@@ -741,6 +816,9 @@ export async function upsertSessionSampleFromCupMetadata({
 }
 
 export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } = {}) {
+  // Validate the raw tag before local fallback or any database write.
+  requireCvaTag(metadata);
+  const tagMode = requireTagCuppingMode(metadata);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
   const sessionUUID = normalizeSessionUuid(
     metadata?.sessionUUID ?? metadata?.u
@@ -750,8 +828,20 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     return null;
   }
 
+  const existingSession = await findSessionBySessionUUID(sessionUUID);
+  if (existingSession) {
+    if (!isPinnedCva(existingSession)) {
+      throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
+    }
+    const trustedSession = await getSessionById(existingSession.id);
+    if ((trustedSession?.samples || []).some((sample) => sample.cuppingForm !== 1 || sample.cuppingMode !== tagMode)) {
+      throw new Error("The cup form or cupping mode conflicts with stored session samples. No local record was changed.");
+    }
+  }
+
   const session = await upsertSessionFromCupMetadata({
     sessionUUID,
+    cuppingForm: metadata?.f ?? metadata?.cuppingForm,
     sessionName: metadata?.sessionName ?? metadata?.e,
     sessionType: metadata?.sessionType ?? metadata?.t,
     sessionDate: metadata?.sessionDate ?? metadata?.d,
@@ -766,7 +856,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     process: metadata?.coffeeProcess ?? metadata?.p,
     cupNumber: metadata?.cupNumber ?? metadata?.y,
     cuppingForm: metadata?.cuppingForm ?? metadata?.f,
-    cuppingMode: metadata?.cuppingMode ?? metadata?.m,
+    cuppingMode: tagMode,
     sampleNumber: metadata?.sampleNumber ?? metadata?.z,
   });
 
@@ -974,6 +1064,7 @@ export async function activateSession(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return;
   const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -984,6 +1075,7 @@ export async function resetSessionToPending(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
   const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'complete'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -995,6 +1087,7 @@ export async function manuallyMarkSessionComplete(sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
   const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'complete', updated_at = ? WHERE id = ?`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1033,6 +1126,8 @@ export async function deleteSampleFromSession(sampleId) {
     "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
     [normalizedSampleId]
   );
+  if (!sample?.sessionId) return { deleted: false };
+  await assertPinnedCvaSessionWithDb(db, sample.sessionId);
   await db.runAsync("DELETE FROM samples WHERE id = ?", [normalizedSampleId]);
   if (sample?.sessionId) {
     await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
@@ -1046,13 +1141,15 @@ export async function markSessionCompleteIfAllSamplesComplete(sessionId) {
     return { updated: false, status: null };
   }
 
+  const db = await getLocalDatabase();
+  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+
   const sampleStatusMap = await getSessionSampleFinalStatus(normalizedSessionId);
   const statusEntries = Object.values(sampleStatusMap || {});
   if (statusEntries.length === 0) {
     return { updated: false, status: null };
   }
 
-  const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
   const allComplete = statusEntries.every((entry) => Boolean(entry?.isComplete));
   if (!allComplete) {
@@ -1101,6 +1198,10 @@ export async function findActiveSampleByCupUUID(cupUUID) {
         s.session_type AS sessionType,
         s.status AS sessionStatus,
         s.session_date AS sessionDate,
+        s.cupping_form AS sessionCuppingForm,
+        s.form_key AS formKey,
+        s.form_version AS formVersion,
+        s.form_hash AS formHash,
         sm.id AS sampleId,
         sm.cup_uuid AS cupUUID,
         sm.cup_number AS cupNumber,
@@ -1142,7 +1243,7 @@ export async function findActiveSampleByCupUUID(cupUUID) {
     cupIndex: Number(row.cupIndex) || 0,
     cupTotal: Number(row.cupTotal) || 1,
     cupNumber: Number(row.cupNumber) || 3,
-    cuppingForm: normalizeCuppingFormKey(row.cuppingForm) ?? 1,
+    cuppingForm: row.cuppingForm,
     cuppingMode: normalizeCuppingModeKey(row.cuppingMode),
     sampleNumber: Number(row.sampleNumber) || null,
   };

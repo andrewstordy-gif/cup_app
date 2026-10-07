@@ -9,7 +9,6 @@ import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
 import {
   CUP_NUMBER_OPTIONS,
-  CUPPING_FORM_OPTIONS,
   CUPPING_MODE_OPTIONS,
   getCuppingFormLabel,
   getCuppingModeLabel,
@@ -105,48 +104,6 @@ function CupNumberDropdown({ anchorRect, selected, onSelect, onDismiss, scale })
   );
 }
 
-function CuppingFormDropdown({ anchorRect, selected, onSelect, onDismiss, scale }) {
-  if (!anchorRect) return null;
-  return (
-    <Modal visible transparent animationType="none" onRequestClose={onDismiss}>
-      <Pressable style={styles.dropdownBackdrop} onPress={onDismiss} />
-      <View
-        style={[
-          styles.dropdownMenu,
-          { top: anchorRect.y + anchorRect.height, left: anchorRect.x, width: anchorRect.width },
-        ]}
-      >
-        {CUPPING_FORM_OPTIONS.map((option, index) => (
-          <Pressable
-            key={option.key}
-            onPress={() => {
-              onSelect(option.key);
-              onDismiss();
-            }}
-            style={[
-              styles.dropdownOption,
-              { paddingVertical: 14 * scale },
-              index < CUPPING_FORM_OPTIONS.length - 1 && styles.dropdownOptionBorder,
-              option.key === Number(selected) && styles.dropdownOptionSelected,
-            ]}
-            accessibilityRole="menuitem"
-            accessibilityLabel={option.label}
-          >
-            <Text
-              style={[
-                styles.dropdownOptionText,
-                option.key === Number(selected) && styles.dropdownOptionTextSelected,
-              ]}
-            >
-              {option.label}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
-    </Modal>
-  );
-}
-
 function CuppingModeDropdown({ anchorRect, selected, onSelect, onDismiss, scale }) {
   if (!anchorRect) return null;
   return (
@@ -201,7 +158,6 @@ export function AddCoffeeSampleSheet({
   onChangeCoffeeNameOrigin,
   onChangeProcess,
   onSelectCupNumber,
-  onSelectCuppingForm,
   onSelectCuppingMode,
   onClose,
   onScanCup,
@@ -212,11 +168,9 @@ export function AddCoffeeSampleSheet({
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const processRowRef = useRef(null);
   const cupCountRowRef = useRef(null);
-  const cuppingFormRowRef = useRef(null);
   const cuppingModeRowRef = useRef(null);
   const [processAnchor, setProcessAnchor] = useState(null);
   const [cupCountAnchor, setCupCountAnchor] = useState(null);
-  const [cuppingFormAnchor, setCuppingFormAnchor] = useState(null);
   const [cuppingModeAnchor, setCuppingModeAnchor] = useState(null);
   const processLabel = process ? getProcessLabel(process) : null;
   const cuppingFormLabel = getCuppingFormLabel(cuppingForm);
@@ -232,12 +186,6 @@ export function AddCoffeeSampleSheet({
   const openCupCountMenu = () => {
     cupCountRowRef.current?.measure((x, y, w, h, pageX, pageY) => {
       setCupCountAnchor({ x: pageX, y: pageY, width: w, height: h });
-    });
-  };
-
-  const openCuppingFormMenu = () => {
-    cuppingFormRowRef.current?.measure((x, y, w, h, pageX, pageY) => {
-      setCuppingFormAnchor({ x: pageX, y: pageY, width: w, height: h });
     });
   };
 
@@ -340,22 +288,14 @@ export function AddCoffeeSampleSheet({
               {errors?.cupNumber ? <Text style={styles.errorText}>{errors.cupNumber}</Text> : null}
             </Pressable>
 
-            <Pressable
-              ref={cuppingFormRowRef}
-              onPress={openCuppingFormMenu}
-              accessibilityRole="button"
-              accessibilityLabel="Select cupping form"
-              accessibilityState={{ expanded: Boolean(cuppingFormAnchor) }}
-              style={[styles.metaRow, { paddingBottom: 14 * scale }]}
-            >
+            <View style={[styles.metaRow, { paddingBottom: 14 * scale }]}>
               <Text style={styles.metaLabel}>Form</Text>
               <View style={[styles.typeRowValue, { marginTop: 4 * scale }]}>
                 <Text style={[styles.metaValue, !cuppingFormLabel && styles.metaValuePlaceholder]}>
-                  {cuppingFormLabel || "Select form"}
+                  {cuppingFormLabel || "Unsupported prototype form"} (set for this session)
                 </Text>
-                <AppIcon name="chevron-down" role="icon_navigation" size={22} color={colors.inkSoft} />
               </View>
-            </Pressable>
+            </View>
 
             <Pressable
               ref={cuppingModeRowRef}
@@ -399,13 +339,6 @@ export function AddCoffeeSampleSheet({
             selected={cupNumber}
             onSelect={onSelectCupNumber}
             onDismiss={() => setCupCountAnchor(null)}
-            scale={scale}
-          />
-          <CuppingFormDropdown
-            anchorRect={cuppingFormAnchor}
-            selected={cuppingForm}
-            onSelect={onSelectCuppingForm}
-            onDismiss={() => setCuppingFormAnchor(null)}
             scale={scale}
           />
           <CuppingModeDropdown

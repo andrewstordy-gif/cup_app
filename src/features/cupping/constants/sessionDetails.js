@@ -155,7 +155,9 @@ export function getCuppingFormLabel(value) {
 }
 
 export function compactCuppingFormValue(value) {
-  return normalizeCuppingFormKey(value) ?? 1;
+  const form = normalizeCuppingFormKey(value);
+  if (form === null) throw new Error("Unsupported cupping form. No cup metadata was written.");
+  return form;
 }
 
 export function normalizeProcessKey(value) {
@@ -315,7 +317,7 @@ export function createSample(data = {}) {
     cupUUID: data.cupUUID || "",
     cupNumber,
     sampleNumber: normalizePositiveInteger(data.sampleNumber),
-    cuppingForm: normalizeCuppingFormKey(data.cuppingForm) ?? 1,
+    cuppingForm: data.cuppingForm,
     verificationStatus: data.verificationStatus || "unverified",
   };
 }
@@ -364,8 +366,8 @@ export function doesMetadataMatchExpected(actual, expected) {
       Number(actual.z ?? actual.sampleNumber ?? 0) === Number(expected.z || 0)) &&
     String(compactCuppingModeValue(actual.m ?? actual.cuppingMode ?? "")) ===
       String(compactCuppingModeValue(expected.m ?? expected.cuppingMode ?? "")) &&
-    Number(compactCuppingFormValue(actual.f ?? actual.cuppingForm ?? 1)) ===
-      Number(compactCuppingFormValue(expected.f ?? expected.cuppingForm ?? 1)) &&
+    (actual.f ?? actual.cuppingForm) === (expected.f ?? expected.cuppingForm) &&
+    (expected.f ?? expected.cuppingForm) === 1 &&
     String(actual.e || actual.sessionName || "") === String(expected.e || "") &&
     String(compactSessionTypeValue(actual.t ?? actual.sessionType ?? "")) ===
       String(compactSessionTypeValue(expected.t ?? "")) &&
