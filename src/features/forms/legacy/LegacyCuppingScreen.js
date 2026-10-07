@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
+import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { TypographyAuditText as Text } from '../../../components/ui/TypographyAuditText';
 import { Header } from '../../../components/ui/Header';
 import { colors } from '../../../theme/colors';
@@ -21,25 +21,41 @@ const OPTIONAL_TEXT = [
 ];
 const QUALITY_MARKS = Array.from({ length: 16 }, (_, i) => 24 + i);
 const scoreText = quarter => (quarter / 4).toFixed(2);
-const errorText = errors => (errors || []).map(error => error.replaceAll('_', ' ').replaceAll(':', ': ')).join('\n');
+const errorText = errors => (errors || []).map(error => {
+  if (error.startsWith('quality_ratings.')) {
+    const field = error.split(':')[0].split('.')[1];
+    return `Choose a quarter-point mark for ${QUALITY.find(([key]) => key === field)?.[1] || 'each quality rating'}.`;
+  }
+  if (error.startsWith('quality_ratings:')) return 'Choose all seven quality ratings.';
+  if (error.startsWith('consistent_cups:')) return 'Assess Uniformity for each cup.';
+  if (error.startsWith('sweet_cups:')) return 'Assess Sweetness for each cup.';
+  if (error.startsWith('clean_cups:')) return 'Assess Clean Cup for each cup.';
+  if (error === 'scored_defect:unassessed') return 'Choose No scored defect, Taint, or Fault.';
+  if (error === 'scored_defect.description:required') return 'Describe the scored defect.';
+  if (error === 'scored_defect.affected_cups:empty' || error === 'scored_defect.affected_cups:unassessed') return 'Select at least one cup affected by the scored defect.';
+  if (error === 'scored_defect.affected_cups:marked_clean') return 'A scored-defect cup cannot also be marked Clean Cup.';
+  if (error === 'session:complete_read_only') return 'This Session is complete. Reset it to Pending before editing.';
+  return 'Some assessment data could not be saved. Reopen this Session and review its saved form.';
+}).filter((message, index, list) => list.indexOf(message) === index).join('\n');
 
-function Choice({ label, selected, onPress, disabled = false, accessibilityLabel = label }) {
-  return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={accessibilityLabel}
-    accessibilityState={{ selected, disabled }} style={[styles.choice, selected && styles.choiceSelected, disabled && styles.choiceDisabled]}>
+function Choice({ label, selected, onPress, disabled = false, accessibilityLabel = label, role = 'button' }) {
+  return <Pressable onPress={onPress} disabled={disabled} accessibilityRole={role} accessibilityLabel={accessibilityLabel}
+    accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }} style={[styles.choice, selected && styles.choiceSelected, disabled && styles.choiceDisabled]}>
     <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{label}</Text>
   </Pressable>;
 }
 
 function CupSet({ label, value, count, onChange, fixed = false, readOnly = false }) {
   const selected = Array.isArray(value) ? value : [];
+  const affected = label === 'Affected cups';
   return <View style={styles.section}>
     <Text style={styles.sectionTitle}>{label}</Text>
-    <Text style={styles.hint}>{fixed ? 'One cup: Uniformity is always 10.' : value == null ? 'Not assessed yet' : selected.length ? `${selected.length} of ${count} cups` : 'Assessed: none qualify'}</Text>
+    <Text style={styles.hint}>{fixed ? 'One cup: Uniformity is always 10.' : value == null ? 'Not assessed yet' : selected.length ? `${selected.length} of ${count} cups` : affected ? 'Choose at least one affected cup' : 'Assessed: none qualify'}</Text>
     <View style={styles.wrap}>{Array.from({ length: count }, (_, i) => i + 1).map(cup =>
-      <Choice key={cup} label={`Cup ${cup}`} accessibilityLabel={`${label}, cup ${cup}, ${selected.includes(cup) ? 'qualifies' : 'does not qualify'}`}
+      <Choice key={cup} label={`Cup ${cup}`} role="checkbox" accessibilityLabel={affected ? `Affected cup ${cup}` : `${label}, cup ${cup}`}
         selected={selected.includes(cup)} disabled={fixed || readOnly} onPress={() => onChange(selected.includes(cup) ? selected.filter(n => n !== cup) : [...selected, cup].sort((a,b) => a-b))} />
     )}</View>
-    {!fixed && <View style={styles.wrap}>
+    {!fixed && !affected && <View style={styles.wrap}>
       <Choice label="None qualify" selected={Array.isArray(value) && value.length === 0} disabled={readOnly} onPress={() => onChange([])} />
       <Choice label="Not assessed" selected={value == null} disabled={readOnly} onPress={() => onChange(null)} />
     </View>}
@@ -94,7 +110,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       const saved = await saveLegacyResponse({ sessionId, sampleId, response, complete: true });
       if (!saved.ok) {
         setErrors(saved.errors);
-        setMessage('Complete the highlighted assessment fields before a final score is available. Draft remains saved.');
+        setMessage('Review the items listed below before a final score is available. Your draft remains saved.');
         return;
       }
       setErrors([]);
@@ -107,7 +123,8 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const defect = response.scored_defect;
   return <View style={styles.screen}>
     <Header title="SCA Legacy" variant="back" onBackPress={onBackPress} />
-    <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.content, { paddingHorizontal: 24 * scale }]}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={[styles.content, { paddingHorizontal: 24 * scale }]}>
       <Text style={styles.heading}>{coffeeNameOrigin || 'Sample'}</Text>
       <Text style={styles.hint}>SCA Legacy (2004–2023) · Open Cupping · {n} {n === 1 ? 'cup' : 'cups'}</Text>
       <Text style={styles.hint}>Select the paper-form quarter marks. Your draft is saved on this device as you go.</Text>
@@ -151,6 +168,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
         </View></View>)}
         {OPTIONAL_TEXT.map(([key, label]) => <View key={key} style={styles.observation}><Text style={styles.rowLabel}>{label}</Text>
           <TextInput value={response[key] || ''} onChangeText={value => edit(r => ({ ...r, [key]: value }))} multiline editable={!readOnly}
+            returnKeyType="done" submitBehavior="blurAndSubmit" onSubmitEditing={Keyboard.dismiss}
             placeholder={`Add ${label.toLowerCase()}`} placeholderTextColor={colors.inkSoft} accessibilityLabel={label} style={styles.input} />
         </View>)}
       </View>
@@ -169,6 +187,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
         <Text style={styles.completeText}>COMPLETE & SCORE</Text>
       </Pressable> : null}
     </ScrollView>
+    </KeyboardAvoidingView>
     <Modal visible={Boolean(qualityField)} transparent animationType="fade" onRequestClose={() => setQualityField(null)}>
       <View style={styles.modalBackdrop}><View style={styles.modalPanel}>
         <Text style={styles.sectionTitle}>{QUALITY.find(([key]) => key === qualityField)?.[1] || 'Quality mark'}</Text>

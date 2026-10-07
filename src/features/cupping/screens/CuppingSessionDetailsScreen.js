@@ -1314,7 +1314,9 @@ export function CuppingSessionDetailsScreen({
 
           <Pressable ref={sessionFormRowRef} onPress={openSessionFormMenu}
             disabled={isSessionLocked || !isSessionFormSupported || isQuickStartSession}
-            accessibilityRole="button" accessibilityLabel="Select session form"
+            accessibilityRole="button" accessibilityLabel={isSessionLocked || isQuickStartSession
+              ? `Session form, ${getCuppingFormLabel(selectedForm)}, locked after cup assignment`
+              : `Select session form, current ${getCuppingFormLabel(selectedForm)}`}
             accessibilityState={{ disabled: isSessionLocked || !isSessionFormSupported || isQuickStartSession, expanded: Boolean(sessionFormAnchor) }}
             style={[styles.metaRow, { paddingBottom: 14 * scale }]}>
             <Text style={styles.metaLabel}>Session Form</Text>

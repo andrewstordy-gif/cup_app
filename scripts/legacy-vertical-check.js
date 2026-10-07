@@ -9,11 +9,12 @@ const { formIdentity, requireFormRoute, requireFormTag } = require('../src/featu
 
 const root = path.resolve(__dirname, '..');
 const sqlite = new DatabaseSync(':memory:');
+let databaseWrites = 0;
 const bridge = {
   async execAsync(sql) { sqlite.exec(sql); },
   async getFirstAsync(sql, args = []) { return sqlite.prepare(sql).get(...args) || null; },
   async getAllAsync(sql, args = []) { return sqlite.prepare(sql).all(...args); },
-  async runAsync(sql, args = []) { return sqlite.prepare(sql).run(...args); },
+  async runAsync(sql, args = []) { databaseWrites += 1; return sqlite.prepare(sql).run(...args); },
   async withTransactionAsync(callback) {
     sqlite.exec('BEGIN');
     try { const result = await callback(); sqlite.exec('COMMIT'); return result; }
@@ -100,7 +101,14 @@ async function main() {
   await assert.rejects(reopened.resolveActiveSampleFromCupMetadata({ cupUUID: 'CUP-NEW', metadata: {
     u: 'emptylegacy001', f: 2, m: 'b', y: 1,
   } }), /Open mode/);
+  const emptyBeforeScan = await reopened.getSessionById('emptylegacy001');
+  const writesBeforeUnknownCup = databaseWrites;
+  await assert.rejects(reopened.resolveActiveSampleFromCupMetadata({ cupUUID: 'CUP-NEW', metadata: {
+    u: 'emptylegacy001', f: 2, m: 'o', y: 1, n: 'Coffee new', p: 1, z: 1,
+  } }), /no trusted local assignment/);
   assert.equal((await reopened.getSessionById('emptylegacy001')).samples.length, 0);
+  assert.equal((await reopened.getSessionById('emptylegacy001')).updatedAt, emptyBeforeScan.updatedAt);
+  assert.equal(databaseWrites, writesBeforeUnknownCup, 'unknown Legacy cup must fail before any write');
 
   await reopened.saveSessionWithSamples({ sessionUUID: 'emptylegacy001', existingSessionId: 'emptylegacy001',
     cuppingForm: 2, cuppingMode: 'open', sessionName: 'Empty Legacy', sessionDate: '7 Oct 2026', samples: [sample('one', 1)] });
@@ -121,12 +129,22 @@ async function main() {
   } }), /Open mode/);
   await assert.rejects(reopened.upsertSessionSampleFromCupMetadata({ sessionId: 'emptylegacy001',
     cupUUID: 'CUP-OTHER', cupNumber: 1, cuppingForm: 2, cuppingMode: 'blind' }), /Blind Cupping/);
+  await assert.rejects(reopened.upsertSessionSampleFromCupMetadata({ sessionId: 'emptylegacy001',
+    cupUUID: 'CUP-OTHER', cupNumber: 1, cuppingForm: 2, cuppingMode: 'open' }), /no trusted local assignment/);
+  const writesBeforeUnassignedCup = databaseWrites;
+  await assert.rejects(reopened.resolveActiveSampleFromCupMetadata({ cupUUID: 'CUP-OTHER', metadata: {
+    u: 'emptylegacy001', f: 2, m: 'o', y: 1, n: 'Coffee other', p: 1, z: 1,
+  } }), /no trusted local assignment/);
+  assert.equal(databaseWrites, writesBeforeUnassignedCup, 'unassigned Legacy cup must fail before any write');
   assert.equal((await reopened.getSessionById('emptylegacy001')).samples.length, 1);
+  const writesBeforeTrustedScan = databaseWrites;
   const resolved = await reopened.resolveActiveSampleFromCupMetadata({ cupUUID: 'CUP-one', metadata: {
-    u: 'emptylegacy001', f: 2, m: 'o', y: 1, n: 'Coffee one', p: 1, e: 'Empty Legacy', t: 1, d: 261007,
+    u: 'emptylegacy001', f: 2, m: 'o', y: 1, n: 'Coffee one', p: 1, z: 1, e: 'Empty Legacy', t: 1, d: 261007,
   } });
   assert.equal(resolved.cuppingForm, 2);
+  assert.equal(databaseWrites, writesBeforeTrustedScan, 'trusted Legacy scan must not import or mutate');
   assert.equal((await reopened.getSessionById('emptylegacy001')).samples.length, 1);
+  assert.equal((await reopened.getSessionById('emptylegacy001')).updatedAt, saved.updatedAt, 'trusted Legacy scan is read-only');
 
   const draft = { quality_ratings: { fragrance_aroma: 32 }, consistent_cups: [1],
     sweet_cups: null, clean_cups: null, scored_defect: { kind: 'taint', description: '', affected_cups: [] } };
@@ -169,6 +187,13 @@ async function main() {
   assert.deepEqual(taintReopened.response.scored_defect, tainted.scored_defect);
   assert.equal(taintReopened.response.wet_aroma_intensity, 4);
   assert.equal(taintReopened.result.display_score, '79.33');
+  const beforeCupMutation = await reopened.getSessionById('legacy-count-3');
+  await assert.rejects(reopened.saveSessionWithSamples({ sessionUUID: 'legacy-count-3', existingSessionId: 'legacy-count-3',
+    cuppingForm: 2, cuppingMode: 'open', sessionName: 'Legacy 3', samples: [sample('3', 5)] }), /cup count changed/);
+  assert.equal((await reopened.getSessionById('legacy-count-3')).samples[0].cupNumber, 3);
+  assert.equal((await reopened.getSessionById('legacy-count-3')).updatedAt, beforeCupMutation.updatedAt);
+  assert.deepEqual((await reopened.getLegacyResponse('legacy-count-3', 'sample-3')).response, tainted);
+  await assert.rejects(reopened.deleteSampleFromSession('sample-3'), /saved response cannot be removed/);
   const conflicting = { ...tainted, clean_cups: [1, 2, 3] };
   const rejected = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-3', sampleId: 'sample-3', response: conflicting, complete: true });
   assert.equal(rejected.ok, false);
@@ -176,6 +201,23 @@ async function main() {
   assert.equal((await reopened.getLegacyResponse('legacy-count-3', 'sample-3')).result.display_score, '79.33');
   await reopened.manuallyMarkSessionComplete('legacy-count-5');
   assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).sessionComplete, true);
+  const completedBefore = await reopened.getSessionById('legacy-count-5');
+  const writesBeforeCompleteScan = databaseWrites;
+  const completeScan = await reopened.resolveActiveSampleFromCupMetadata({ cupUUID: 'CUP-5', metadata: {
+    u: 'legacy-count-5', f: 2, m: 'o', y: 5, n: 'Coffee 5', p: 1, z: 1,
+  } });
+  assert.equal(completeScan.sessionStatus, 'complete');
+  assert.equal(completeScan.sampleId, 'sample-5');
+  assert.equal(databaseWrites, writesBeforeCompleteScan, 'completed trusted Legacy scan must be read-only');
+  await assert.rejects(reopened.resolveActiveSampleFromCupMetadata({ cupUUID: 'CUP-INTRUDER', metadata: {
+    u: 'legacy-count-5', f: 2, m: 'o', y: 5, n: 'Intruder', p: 1, z: 1,
+  } }), /no trusted local assignment/);
+  await assert.rejects(reopened.saveSessionWithSamples({ sessionUUID: 'legacy-count-5', existingSessionId: 'legacy-count-5',
+    cuppingForm: 2, cuppingMode: 'open', sessionName: 'Changed complete session', samples: [sample('5', 5)] }), /read-only/);
+  await assert.rejects(reopened.deleteSampleFromSession('sample-5'), /read-only/);
+  assert.equal((await reopened.getSessionById('legacy-count-5')).status, 'complete');
+  assert.equal((await reopened.getSessionById('legacy-count-5')).updatedAt, completedBefore.updatedAt);
+  assert.equal((await reopened.getSessionById('legacy-count-5')).samples.length, 1);
   const lockedSave = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-5', sampleId: 'sample-5',
     response: { ...completedResponse(5), notes: 'Edit after completion' }, complete: false });
   assert.equal(lockedSave.ok, false);

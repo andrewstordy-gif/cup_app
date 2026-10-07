@@ -304,7 +304,9 @@ export function AddCoffeeSampleSheet({
               onPress={openCuppingModeMenu}
               disabled={lockedCuppingMode}
               accessibilityRole="button"
-              accessibilityLabel="Select cupping mode"
+              accessibilityLabel={lockedCuppingMode
+                ? `Cupping mode, ${cuppingModeLabel}, locked for SCA Legacy`
+                : `Select cupping mode, current ${isCuppingModeDefault ? 'not selected' : cuppingModeLabel}`}
               accessibilityState={{ expanded: Boolean(cuppingModeAnchor), disabled: lockedCuppingMode }}
               style={[styles.metaRow, { paddingBottom: 14 * scale }]}
             >

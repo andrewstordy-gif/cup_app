@@ -261,7 +261,7 @@ export async function saveSessionWithSamples({
   await db.withTransactionAsync(async () => {
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
     const existingSession = await db.getFirstAsync(
-      "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode, form_locked AS formLocked FROM sessions WHERE id = ?",
+      "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode, form_locked AS formLocked, status FROM sessions WHERE id = ?",
       [sessionId]
     );
     if (existingSession && (!isPinnedForm(existingSession, cuppingForm) ||
@@ -275,6 +275,22 @@ export async function saveSessionWithSamples({
       const assigned = await db.getFirstAsync('SELECT COUNT(*) AS count FROM samples WHERE session_id = ?', [sessionId]);
       if (Number(assigned?.count) > 0 || Number(existingSession.formLocked) === 1) {
         throw new Error("An existing session's pinned form or mode cannot be changed after cup assignment. Its data is unchanged.");
+      }
+    }
+    if (existingSession?.cuppingForm === 2) {
+      if (existingSession.status === 'complete') {
+        throw new Error('This completed Legacy Session is read-only. Reset it to Pending before editing; no local record was changed.');
+      }
+      const recorded = await db.getAllAsync(
+        `SELECT samples.cup_uuid AS cupUUID, samples.cup_number AS cupNumber
+         FROM samples JOIN legacy_responses ON legacy_responses.sample_id = samples.id
+         WHERE samples.session_id = ?`, [sessionId]
+      );
+      for (const prior of recorded) {
+        const next = normalizedSamples.find(sample => sample.cupUUID === prior.cupUUID);
+        if (!next || next.cupNumber !== Number(prior.cupNumber)) {
+          throw new Error('A Legacy sample with a saved response cannot be removed or have its cup count changed. No local record was changed.');
+        }
       }
     }
 
@@ -538,9 +554,9 @@ export async function findSessionBySessionUUID(sessionUUID) {
   return row || null;
 }
 
-export async function getSessionById(sessionId) {
+export async function getSessionById(sessionId, { reconcile = true } = {}) {
   const db = await getLocalDatabase();
-  await reconcileCompletedSessions(db);
+  if (reconcile) await reconcileCompletedSessions(db);
 
   const session = await db.getFirstAsync(
     `
@@ -667,6 +683,7 @@ export async function upsertSessionFromCupMetadata({
   if (f === 2 && (!existing || existing.cuppingMode !== 'open')) {
     throw new Error('SCA Legacy cup is not linked to a trusted local Open Cupping session. No local data was changed.');
   }
+  if (f === 2) return existing;
   const sessionId = cleanString(existing?.id) || normalizedSessionUUID;
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextStatus = cleanString(existing?.status || status).toLowerCase() || "new";
@@ -775,7 +792,7 @@ export async function upsertSessionSampleFromCupMetadata({
   const sampleId = cleanString(existing?.id) || generateId();
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextCupNumber = coerceCupNumber(cupNumber ?? existing?.cupNumber);
-  const pinnedSession = await getSessionById(normalizedSessionId);
+  const pinnedSession = await getSessionById(normalizedSessionId, { reconcile: cuppingForm !== 2 });
   if (!isPinnedForm(pinnedSession, cuppingForm) || (existing && existing.cuppingForm !== cuppingForm)) {
     throw new Error("Cup form does not match the session form. No sample was changed.");
   }
@@ -789,6 +806,18 @@ export async function upsertSessionSampleFromCupMetadata({
   );
   if (nextCuppingForm === 2 && (pinnedSession.cuppingMode !== 'open' || nextCuppingMode !== 'open')) {
     throw new Error('SCA Legacy Blind Cupping is not yet available. No local record was changed.');
+  }
+  if (nextCuppingForm === 2) {
+    if (!existing) {
+      throw new Error('This Legacy cup has no trusted local assignment. Reopen the Session and assign the cup before scanning; no local data was changed.');
+    }
+    if (Number(existing.cupNumber) !== nextCupNumber ||
+        cleanString(coffeeNameOrigin) !== existing.coffeeNameOrigin ||
+        String(process) !== String(existing.process) ||
+        normalizePositiveInteger(sampleNumber, existing.sampleNumber) !== Number(existing.sampleNumber)) {
+      throw new Error('Legacy cup metadata conflicts with its trusted local assignment. No local record was changed.');
+    }
+    return existing;
   }
   if ((pinnedSession.samples || []).some((sample) => sample.cuppingMode !== nextCuppingMode)) {
     throw new Error("Cup cupping mode conflicts with its stored session samples. No local record was changed.");
@@ -877,18 +906,33 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     if (!isPinnedForm(existingSession, f)) {
       throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
     }
-    const trustedSession = await getSessionById(existingSession.id);
+    const trustedSession = await getSessionById(existingSession.id, { reconcile: f !== 2 });
     if ((f === 2 && (trustedSession.cuppingMode !== 'open' || tagMode !== 'open')) ||
         (trustedSession?.samples || []).some((sample) => sample.cuppingForm !== f || sample.cuppingMode !== tagMode)) {
       throw new Error("The cup form or cupping mode conflicts with stored session samples. No local record was changed.");
     }
     if (f === 2) {
       const storedSample = trustedSession.samples.find(sample => normalizeCupUuid(sample.cupUUID) === normalizedCupUUID);
-      if (storedSample && (Number(storedSample.cupNumber) !== rawCupCount ||
+      if (!storedSample) {
+        throw new Error('This Legacy cup has no trusted local assignment. Reopen the Session and assign the cup before scanning; no local data was changed.');
+      }
+      if (Number(storedSample.cupNumber) !== rawCupCount ||
           storedSample.coffeeNameOrigin !== cleanString(metadata?.coffeeName ?? metadata?.n) ||
-          String(storedSample.process) !== String(metadata?.coffeeProcess ?? metadata?.p))) {
+          String(storedSample.process) !== String(metadata?.coffeeProcess ?? metadata?.p) ||
+          Number(storedSample.sampleNumber) !== Number(metadata?.sampleNumber ?? metadata?.z)) {
         throw new Error('Legacy cup metadata conflicts with its trusted local assignment. No local record was changed.');
       }
+      return {
+        sessionId: trustedSession.id, sessionUUID: trustedSession.sessionUUID,
+        sessionDisplayId: trustedSession.sessionDisplayId, sessionName: trustedSession.sessionName,
+        sessionType: trustedSession.sessionType, sessionStatus: trustedSession.status,
+        sessionDate: trustedSession.sessionDate, sampleId: storedSample.id,
+        cupUUID: storedSample.cupUUID, cupNumber: storedSample.cupNumber,
+        cuppingForm: storedSample.cuppingForm, cuppingMode: storedSample.cuppingMode,
+        sampleNumber: storedSample.sampleNumber, coffeeNameOrigin: storedSample.coffeeNameOrigin,
+        coffeeProcess: storedSample.process, cupIndex: Number(storedSample.positionIndex) || 0,
+        cupTotal: Number(trustedSession.samplesInSession) || trustedSession.samples.length || 1,
+      };
     }
   }
 
@@ -1268,6 +1312,14 @@ export async function deleteSampleFromSession(sampleId) {
   );
   if (!sample?.sessionId) return { deleted: false };
   await assertPinnedSessionWithDb(db, sample.sessionId);
+  const owner = await db.getFirstAsync('SELECT cupping_form AS cuppingForm, status FROM sessions WHERE id = ? LIMIT 1', [sample.sessionId]);
+  if (owner?.cuppingForm === 2 && owner.status === 'complete') {
+    throw new Error('This completed Legacy Session is read-only. Reset it to Pending before editing; no local record was changed.');
+  }
+  if (owner?.cuppingForm === 2) {
+    const response = await db.getFirstAsync('SELECT sample_id FROM legacy_responses WHERE sample_id = ? LIMIT 1', [normalizedSampleId]);
+    if (response) throw new Error('A Legacy sample with a saved response cannot be removed. No local record was changed.');
+  }
   await db.runAsync("DELETE FROM samples WHERE id = ?", [normalizedSampleId]);
   if (sample?.sessionId) {
     await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
