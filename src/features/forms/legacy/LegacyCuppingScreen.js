@@ -192,7 +192,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const defectDeduction = defect?.kind && Array.isArray(defect.affected_cups)
     ? defectDeductionText({ numerator: (defect.kind === 'taint' ? 2 : 4) * defect.affected_cups.length * 5, denominator: n }) : '0.00';
   const displaySampleNumber = Number(sampleNumber) || (Number(cupIndex) || 0) + 1;
-  const measuredTemperature = Number(cupStatus?.temp);
+  const measuredTemperature = Number.parseFloat(cupStatus?.temp);
   const temperatureText = cupStatus?.temp != null && cupStatus?.temp !== 'N/A' && Number.isFinite(measuredTemperature)
     ? `${Math.round(measuredTemperature)} °C` : null;
   const openQuality = key => {
