@@ -10,7 +10,7 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ## [2026-10-09] — Codex Release Manager
 
-- R1-011 versions the pure SCA Legacy form contract to accept 0.00–10.00 quality marks in 0.25 steps, while distinguishing Cup App's extension from the 2009 protocol's printed 6.00–9.75 table. The active `NDEF4.f=2` mapping now pins an immutable Legacy v2 definition; old v1 responses remain untouched and read-only. This changes no app binary or mobile UI. Versionless `f=2` tags cannot yet establish a safe account-free cold join; R1-010 must integrate and verify the v2 contract before phone testing or Release 1 claims.
+- R1-011 versions the pure SCA Legacy form contract to accept 0.00–10.00 quality marks in 0.25 steps, while distinguishing Cup App's extension from the 2009 protocol's printed 6.00–9.75 table. The active `NDEF4.f=2` mapping now pins an immutable Legacy v2 definition; old v1 responses remain untouched and read-only. This changes no app binary or mobile UI. Versionless `f=2` tags cannot yet establish a safe account-free cold join; R1-010 must integrate and verify the v2 contract before phone testing or Release 1 claims. Merged through protected [PR #19](https://github.com/andrewstordy-gif/cup_app/pull/19) at `80725da170db00497769cabba6c4545994d39620`; exact integrated `main` validation passed. No build was distributed.
 
 ## [2026-10-07] — Codex Release Manager
 
