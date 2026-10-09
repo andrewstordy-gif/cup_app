@@ -3,7 +3,7 @@
   "protocol_profile": "ndef4-r1",
   "ndef_form_value": 2,
   "form_key": "scaa_legacy_2009a_cupapp",
-  "form_version": "1.0.0",
+  "form_version": "2.0.0",
   "source": {
     "edition": "SCAA Protocols VERSION 21NOV2009A, scoring/procedure",
     "sha256": "09a1def1e1f19fc171b4b2c34a3b11e3292372926df7ff0d3105cbf0b5a2d401",
@@ -12,7 +12,7 @@
     "corroboration": { "edition": "SCAA Cupping Protocols April 2005", "sha256": "a3da427261d78fab58352f442e9c990d19a354d50d9a75c11a3e3bdce11c78b0" }
   },
   "fields": [
-    { "id": "quality_ratings", "type": "ordered_integer_quarter_unit_mapping", "required_for_completion": true, "keys": ["fragrance_aroma", "flavor", "aftertaste", "acidity", "body", "balance", "overall"], "minimum": 24, "maximum": 39, "provenance": "2009 protocol explicit quality scale; paper 10 endpoint not selectable" },
+    { "id": "quality_ratings", "type": "ordered_integer_quarter_unit_mapping", "required_for_completion": true, "keys": ["fragrance_aroma", "flavor", "aftertaste", "acidity", "body", "balance", "overall"], "minimum": 0, "maximum": 40, "published_table_minimum": 24, "published_table_maximum": 39, "provenance": "2009 protocol prints 6.00–9.75; Product Owner-approved Cup App quarter-point extension covers theoretical 0.00–10.00" },
     { "id": "consistent_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCAA five-cup check; one-cup automatic 10 and other counts Cup App adaptation" },
     { "id": "sweet_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCAA five-cup check; other counts Cup App adaptation" },
     { "id": "clean_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCAA five-cup check; other counts Cup App adaptation" },

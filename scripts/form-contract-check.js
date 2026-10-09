@@ -38,7 +38,7 @@ equal(canonicalize({ z: 'café — 珈琲', a: 1 }), '{"a":1,"z":"café — 珈�
 assert.throws(() => canonicalize({ a: 1.5 }), /safe integers/); checks += 1;
 assert.throws(() => canonicalize('\ud800'), /Unpaired/); checks += 1;
 assert.throws(() => canonicalize(new Array(1)), /Sparse/); checks += 1;
-for (const [name, f] of [['cva', 1], ['legacy', 2]]) {
+for (const [name, f] of [['cva', 1], ['legacy-v2', 2]]) {
   const resolved = resolveForm(PROFILE, f);
   yes(resolved.ok);
   const canonical = canonicalize(resolved.manifest);
@@ -54,6 +54,13 @@ for (const [name, f] of [['cva', 1], ['legacy', 2]]) {
   changedField.fields[0].maximum += 1;
   yes(sha256(canonicalize(changedField)) !== resolved.identity.form_hash);
 }
+const historicalLegacyBytes = fs.readFileSync(path.join(__dirname, '../src/features/forms/contract/fixtures/legacy.canonical.json'), 'utf8');
+const historicalLegacyHash = 'c915e4678f968567091e7eb4b24e97fe19506ebd58bcdd0dbdec2433ea4fb2d4';
+equal(sha256(historicalLegacyBytes.slice(0, -1)), historicalLegacyHash);
+equal(JSON.parse(historicalLegacyBytes).form_version, '1.0.0');
+equal(REGISTRY.filter(row => row.profile === PROFILE && row.f === 2).length, 1);
+equal(REGISTRY.find(row => row.f === 2).form_version, '2.0.0');
+yes(!REGISTRY.some(row => row.form_hash === historicalLegacyHash));
 equal(canonicalize({ b: 2, a: 1 }), canonicalize({ a: 1, b: 2 }));
 for (const value of [undefined, null, '1', '2', true, false, 0, 3, 1.5, {}, []]) yes(!resolveForm(PROFILE, value).ok);
 yes(!resolveForm('wrong-profile', 1).ok);
@@ -119,6 +126,35 @@ reject(mutate(cva(5), x => { x.identity.form_key = identity(2).form_key; }), 'no
 yes(validateResponse({ ...mutate(cva(5), x => { delete x.response.defect_type; }), complete: false }).ok, 'Incomplete draft is valid but not scoreable');
 
 equal(scoreResponse(legacy(5)).display_score, '79.00');
+for (const [mark, expected, outside] of [[0, '30.00', true], [23, '70.25', true], [24, '72.00', false], [39, '98.25', false], [40, '100.00', true]]) {
+  const input = legacy(5, mark);
+  const scored = scoreResponse(input);
+  equal(scored.display_score, expected);
+  equal(scored.quality_scale_provenance.outside_published_table_fields.length, outside ? 7 : 0);
+  equal(scored.export_projection.quality_scale_provenance, scored.quality_scale_provenance);
+  equal(Boolean(scored.quality_scale_provenance.note), outside);
+}
+const mixedQuality = legacy(5);
+mixedQuality.response.quality_ratings.flavor = 40;
+equal(scoreResponse(mixedQuality).quality_scale_provenance.outside_published_table_fields, ['flavor']);
+const historicalResponse = legacy(5);
+historicalResponse.identity = { form_key: 'scaa_legacy_2009a_cupapp', form_version: '1.0.0', form_hash: historicalLegacyHash };
+const historicalSession = { profile: PROFILE, f: 2, identity: { ...historicalResponse.identity } };
+const historicalBefore = JSON.stringify({ historicalResponse, historicalSession });
+equal(validateRaw(historicalResponse, historicalSession).errors, ['trusted_session:unsupported_historical_form_version']);
+equal(scoreRaw(historicalResponse, historicalSession).read_only, true);
+equal(JSON.stringify({ historicalResponse, historicalSession }), historicalBefore);
+reject(historicalResponse, 'not_session_pinned');
+for (const qualityKey of Object.keys(legacy(5).response.quality_ratings)) {
+  reject(mutate(legacy(5), x => { delete x.response.quality_ratings[qualityKey]; }), `${qualityKey}:unassessed`);
+  reject(mutate(legacy(5), x => { x.response.quality_ratings[qualityKey] = '6.00'; }), `${qualityKey}:out_of_range`);
+}
+const belowZeroTotal = legacy(5, 0);
+belowZeroTotal.response.consistent_cups = [];
+belowZeroTotal.response.sweet_cups = [];
+belowZeroTotal.response.clean_cups = [];
+belowZeroTotal.response.scored_defect = { kind: 'fault', description: 'rubbery', affected_cups: cups(5) };
+equal(scoreResponse(belowZeroTotal).display_score, '-20.00');
 const fault = legacy(5); fault.response.clean_cups = [2, 3, 4, 5]; fault.response.scored_defect = { kind: 'fault', description: 'rubbery', affected_cups: [1] };
 equal(scoreResponse(fault).display_score, '73.00');
 const oneFault = legacy(1); oneFault.response.scored_defect = { kind: 'fault', description: 'rubbery', affected_cups: [1] };
@@ -140,8 +176,10 @@ for (let n = 1; n <= 8; n += 1) {
   yes(scoreResponse(none).ok);
 }
 reject(mutate(legacy(1), x => { x.response.consistent_cups = []; }), 'one_cup');
-reject(mutate(legacy(5), x => { x.response.quality_ratings.body = 40; }), 'out_of_range');
-reject(mutate(legacy(5), x => { x.response.quality_ratings.body = 23; }), 'out_of_range');
+reject(mutate(legacy(5), x => { x.response.quality_ratings.body = 41; }), 'out_of_range');
+reject(mutate(legacy(5), x => { x.response.quality_ratings.body = -1; }), 'out_of_range');
+reject(mutate(legacy(5), x => { x.response.quality_ratings.body = 0.5; }), 'out_of_range');
+reject(mutate(legacy(5), x => { delete x.response.quality_ratings.body; }), 'unassessed');
 reject(mutate(legacy(5), x => { x.response.quality_ratings.mouthfeel = 28; }), 'invalid_keys');
 reject(mutate(legacy(5), x => { x.response.ratings = {}; }), 'unsupported_field');
 reject(mutate(legacy(5), x => { x.response.scored_defect = []; }), 'invalid_object');
@@ -159,4 +197,4 @@ for (const name of ['consistent_cups', 'sweet_cups', 'clean_cups']) {
 }
 for (const n of [0, 9, 1.5, null, '5']) reject(mutate(cva(5), x => { x.cup_count = n; }), 'cup_count');
 
-console.log(`R1-008 pure form contract: ${checks} checks passed`);
+console.log(`R1-011 pure form contract: ${checks} checks passed`);
