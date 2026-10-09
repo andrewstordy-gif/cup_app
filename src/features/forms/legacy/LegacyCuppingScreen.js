@@ -2,24 +2,20 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { TypographyAuditText as Text } from '../../../components/ui/TypographyAuditText';
 import { Header } from '../../../components/ui/Header';
+import { AppIcon } from '../../../components/ui/AppIcon';
 import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { getLegacyResponse, saveLegacyResponse } from '../../../data/sessionRepository';
+import { getProcessLabel } from '../../cupping/constants/sessionDetails';
+import { PROFILE, resolveForm, scoreResponse } from '../contract';
 import { ORDINARY_MARKS, visibleMarks, scoreText, isExtendedMark, revealLowerForSelected, defectDeductionText } from './legacyQualityPresentation';
 
 const QUALITY = [
-  ['fragrance_aroma', 'Fragrance / Aroma'], ['flavor', 'Flavor'], ['aftertaste', 'Aftertaste'],
+  ['fragrance_aroma', 'Fragrance / Aroma'], ['flavor', 'Flavour'], ['aftertaste', 'Aftertaste'],
   ['acidity', 'Acidity'], ['body', 'Body'], ['balance', 'Balance'], ['overall', 'Overall'],
 ];
-const OPTIONAL_TICKS = [
-  ['dry_aroma_intensity', 'Dry aroma intensity'], ['break_aroma_intensity', 'Break aroma intensity'],
-  ['wet_aroma_intensity', 'Wet aroma intensity'], ['acidity_intensity', 'Acidity intensity'],
-  ['body_level', 'Body level'],
-];
-const OPTIONAL_TEXT = [
-  ['roast_level_note', 'Roast level note'], ['aroma_qualities', 'Aroma qualities'], ['notes', 'Notes'],
-];
+const DEFECT_SUGGESTIONS = ['Potato', 'Mouldy', 'Phenolic'];
 const errorText = errors => (errors || []).map(error => {
   if (error.startsWith('quality_ratings.')) {
     const field = error.split(':')[0].split('.')[1];
@@ -51,7 +47,7 @@ function QualityRuler({ label, value, onPress, disabled }) {
   return <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button"
     accessibilityState={{ disabled }} accessibilityLabel={`${label}, ${value == null ? 'not assessed' : `${scoreText(value)}${isExtendedMark(value) ? ', Cup App extended range' : ''}`}, choose exact quarter-point mark`}
     style={styles.qualityRow}>
-    <View style={styles.qualityTitleRow}><Text style={styles.rowLabel}>{label}</Text>
+    <View style={styles.qualityTitleRow}><Text style={styles.sectionTitle}>{label}</Text>
       <Text style={styles.rowValue}>{value == null ? 'Choose mark' : scoreText(value)}</Text></View>
     <View style={styles.rulerTicks}>{ORDINARY_MARKS.map(mark => <View key={mark} style={[styles.rulerTick,
       mark % 4 === 0 && styles.rulerMajorTick, value === mark && styles.rulerSelectedTick]} />)}</View>
@@ -61,14 +57,14 @@ function QualityRuler({ label, value, onPress, disabled }) {
   </Pressable>;
 }
 
-function CupSet({ label, value, count, onChange, fixed = false, readOnly = false }) {
+function CupSet({ label, value, count, onChange, fixed = false, readOnly = false, score = null, disabledHint = null }) {
   const selected = Array.isArray(value) ? value : [];
-  const affected = label === 'Affected cups';
-  return <View style={styles.section}>
-    <Text style={styles.sectionTitle}>{label}</Text>
-    <Text style={styles.hint}>{fixed ? 'One cup: Uniformity is always 10.' : value == null ? 'Not assessed yet' : selected.length ? `${selected.length} of ${count} cups` : affected ? 'Choose at least one affected cup' : 'Assessed: none qualify'}</Text>
+  const affected = label === 'Defective cups';
+  return <View style={styles.checkSection}>
+    <View style={styles.qualityTitleRow}><Text style={styles.sectionTitle}>{label}</Text>{score != null && <Text style={styles.rowValue}>{score}</Text>}</View>
+    <Text style={styles.hint}>{disabledHint || (fixed ? 'One cup: Uniformity is always 10.' : value == null ? 'Not assessed yet' : selected.length ? `${selected.length} of ${count} cups` : affected ? 'Choose at least one defective cup' : 'Assessed: none qualify')}</Text>
     <View style={styles.wrap}>{Array.from({ length: count }, (_, i) => i + 1).map(cup =>
-      <Choice key={cup} label={`Cup ${cup}`} role="checkbox" accessibilityLabel={affected ? `Affected cup ${cup}` : `${label}, cup ${cup}`}
+      <Choice key={cup} label={String(cup)} role="checkbox" style={styles.cupChoice} accessibilityLabel={affected ? `Defective cup ${cup}` : `${label}, cup ${cup}`}
         selected={selected.includes(cup)} disabled={fixed || readOnly} onPress={() => onChange(selected.includes(cup) ? selected.filter(n => n !== cup) : [...selected, cup].sort((a,b) => a-b))} />
     )}</View>
     {!fixed && !affected && <View style={styles.wrap}>
@@ -78,7 +74,33 @@ function CupSet({ label, value, count, onChange, fixed = false, readOnly = false
   </View>;
 }
 
-export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameOrigin, onBackPress }) {
+function VerticalRuler({ label, value, onChange, readOnly, lowLabel, highLabel }) {
+  return <View style={styles.verticalGroup}>
+    <Text style={styles.hint}>{label}</Text>
+    <View style={styles.verticalRow}>
+      <View style={styles.verticalTrack}><View pointerEvents="none" style={styles.verticalSpine} />{[5, 4, 3, 2, 1].map(mark => <Pressable key={mark}
+        onPress={() => onChange(value === mark ? null : mark)} disabled={readOnly}
+        accessibilityRole="button" accessibilityLabel={`${label} ${mark} of 5`}
+        accessibilityState={{ selected: value === mark, disabled: readOnly }}
+        style={[styles.verticalTick, value === mark && styles.verticalTickSelected]} />)}</View>
+      {(highLabel || lowLabel) && <View style={styles.verticalLabels}><Text style={styles.hint}>{highLabel}</Text><Text style={styles.hint}>{lowLabel}</Text></View>}
+    </View>
+  </View>;
+}
+
+function NotesField({ label, value, onChange, readOnly, placeholder }) {
+  return <View style={styles.observation}><Text style={styles.rowLabel}>{label}</Text><TextInput
+    value={value || ''} onChangeText={onChange} multiline editable={!readOnly} returnKeyType="done"
+    submitBehavior="blurAndSubmit" onSubmitEditing={Keyboard.dismiss} placeholder={placeholder || `Add ${label.toLowerCase()}`}
+    placeholderTextColor={colors.inkSoft} accessibilityLabel={label} style={styles.input} /></View>;
+}
+
+function componentScore(value, n, oneCupUniformity = false) {
+  if (oneCupUniformity && n === 1) return '10.00';
+  return Array.isArray(value) ? (10 * value.length / n).toFixed(2) : '—';
+}
+
+export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameOrigin, process, sampleNumber, cupIndex, cupStatus, onBackPress, onScanPress }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const scoreChoiceWidth = Math.max(44, (width - 4 * spacing.md - 3 * spacing.xs) / 4);
@@ -89,11 +111,14 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const [message, setMessage] = useState('');
   const [qualityField, setQualityField] = useState(null);
   const [showLowerScores, setShowLowerScores] = useState(false);
-  const [expandedSection, setExpandedSection] = useState('quality');
+  const [defectsOpen, setDefectsOpen] = useState(false);
   const [showResultBreakdown, setShowResultBreakdown] = useState(false);
+  const [showOtherObservations, setShowOtherObservations] = useState(false);
   const [loading, setLoading] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
   const queue = useRef(Promise.resolve());
+  const completion = useRef(Promise.resolve(true));
+  const responseRef = useRef(null);
   const selectorScroll = useRef(null);
 
   useEffect(() => {
@@ -101,9 +126,10 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     setLoading(true);
     getLegacyResponse(sessionId, sampleId).then(saved => {
       if (cancelled) return;
-      setResponse(saved?.response || { quality_ratings: {}, consistent_cups: n === 1 ? [1] : null });
+      const loaded = saved?.response || { quality_ratings: {}, consistent_cups: n === 1 ? [1] : null };
+      responseRef.current = loaded;
+      setResponse(loaded);
       setResult(saved?.result || null);
-      setExpandedSection(saved?.result?.ok ? null : 'quality');
       setReadOnly(Boolean(saved?.sessionComplete));
       setErrors(saved?.errors || []);
       setLoading(false);
@@ -112,42 +138,63 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   }, [sessionId, sampleId, n]);
 
   const edit = change => {
-    if (!response || readOnly) return;
-    const next = change(response);
+    if (!responseRef.current || readOnly) return;
+    const next = change(responseRef.current);
+    responseRef.current = next;
     setResponse(next);
     setResult(null);
     setErrors([]);
+    completion.current = Promise.resolve(true);
     setMessage('Saving draft locally…');
     queue.current = queue.current.catch(() => {}).then(() => saveLegacyResponse({ sessionId, sampleId, response: next, complete: false }))
       .then(saved => {
         if (saved.ok) setMessage('Draft saved locally.');
         else setMessage(`Could not save draft: ${errorText(saved.errors)}`);
-      }).catch(error => setMessage(error?.message || 'Could not save draft.'));
+        return saved;
+      }).catch(error => { setMessage(error?.message || 'Could not save draft.'); return { ok: false, errors: ['draft:save_failed'] }; });
   };
 
   const complete = async () => {
     if (!response || readOnly) return;
     await queue.current;
     try {
-      const saved = await saveLegacyResponse({ sessionId, sampleId, response, complete: true });
+      const saved = await saveLegacyResponse({ sessionId, sampleId, response: responseRef.current, complete: true });
       if (!saved.ok) {
         setErrors(saved.errors);
         setMessage('Review the items listed below before a final score is available. Your draft remains saved.');
         const first = saved.errors?.[0] || '';
-        setExpandedSection(first.startsWith('quality_ratings') ? 'quality'
-          : first.startsWith('scored_defect') ? 'defect'
-          : ['consistent_cups', 'sweet_cups', 'clean_cups'].some(key => first.startsWith(key)) ? 'cups' : 'quality');
-        return;
+        if (first.startsWith('scored_defect')) setDefectsOpen(true);
+        return false;
       }
       setErrors([]);
       setResult(saved.result);
       setMessage('Legacy assessment completed and saved locally.');
-    } catch (error) { setMessage(error?.message || 'Could not complete the assessment.'); }
+      return true;
+    } catch (error) { setMessage(error?.message || 'Could not complete the assessment.'); return false; }
+  };
+
+  const scanNextCup = async () => {
+    if (!(await completion.current)) return;
+    const saved = await queue.current;
+    if (saved && !saved.ok) {
+      setMessage(`Could not save draft: ${errorText(saved.errors)} Scan was not started.`);
+      return;
+    }
+    if (typeof onScanPress === 'function') onScanPress();
   };
 
   if (loading || !response) return <View style={styles.screen}><Header title="SCA Legacy" variant="back" onBackPress={onBackPress} /><Text style={styles.hint}>{message || 'Loading saved assessment…'}</Text></View>;
   const defect = response.scored_defect;
-  const assessedQualityCount = QUALITY.filter(([key]) => response.quality_ratings?.[key] != null).length;
+  const form = resolveForm(PROFILE, 2);
+  const liveResult = form.ok ? scoreResponse({ profile: PROFILE, f: 2, identity: form.identity, cup_count: n, response },
+    { profile: PROFILE, f: 2, identity: form.identity }) : null;
+  const displayedResult = result?.ok ? result : liveResult?.ok ? liveResult : null;
+  const defectDeduction = defect?.kind && Array.isArray(defect.affected_cups)
+    ? defectDeductionText({ numerator: (defect.kind === 'taint' ? 2 : 4) * defect.affected_cups.length * 5, denominator: n }) : '0.00';
+  const displaySampleNumber = Number(sampleNumber) || (Number(cupIndex) || 0) + 1;
+  const measuredTemperature = Number(cupStatus?.temp);
+  const temperatureText = cupStatus?.temp != null && cupStatus?.temp !== 'N/A' && Number.isFinite(measuredTemperature)
+    ? `${Math.round(measuredTemperature)} °C` : null;
   const openQuality = key => {
     setShowLowerScores(revealLowerForSelected(response.quality_ratings?.[key]));
     selectorScroll.current?.scrollTo({ y: 0, animated: false });
@@ -169,81 +216,80 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     </View> : null}
   </View> : null;
   return <View style={styles.screen}>
-    <Header title="SCA Legacy" variant="back" onBackPress={onBackPress} />
+    <Header variant="back" onBackPress={onBackPress} titleContent={<Text style={styles.headerNumber}>{displaySampleNumber}</Text>}
+      rightContent={temperatureText ? <Text style={styles.headerTemperature}>{temperatureText}</Text> : <Text style={styles.headerUnavailable}>— °C</Text>} sideWidth={88} />
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={[styles.content, { paddingHorizontal: 24 * scale }]}>
-      <Text style={styles.heading}>{coffeeNameOrigin || 'Sample'}</Text>
-      <Text style={styles.hint}>SCA Legacy (2004–2023) · Open Cupping · {n} {n === 1 ? 'cup' : 'cups'}</Text>
-      <Text style={styles.hint}>Tap a ruler to choose an exact quarter-point mark. Your draft is saved on this device as you go.</Text>
+      <View style={styles.sampleIdentity}><Text style={styles.heading}>{coffeeNameOrigin || 'Sample'}</Text>
+        <Text style={styles.hint}>{process ? `${getProcessLabel(process)} · ` : ''}SCA Legacy (2004–2023) · Open Cupping · {n} {n === 1 ? 'cup' : 'cups'}</Text></View>
+      <Text style={styles.hint}>Tap a ruler to choose an exact quarter-point mark. Your draft saves on this device as you go.</Text>
       {readOnly ? <Text style={styles.hint}>This Session is complete. Its Legacy result is read-only; reset the Session to Pending before editing.</Text> : null}
       {message ? <Text style={styles.hint} accessibilityLiveRegion="polite">{message}</Text> : null}
       {resultSummary}
-
-      <Pressable onPress={() => setExpandedSection(expandedSection === 'quality' ? null : 'quality')} accessibilityRole="button"
-        accessibilityState={{ expanded: expandedSection === 'quality' }} style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Quality ratings</Text><Text style={styles.hint}>{assessedQualityCount}/7 · {expandedSection === 'quality' ? 'Hide' : 'Show'}</Text>
+      {QUALITY.map(([key, label]) => <View key={key}>
+        <QualityRuler label={label} value={response.quality_ratings?.[key]} onPress={() => openQuality(key)} disabled={readOnly} />
+        {key === 'fragrance_aroma' && <View style={styles.fragranceExtras}>
+          <Text style={styles.hint}>Intensity</Text><View style={styles.intensityPair}>
+            <VerticalRuler label="Dry" value={response.dry_aroma_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, dry_aroma_intensity: value }))} />
+            <VerticalRuler label="Break" value={response.break_aroma_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, break_aroma_intensity: value }))} />
+          </View><NotesField label="Qualities" value={response.aroma_qualities} readOnly={readOnly} onChange={value => edit(r => ({ ...r, aroma_qualities: value }))} />
+        </View>}
+        {key === 'acidity' && <VerticalRuler label="Intensity" highLabel="High" lowLabel="Low" value={response.acidity_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, acidity_intensity: value }))} />}
+        {key === 'body' && <VerticalRuler label="Level" highLabel="Heavy" lowLabel="Thin" value={response.body_level} readOnly={readOnly} onChange={value => edit(r => ({ ...r, body_level: value }))} />}
+      </View>)}
+      <CupSet label="Uniformity" score={componentScore(response.consistent_cups, n, true)} value={n === 1 ? [1] : response.consistent_cups} count={n} fixed={n === 1} readOnly={readOnly} onChange={value => edit(r => ({ ...r, consistent_cups: value }))} />
+      <CupSet label="Sweetness" score={componentScore(response.sweet_cups, n)} value={response.sweet_cups} count={n} readOnly={readOnly} onChange={value => edit(r => ({ ...r, sweet_cups: value }))} />
+      <CupSet label="Clean Cup" score={componentScore(response.clean_cups, n)} value={response.clean_cups} count={n} readOnly={readOnly} onChange={value => edit(r => ({ ...r, clean_cups: value }))} />
+      <NotesField label="Flavour Notes" value={response.notes} readOnly={readOnly} onChange={value => edit(r => ({ ...r, notes: value }))} />
+      <Pressable onPress={() => setShowOtherObservations(!showOtherObservations)} accessibilityRole="button"
+        accessibilityState={{ expanded: showOtherObservations }} style={styles.sectionHeader}>
+        <Text style={styles.rowLabel}>Other observations</Text><Text style={styles.hint}>{showOtherObservations ? 'Hide' : 'Show'}</Text>
       </Pressable>
-      {expandedSection === 'quality' ? QUALITY.map(([key, label]) => <QualityRuler key={key} label={label} value={response.quality_ratings?.[key]}
-        onPress={() => openQuality(key)} disabled={readOnly} />) : null}
-
-      <Pressable onPress={() => setExpandedSection(expandedSection === 'cups' ? null : 'cups')} accessibilityRole="button"
-        accessibilityState={{ expanded: expandedSection === 'cups' }} style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Cup-by-cup checks</Text><Text style={styles.hint}>{expandedSection === 'cups' ? 'Hide' : 'Show'}</Text>
-      </Pressable>
-      {expandedSection === 'cups' ? <>
-      <CupSet label="Uniformity" value={n === 1 ? [1] : response.consistent_cups} count={n} fixed={n === 1} readOnly={readOnly} onChange={value => edit(r => ({ ...r, consistent_cups: value }))} />
-      <CupSet label="Sweetness" value={response.sweet_cups} count={n} readOnly={readOnly} onChange={value => edit(r => ({ ...r, sweet_cups: value }))} />
-      <CupSet label="Clean Cup" value={response.clean_cups} count={n} readOnly={readOnly} onChange={value => edit(r => ({ ...r, clean_cups: value }))} />
-      </> : null}
-
-      <Pressable onPress={() => setExpandedSection(expandedSection === 'defect' ? null : 'defect')} accessibilityRole="button"
-        accessibilityState={{ expanded: expandedSection === 'defect' }} style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>One scored defect</Text><Text style={styles.hint}>{defect === null ? 'None' : defect?.kind || 'Not assessed'} · {expandedSection === 'defect' ? 'Hide' : 'Show'}</Text>
-      </Pressable>
-      {expandedSection === 'defect' ? <View style={styles.section}>
-        <Text style={styles.hint}>Choose no scored defect or one taint/fault. Affected cups cannot also be marked Clean Cup.</Text>
-        <View style={styles.wrap}>
-          <Choice label="Not assessed" selected={defect === undefined} disabled={readOnly} onPress={() => edit(r => { const { scored_defect, ...rest } = r; return rest; })} />
-          <Choice label="No scored defect" selected={defect === null} disabled={readOnly} onPress={() => edit(r => ({ ...r, scored_defect: null }))} />
-          {['taint', 'fault'].map(kind => <Choice key={kind} label={kind === 'taint' ? 'Taint · 2' : 'Fault · 4'} selected={defect?.kind === kind} disabled={readOnly}
-            onPress={() => edit(r => ({ ...r, scored_defect: { kind, description: r.scored_defect?.description || '', affected_cups: r.scored_defect?.affected_cups || [] } }))} />)}
-        </View>
-        {defect && <><TextInput value={defect.description} onChangeText={value => edit(r => ({ ...r, scored_defect: { ...r.scored_defect, description: value } }))}
-          placeholder="Describe the defect" placeholderTextColor={colors.inkSoft} accessibilityLabel="Scored defect description" editable={!readOnly} style={styles.input} />
-          <CupSet label="Affected cups" value={defect.affected_cups} count={n}
-            readOnly={readOnly}
-            onChange={value => edit(r => ({ ...r, scored_defect: { ...r.scored_defect, affected_cups: value || [] } }))} />
-          {Array.isArray(response.clean_cups) && defect.affected_cups.some(cup => response.clean_cups.includes(cup)) ?
-            <Text style={styles.error}>Affected cups cannot also be marked Clean Cup. Change one of those judgments.</Text> : null}
-        </>}
-      </View> : null}
-
-      <Pressable onPress={() => setExpandedSection(expandedSection === 'optional' ? null : 'optional')} accessibilityRole="button"
-        accessibilityState={{ expanded: expandedSection === 'optional' }} style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Optional observations</Text><Text style={styles.hint}>{expandedSection === 'optional' ? 'Hide' : 'Show'}</Text>
-      </Pressable>
-      {expandedSection === 'optional' ? <View style={styles.section}>
+      {showOtherObservations ? <View style={styles.section}>
         <Text style={styles.rowLabel}>Roast shade (paper-form position)</Text>
         <View style={styles.wrap}>{[1,2,3,4].map(value => <Choice key={value} label={String(value)} selected={response.roast_shade_tick === value} disabled={readOnly}
           accessibilityLabel={`Roast shade position ${value} of 4`} onPress={() => edit(r => ({ ...r, roast_shade_tick: r.roast_shade_tick === value ? null : value }))} />)}</View>
-        {OPTIONAL_TICKS.map(([key, label]) => <View key={key} style={styles.observation}><Text style={styles.rowLabel}>{label}</Text><View style={styles.wrap}>
-          {[1,2,3,4,5].map(value => <Choice key={value} label={String(value)} selected={response[key] === value} disabled={readOnly} accessibilityLabel={`${label} ${value} of 5`}
-            onPress={() => edit(r => ({ ...r, [key]: r[key] === value ? null : value }))} />)}
-        </View></View>)}
-        {OPTIONAL_TEXT.map(([key, label]) => <View key={key} style={styles.observation}><Text style={styles.rowLabel}>{label}</Text>
-          <TextInput value={response[key] || ''} onChangeText={value => edit(r => ({ ...r, [key]: value }))} multiline editable={!readOnly}
-            returnKeyType="done" submitBehavior="blurAndSubmit" onSubmitEditing={Keyboard.dismiss}
-            placeholder={`Add ${label.toLowerCase()}`} placeholderTextColor={colors.inkSoft} accessibilityLabel={label} style={styles.input} />
-        </View>)}
+        <VerticalRuler label="Wet aroma intensity" value={response.wet_aroma_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, wet_aroma_intensity: value }))} />
+        <NotesField label="Roast level note" value={response.roast_level_note} readOnly={readOnly} onChange={value => edit(r => ({ ...r, roast_level_note: value }))} />
       </View> : null}
 
       {errors.length > 0 && <View style={styles.section}><Text style={styles.error}>Assessment needs attention:</Text><Text style={styles.error}>{errorText(errors)}</Text></View>}
-      {!result?.ok ? <Text style={styles.hint}>No final score until this assessment is complete.</Text> : null}
-      {!readOnly && !result?.ok ? <Pressable onPress={complete} accessibilityRole="button" accessibilityLabel="Complete Legacy assessment and calculate result" style={styles.completeButton}>
+      {!displayedResult?.ok ? <Text style={styles.hint}>Overall score — Complete all required marks and checks to see a score.</Text> : null}
+      {!readOnly && !result?.ok ? <Pressable onPress={() => { completion.current = complete(); }} accessibilityRole="button" accessibilityLabel="Complete Legacy assessment and calculate result" style={styles.completeButton}>
         <Text style={styles.completeText}>COMPLETE & SCORE</Text>
       </Pressable> : null}
       {result?.ok && !readOnly ? <Text style={styles.hint}>Assessment saved. Change a mark to revise this result while the Session is Pending.</Text> : null}
     </ScrollView>
+    {defectsOpen && <ScrollView style={styles.defectsPanel} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.defectsContent}>
+      <CupSet label="Defective cups" value={defect?.affected_cups} count={n} readOnly={readOnly || !defect}
+        disabledHint={!defect ? 'Choose Taint or Fault below to select cups.' : null}
+        onChange={value => edit(r => ({ ...r, scored_defect: { ...r.scored_defect, affected_cups: value } }))} />
+      <View style={styles.observation}><Text style={styles.sectionTitle}>Classification</Text><View style={styles.wrap}>
+        <Choice label="Not assessed" selected={defect === undefined} disabled={readOnly} onPress={() => edit(r => { const { scored_defect, ...rest } = r; return rest; })} />
+        <Choice label="None" selected={defect === null} disabled={readOnly} onPress={() => edit(r => ({ ...r, scored_defect: null }))} />
+        {['taint', 'fault'].map(kind => <Choice key={kind} label={kind === 'taint' ? 'Taint · 2' : 'Fault · 4'} selected={defect?.kind === kind} disabled={readOnly}
+          onPress={() => edit(r => ({ ...r, scored_defect: { kind, description: r.scored_defect?.description || '', affected_cups: r.scored_defect?.affected_cups || [] } }))} />)}
+      </View>{defect === undefined && <Text style={styles.hint}>Not assessed yet</Text>}</View>
+      {defect && <>
+        <View style={styles.observation}><Text style={styles.sectionTitle}>Defect type</Text><View style={styles.wrap}>
+          {DEFECT_SUGGESTIONS.map(suggestion => <Choice key={suggestion} label={suggestion} disabled={readOnly}
+            selected={defect.description === suggestion} onPress={() => edit(r => ({ ...r, scored_defect: { ...r.scored_defect, description: suggestion } }))} />)}
+        </View></View>
+        <NotesField label="Describe the defect" value={defect.description} readOnly={readOnly} placeholder="e.g. sour, rubbery, ferment"
+          onChange={value => edit(r => ({ ...r, scored_defect: { ...r.scored_defect, description: value } }))} />
+        {Array.isArray(response.clean_cups) && defect.affected_cups.some(cup => response.clean_cups.includes(cup)) ?
+          <Text style={styles.error}>Defective cups cannot also be marked Clean Cup. Change one of those judgments.</Text> : null}
+      </>}
+      <View style={styles.qualityTitleRow}><Text style={styles.rowLabel}>Score deduction</Text><Text style={styles.rowValue}>{defectDeduction}</Text></View>
+    </ScrollView>}
+    <Pressable onPress={() => setDefectsOpen(!defectsOpen)} accessibilityRole="button" accessibilityLabel={defectsOpen ? 'Close defects drawer' : 'Open defects drawer'}
+      accessibilityState={{ expanded: defectsOpen }} style={styles.drawerHeader}><AppIcon name={defectsOpen ? 'chevron-down' : 'chevron-up'} role="icon_compact" /><Text style={styles.sectionTitle}>Defects</Text></Pressable>
+    <View style={styles.overallRow} accessibilityLiveRegion="polite"><Text style={styles.sectionTitle}>Overall score</Text><Text style={styles.overallValue}>{displayedResult?.ok ? displayedResult.display_score : '—'}</Text></View>
+    {displayedResult?.adapted && <Text style={styles.adaptedLabel}>{displayedResult.label}</Text>}
+    {liveResult?.ok && !result?.ok && <Text style={styles.adaptedLabel}>Score preview — complete the assessment to save the final result.</Text>}
+    <View style={styles.footer}><Pressable onPress={scanNextCup} disabled={typeof onScanPress !== 'function'} accessibilityRole="button"
+      accessibilityLabel="Scan cup" style={[styles.scanButton, typeof onScanPress !== 'function' && styles.choiceDisabled]}>
+      <Text style={styles.completeText}>SCAN CUP</Text></Pressable></View>
     </KeyboardAvoidingView>
     <Modal visible={Boolean(qualityField)} transparent animationType="fade" onRequestClose={() => setQualityField(null)}>
       <View style={styles.modalBackdrop}><View style={styles.modalPanel}>
@@ -277,7 +323,7 @@ const styles = StyleSheet.create({
   rulerTicks: { height: 18, borderBottomWidth: 1, borderBottomColor: colors.ink, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   rulerTick: { width: 1, height: 8, backgroundColor: colors.inkSoft },
   rulerMajorTick: { height: 15, backgroundColor: colors.ink },
-  rulerSelectedTick: { width: 3, height: 18, backgroundColor: colors.ink },
+  rulerSelectedTick: { width: 5, height: 18, borderRadius: 3, backgroundColor: colors.action },
   rulerLabels: { flexDirection: 'row', justifyContent: 'space-between' },
   rulerLabel: { ...typography.text_caption, color: colors.inkSoft },
   sectionHeader: { minHeight: 56, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
@@ -289,6 +335,29 @@ const styles = StyleSheet.create({
   choiceDisabled: { opacity: 0.7 },
   choiceText: { ...typography.text_secondary_body, color: colors.ink },
   choiceTextSelected: { color: colors.surface },
+  cupChoice: { minWidth: 44, width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: colors.ink, paddingHorizontal: 0 },
+  checkSection: { gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: spacing.md },
+  sampleIdentity: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.md, gap: spacing.xs },
+  headerNumber: { ...typography.text_screen_title, color: colors.ink },
+  headerTemperature: { ...typography.text_screen_title, color: colors.ink },
+  headerUnavailable: { ...typography.text_secondary_body, color: colors.inkSoft },
+  fragranceExtras: { gap: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  intensityPair: { alignSelf: 'center', flexDirection: 'row', gap: spacing.lg },
+  verticalGroup: { alignSelf: 'center', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
+  verticalRow: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.sm },
+  verticalTrack: { width: 60, borderBottomWidth: 2, borderBottomColor: colors.ink, alignItems: 'center' },
+  verticalSpine: { position: 'absolute', top: 0, bottom: 0, width: 2, backgroundColor: colors.ink },
+  verticalTick: { width: 56, height: 44, borderTopWidth: 2, borderTopColor: colors.ink, borderRadius: 2 },
+  verticalTickSelected: { borderTopWidth: 5, borderTopColor: colors.action, borderRadius: 3 },
+  verticalLabels: { justifyContent: 'space-between', paddingVertical: spacing.sm },
+  defectsPanel: { flexGrow: 0, maxHeight: '55%', backgroundColor: colors.surface },
+  defectsContent: { padding: spacing.md, gap: spacing.md },
+  drawerHeader: { minHeight: 56, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: spacing.xs, borderTopWidth: 1, borderBottomWidth: 1, borderColor: colors.border, backgroundColor: colors.panel },
+  overallRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  overallValue: { ...typography.text_secondary_metric, color: colors.ink },
+  adaptedLabel: { ...typography.text_secondary_body, color: colors.inkSoft, paddingHorizontal: spacing.md },
+  footer: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, paddingTop: spacing.xs },
+  scanButton: { height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.action },
   input: { minHeight: 56, padding: spacing.sm, backgroundColor: colors.input, borderRadius: 8, ...typography.text_body, color: colors.ink, textAlignVertical: 'top' },
   observation: { gap: spacing.xs },
   error: { ...typography.text_secondary_body, color: colors.danger },
