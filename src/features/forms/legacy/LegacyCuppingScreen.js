@@ -10,6 +10,7 @@ import { getLegacyResponse, saveLegacyResponse } from '../../../data/sessionRepo
 import { getProcessLabel } from '../../cupping/constants/sessionDetails';
 import { PROFILE, resolveForm, scoreResponse } from '../contract';
 import { ORDINARY_MARKS, visibleMarks, scoreText, isExtendedMark, revealLowerForSelected, defectDeductionText } from './legacyQualityPresentation';
+import { createLegacySaveQueue } from './legacySaveQueue';
 
 const QUALITY = [
   ['fragrance_aroma', 'Fragrance / Aroma'], ['flavor', 'Flavour'], ['aftertaste', 'Aftertaste'],
@@ -74,13 +75,13 @@ function CupSet({ label, value, count, onChange, fixed = false, readOnly = false
   </View>;
 }
 
-function VerticalRuler({ label, value, onChange, readOnly, lowLabel, highLabel }) {
+function VerticalRuler({ label, accessibilityContext = label, value, onChange, readOnly, lowLabel, highLabel }) {
   return <View style={styles.verticalGroup}>
     <Text style={styles.hint}>{label}</Text>
     <View style={styles.verticalRow}>
       <View style={styles.verticalTrack}><View pointerEvents="none" style={styles.verticalSpine} />{[5, 4, 3, 2, 1].map(mark => <Pressable key={mark}
         onPress={() => onChange(value === mark ? null : mark)} disabled={readOnly}
-        accessibilityRole="button" accessibilityLabel={`${label} ${mark} of 5`}
+        accessibilityRole="button" accessibilityLabel={`${accessibilityContext} ${mark} of 5`}
         accessibilityState={{ selected: value === mark, disabled: readOnly }}
         style={[styles.verticalTick, value === mark && styles.verticalTickSelected]} />)}</View>
       {(highLabel || lowLabel) && <View style={styles.verticalLabels}><Text style={styles.hint}>{highLabel}</Text><Text style={styles.hint}>{lowLabel}</Text></View>}
@@ -116,8 +117,9 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const [showOtherObservations, setShowOtherObservations] = useState(false);
   const [loading, setLoading] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
-  const queue = useRef(Promise.resolve());
-  const completion = useRef(Promise.resolve(true));
+  const saveQueue = useRef(null);
+  if (!saveQueue.current) saveQueue.current = createLegacySaveQueue(({ response: next, complete }) =>
+    saveLegacyResponse({ sessionId, sampleId, response: next, complete }));
   const responseRef = useRef(null);
   const selectorScroll = useRef(null);
 
@@ -144,40 +146,36 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     setResponse(next);
     setResult(null);
     setErrors([]);
-    completion.current = Promise.resolve(true);
     setMessage('Saving draft locally…');
-    queue.current = queue.current.catch(() => {}).then(() => saveLegacyResponse({ sessionId, sampleId, response: next, complete: false }))
-      .then(saved => {
-        if (saved.ok) setMessage('Draft saved locally.');
-        else setMessage(`Could not save draft: ${errorText(saved.errors)}`);
-        return saved;
-      }).catch(error => { setMessage(error?.message || 'Could not save draft.'); return { ok: false, errors: ['draft:save_failed'] }; });
+    const operation = saveQueue.current.enqueue(next, false);
+    operation.promise.then(saved => {
+      if (operation.revision !== saveQueue.current.revision) return;
+      if (saved.ok) setMessage('Draft saved locally.');
+      else setMessage(`Could not save draft: ${saved.error?.message || errorText(saved.errors)}`);
+    });
   };
 
   const complete = async () => {
-    if (!response || readOnly) return;
-    await queue.current;
-    try {
-      const saved = await saveLegacyResponse({ sessionId, sampleId, response: responseRef.current, complete: true });
-      if (!saved.ok) {
+    if (!responseRef.current || readOnly) return;
+    const operation = saveQueue.current.enqueue(responseRef.current, true);
+    const saved = await operation.promise;
+    if (operation.revision !== saveQueue.current.revision) return;
+    if (!saved.ok) {
         setErrors(saved.errors);
-        setMessage('Review the items listed below before a final score is available. Your draft remains saved.');
+        setMessage(saved.error?.message || 'Review the items listed below before a final score is available. Your draft remains saved.');
         const first = saved.errors?.[0] || '';
         if (first.startsWith('scored_defect')) setDefectsOpen(true);
-        return false;
-      }
-      setErrors([]);
-      setResult(saved.result);
-      setMessage('Legacy assessment completed and saved locally.');
-      return true;
-    } catch (error) { setMessage(error?.message || 'Could not complete the assessment.'); return false; }
+        return;
+    }
+    setErrors([]);
+    setResult(saved.result);
+    setMessage('Legacy assessment completed and saved locally.');
   };
 
   const scanNextCup = async () => {
-    if (!(await completion.current)) return;
-    const saved = await queue.current;
+    const saved = await saveQueue.current.drain();
     if (saved && !saved.ok) {
-      setMessage(`Could not save draft: ${errorText(saved.errors)} Scan was not started.`);
+      setMessage(`Could not save the latest assessment edit: ${saved.error?.message || errorText(saved.errors)} Scan was not started.`);
       return;
     }
     if (typeof onScanPress === 'function') onScanPress();
@@ -200,8 +198,8 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     selectorScroll.current?.scrollTo({ y: 0, animated: false });
     setQualityField(key);
   };
-  const resultSummary = result?.ok ? <View style={styles.resultCard}><Text style={styles.sectionTitle}>Legacy result</Text>
-    <Text style={styles.total}>{result.display_score}</Text><Text style={styles.hint}>{result.label}</Text>
+  const resultSummary = result?.ok ? <View style={styles.resultCard}><Text style={styles.sectionTitle}>Saved Legacy result</Text>
+    {!result.adapted && <Text style={styles.hint}>{result.label}</Text>}
     <Text style={styles.hint}>SCA Legacy · version {result.identity.form_version}</Text>
     {result.quality_scale_provenance?.outside_published_table_fields?.length ? <Text style={styles.hint}>{result.quality_scale_provenance.note}</Text> : null}
     <Pressable onPress={() => setShowResultBreakdown(!showResultBreakdown)} accessibilityRole="button"
@@ -230,12 +228,12 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
         <QualityRuler label={label} value={response.quality_ratings?.[key]} onPress={() => openQuality(key)} disabled={readOnly} />
         {key === 'fragrance_aroma' && <View style={styles.fragranceExtras}>
           <Text style={styles.hint}>Intensity</Text><View style={styles.intensityPair}>
-            <VerticalRuler label="Dry" value={response.dry_aroma_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, dry_aroma_intensity: value }))} />
-            <VerticalRuler label="Break" value={response.break_aroma_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, break_aroma_intensity: value }))} />
+            <VerticalRuler label="Dry" accessibilityContext="Fragrance and aroma dry intensity" value={response.dry_aroma_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, dry_aroma_intensity: value }))} />
+            <VerticalRuler label="Break" accessibilityContext="Fragrance and aroma break intensity" value={response.break_aroma_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, break_aroma_intensity: value }))} />
           </View><NotesField label="Qualities" value={response.aroma_qualities} readOnly={readOnly} onChange={value => edit(r => ({ ...r, aroma_qualities: value }))} />
         </View>}
-        {key === 'acidity' && <VerticalRuler label="Intensity" highLabel="High" lowLabel="Low" value={response.acidity_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, acidity_intensity: value }))} />}
-        {key === 'body' && <VerticalRuler label="Level" highLabel="Heavy" lowLabel="Thin" value={response.body_level} readOnly={readOnly} onChange={value => edit(r => ({ ...r, body_level: value }))} />}
+        {key === 'acidity' && <VerticalRuler label="Intensity" accessibilityContext="Acidity intensity" highLabel="High" lowLabel="Low" value={response.acidity_intensity} readOnly={readOnly} onChange={value => edit(r => ({ ...r, acidity_intensity: value }))} />}
+        {key === 'body' && <VerticalRuler label="Level" accessibilityContext="Body level" highLabel="Heavy" lowLabel="Thin" value={response.body_level} readOnly={readOnly} onChange={value => edit(r => ({ ...r, body_level: value }))} />}
       </View>)}
       <CupSet label="Uniformity" score={componentScore(response.consistent_cups, n, true)} value={n === 1 ? [1] : response.consistent_cups} count={n} fixed={n === 1} readOnly={readOnly} onChange={value => edit(r => ({ ...r, consistent_cups: value }))} />
       <CupSet label="Sweetness" score={componentScore(response.sweet_cups, n)} value={response.sweet_cups} count={n} readOnly={readOnly} onChange={value => edit(r => ({ ...r, sweet_cups: value }))} />
@@ -255,7 +253,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
 
       {errors.length > 0 && <View style={styles.section}><Text style={styles.error}>Assessment needs attention:</Text><Text style={styles.error}>{errorText(errors)}</Text></View>}
       {!displayedResult?.ok ? <Text style={styles.hint}>Overall score — Complete all required marks and checks to see a score.</Text> : null}
-      {!readOnly && !result?.ok ? <Pressable onPress={() => { completion.current = complete(); }} accessibilityRole="button" accessibilityLabel="Complete Legacy assessment and calculate result" style={styles.completeButton}>
+      {!readOnly && !result?.ok ? <Pressable onPress={complete} accessibilityRole="button" accessibilityLabel="Complete Legacy assessment and calculate result" style={styles.completeButton}>
         <Text style={styles.completeText}>COMPLETE & SCORE</Text>
       </Pressable> : null}
       {result?.ok && !readOnly ? <Text style={styles.hint}>Assessment saved. Change a mark to revise this result while the Session is Pending.</Text> : null}

@@ -37,5 +37,8 @@ assert.doesNotMatch(screen, /<Text style=\{styles\.sectionTitle\}>Quality rating
 assert.match(screen, /<CupSet label="Defective cups"/, 'drawer begins with numbered defective-cup controls');
 assert.match(screen, /<NotesField label="Flavour Notes"[^>]*response\.notes/, 'flavour notes use the immutable notes field');
 assert.match(screen, /<Text style=\{styles\.sectionTitle\}>Overall score<\/Text>/, 'overall score is consistently located near footer');
+assert.doesNotMatch(screen, /<Text style=\{styles\.total\}>\{result\.display_score\}<\/Text>/, 'saved result does not duplicate the fixed total');
+assert.match(screen, /operation\.revision !== saveQueue\.current\.revision/, 'stale completion cannot overwrite a newer draft UI');
+assert.match(screen, /const saved = await saveQueue\.current\.drain\(\)/, 'scan waits for the latest queued save');
 assert.match(readFileSync(join(__dirname, '../src/navigation/AppNavigator.js'), 'utf8'), /onScanPress=\{handleScanNextCupFromCupping\}/, 'Legacy scan footer uses existing navigator callback');
 console.log('Legacy selector, always-visible rows, notes, drawer, overall score and scan wiring checks passed.');
