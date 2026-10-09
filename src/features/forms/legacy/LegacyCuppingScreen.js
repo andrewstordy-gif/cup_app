@@ -6,7 +6,7 @@ import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { getLegacyResponse, saveLegacyResponse } from '../../../data/sessionRepository';
-import { ORDINARY_MARKS, LOWER_MARKS, scoreText, isExtendedMark, revealLowerForSelected, defectDeductionText } from './legacyQualityPresentation';
+import { ORDINARY_MARKS, visibleMarks, scoreText, isExtendedMark, revealLowerForSelected, defectDeductionText } from './legacyQualityPresentation';
 
 const QUALITY = [
   ['fragrance_aroma', 'Fragrance / Aroma'], ['flavor', 'Flavor'], ['aftertaste', 'Aftertaste'],
@@ -39,9 +39,9 @@ const errorText = errors => (errors || []).map(error => {
   return 'Some assessment data could not be saved. Reopen this Session and review its saved form.';
 }).filter((message, index, list) => list.indexOf(message) === index).join('\n');
 
-function Choice({ label, selected, onPress, disabled = false, accessibilityLabel = label, role = 'button' }) {
+function Choice({ label, selected, onPress, disabled = false, accessibilityLabel = label, role = 'button', style }) {
   return <Pressable onPress={onPress} disabled={disabled} accessibilityRole={role} accessibilityLabel={accessibilityLabel}
-    accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }} style={[styles.choice, selected && styles.choiceSelected, disabled && styles.choiceDisabled]}>
+    accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }} style={[styles.choice, style, selected && styles.choiceSelected, disabled && styles.choiceDisabled]}>
     <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{label}</Text>
   </Pressable>;
 }
@@ -81,6 +81,7 @@ function CupSet({ label, value, count, onChange, fixed = false, readOnly = false
 export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameOrigin, onBackPress }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
+  const scoreChoiceWidth = Math.max(44, (width - 4 * spacing.md - 3 * spacing.xs) / 4);
   const n = Number(cupCount);
   const [response, setResponse] = useState(null);
   const [result, setResult] = useState(null);
@@ -93,6 +94,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const [loading, setLoading] = useState(true);
   const [readOnly, setReadOnly] = useState(false);
   const queue = useRef(Promise.resolve());
+  const selectorScroll = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -146,7 +148,11 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   if (loading || !response) return <View style={styles.screen}><Header title="SCA Legacy" variant="back" onBackPress={onBackPress} /><Text style={styles.hint}>{message || 'Loading saved assessment…'}</Text></View>;
   const defect = response.scored_defect;
   const assessedQualityCount = QUALITY.filter(([key]) => response.quality_ratings?.[key] != null).length;
-  const openQuality = key => { setShowLowerScores(revealLowerForSelected(response.quality_ratings?.[key])); setQualityField(key); };
+  const openQuality = key => {
+    setShowLowerScores(revealLowerForSelected(response.quality_ratings?.[key]));
+    selectorScroll.current?.scrollTo({ y: 0, animated: false });
+    setQualityField(key);
+  };
   const resultSummary = result?.ok ? <View style={styles.resultCard}><Text style={styles.sectionTitle}>Legacy result</Text>
     <Text style={styles.total}>{result.display_score}</Text><Text style={styles.hint}>{result.label}</Text>
     <Text style={styles.hint}>SCA Legacy · version {result.identity.form_version}</Text>
@@ -246,14 +252,12 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
         <Text style={styles.hint}>Choose an exact quarter-point mark. 6.00–9.75 is the protocol's printed table; other values are a Cup App extension.</Text>
         {revealLowerForSelected(response.quality_ratings?.[qualityField]) ?
           <View style={styles.selectedLow}><Text style={styles.rowLabel}>Current selection: {scoreText(response.quality_ratings[qualityField])}</Text>
-            <Text style={styles.hint}>Cup App extended range · lower scores shown below</Text></View> : null}
-        <ScrollView keyboardShouldPersistTaps="always" contentContainerStyle={styles.selectorScroll}>
-        <View style={styles.grid}>{ORDINARY_MARKS.map(mark => <Choice key={mark} label={scoreText(mark)} selected={response.quality_ratings?.[qualityField] === mark}
-          onPress={() => { edit(r => ({ ...r, quality_ratings: { ...(r.quality_ratings || {}), [qualityField]: mark } })); setQualityField(null); }} />)}</View>
-        <Pressable onPress={() => setShowLowerScores(!showLowerScores)} accessibilityRole="button" accessibilityState={{ expanded: showLowerScores }} style={styles.lowerToggle}>
+            <Text style={styles.hint}>Cup App extended range · lower scores shown in the grid</Text></View> : null}
+        <ScrollView ref={selectorScroll} keyboardShouldPersistTaps="always" contentContainerStyle={styles.selectorScroll}>
+        <Pressable onPress={() => { setShowLowerScores(!showLowerScores); selectorScroll.current?.scrollTo({ y: 0, animated: false }); }} accessibilityRole="button" accessibilityState={{ expanded: showLowerScores }} style={styles.lowerToggle}>
           <Text style={styles.rowValue}>{showLowerScores ? 'Hide lower scores' : 'Show lower scores (0.00–5.75)'}</Text></Pressable>
-        {showLowerScores ? <View style={styles.grid}>{LOWER_MARKS.map(mark => <Choice key={mark} label={scoreText(mark)} selected={response.quality_ratings?.[qualityField] === mark}
-          onPress={() => { edit(r => ({ ...r, quality_ratings: { ...(r.quality_ratings || {}), [qualityField]: mark } })); setQualityField(null); }} />)}</View> : null}
+        <View style={styles.grid}>{visibleMarks(showLowerScores).map(mark => <Choice key={mark} style={{ width: scoreChoiceWidth, minWidth: 44 }} label={scoreText(mark)} selected={response.quality_ratings?.[qualityField] === mark}
+          onPress={() => { edit(r => ({ ...r, quality_ratings: { ...(r.quality_ratings || {}), [qualityField]: mark } })); setQualityField(null); }} />)}</View>
         </ScrollView>
       </View></View>
     </Modal>
@@ -273,7 +277,7 @@ const styles = StyleSheet.create({
   rulerTicks: { height: 18, borderBottomWidth: 1, borderBottomColor: colors.ink, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
   rulerTick: { width: 1, height: 8, backgroundColor: colors.inkSoft },
   rulerMajorTick: { height: 15, backgroundColor: colors.ink },
-  rulerSelectedTick: { width: 3, height: 18, backgroundColor: colors.action },
+  rulerSelectedTick: { width: 3, height: 18, backgroundColor: colors.ink },
   rulerLabels: { flexDirection: 'row', justifyContent: 'space-between' },
   rulerLabel: { ...typography.text_caption, color: colors.inkSoft },
   sectionHeader: { minHeight: 56, borderBottomWidth: 1, borderBottomColor: colors.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
