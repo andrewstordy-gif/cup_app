@@ -27,6 +27,7 @@ import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
 import { CheckSampleScreen } from "../components/CheckSampleScreen";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
+import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
 import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
 import {
   buildCompactSessionMetadata,
@@ -193,7 +194,6 @@ export function CuppingSessionDetailsScreen({
   const [isDeleting, setIsDeleting] = useState(false);
   const [overwriteDialogMessage, setOverwriteDialogMessage] = useState("");
   const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
-  const [isCupBlockedDialogVisible, setIsCupBlockedDialogVisible] = useState(false);
   const [cupBlockedMessage, setCupBlockedMessage] = useState("");
   const [completeSessionMessage, setCompleteSessionMessage] = useState("");
   const [isCompleteSessionDialogVisible, setIsCompleteSessionDialogVisible] = useState(false);
@@ -462,6 +462,7 @@ export function CuppingSessionDetailsScreen({
     setIsSheetCuppingModeDefault(!isLegacy);
     setSheetErrors({});
     setScanStatusMessage("");
+    setCupBlockedMessage("");
     setIsAddSheetVisible(true);
   };
 
@@ -484,6 +485,7 @@ export function CuppingSessionDetailsScreen({
     setEditingSampleId(null);
     setSheetErrors({});
     setScanStatusMessage("");
+    setCupBlockedMessage("");
   };
 
   const handleOpenEditSheet = (sample) => {
@@ -502,6 +504,7 @@ export function CuppingSessionDetailsScreen({
     setIsSheetCuppingModeDefault(false);
     setSheetErrors({});
     setScanStatusMessage("");
+    setCupBlockedMessage("");
     setIsAddSheetVisible(true);
   };
 
@@ -580,6 +583,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleScanCup = async () => {
+    setCupBlockedMessage("");
     if (!isSessionFormSupported || samples.some((sample) => sample.cuppingForm !== selectedForm)) {
       setScanStatusMessage(UNSUPPORTED_MESSAGE);
       return;
@@ -810,13 +814,10 @@ export function CuppingSessionDetailsScreen({
         setScanStatusMessage("");
       } else if (error?.code === PENDING_CONFLICT_ERROR) {
         const userMessage = message;
-        // Close the bottom sheet first to avoid iOS modal stacking issues.
-        setIsAddSheetVisible(false);
+        // Keep the sheet open and show the conflict beside the retry action.
+        // A second iOS modal can disappear behind the dismissing sheet.
         setCupBlockedMessage(userMessage);
         setScanStatusMessage(userMessage);
-        setTimeout(() => {
-          setIsCupBlockedDialogVisible(true);
-        }, 0);
       } else {
         setScanStatusMessage(message);
       }
@@ -1345,15 +1346,10 @@ export function CuppingSessionDetailsScreen({
           </View>
 
           {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
-            <Pressable key={sample.id} onPress={() => onOpenSample?.(sample, index, samples.length, { isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) })}
-              accessibilityRole="button" accessibilityLabel={`Open Legacy sample ${index + 1}`}
-              style={[styles.metaRow, { marginTop: 16 * scale, paddingBottom: 14 * scale }]}>
-              <Text style={styles.metaLabel}>Sample {sample.sampleNumber || index + 1}: {sample.coffeeNameOrigin}</Text>
-              <Text style={styles.metaValueMuted}>{sampleStatusById?.[sample.id]?.isComplete
-                ? `Legacy final score ${sampleStatusById[sample.id].finalScore}`
-                : sampleStatusById?.[sample.id]?.hasAnyFeedback ? "Legacy draft saved" : "Not assessed"}</Text>
-              {sampleStatusById?.[sample.id]?.resultLabel ? <Text style={styles.metaValueMuted}>{sampleStatusById[sample.id].resultLabel}</Text> : null}
-            </Pressable>
+            <LegacySampleCard key={sample.id} sample={sample} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
+              onPress={sample.cupUUID && typeof onOpenSample === 'function'
+                ? () => onOpenSample(sample, index, samples.length, { isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) })
+                : undefined} />
           ) : isSessionFormSupported ? (
             <CoffeeSampleCard
               key={sample.id}
@@ -1475,6 +1471,7 @@ export function CuppingSessionDetailsScreen({
         errors={sheetErrors}
         loading={isNfcWriting}
         statusMessage={scanStatusMessage}
+        errorMessage={cupBlockedMessage}
         onChangeCoffeeNameOrigin={setSheetCoffeeNameOrigin}
         onChangeProcess={setSheetProcess}
         onSelectCupNumber={(value) => {
@@ -1497,15 +1494,6 @@ export function CuppingSessionDetailsScreen({
         okLabel="OK"
         onDismiss={() => setIsOverwriteDialogVisible(false)}
         onOk={() => setIsOverwriteDialogVisible(false)}
-      />
-
-      <WarningDialog
-        visible={isCupBlockedDialogVisible}
-        title="Cup In Use"
-        message={cupBlockedMessage}
-        okLabel="OK"
-        onDismiss={() => setIsCupBlockedDialogVisible(false)}
-        onOk={() => setIsCupBlockedDialogVisible(false)}
       />
 
       <WarningDialog

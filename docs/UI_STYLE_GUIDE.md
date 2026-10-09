@@ -273,6 +273,12 @@ Requirements:
 - Saving commits selected scores internally as final values for scoring and session completion.
 - Saving a changed score supersedes the previous saved final value for that row.
 
+### SCA Legacy quality ruler and exact marks
+
+The Legacy quality scale is not the CVA `1–9` circle row. For each of its seven ratings, show a quiet paper-form-inspired `6–10` ruler with the current exact mark alongside its label. The whole row is a generous button; the ruler is a visual guide, not a drag slider. A tap opens a scrollable dialog of exact quarter-point buttons. Show `6.00–10.00` first. An explicit **Show lower scores** control reveals `0.00–5.75`; reopening a selected low mark reveals it again and the row continues to display its value. Unset is visibly distinct from every numeric value. In the dialog and result, identify marks outside the protocol's printed `6.00–9.75` table as Cup App's expanded range. Keep a clear close control, accessible labels/states, and at least 44-point targets. Apply responsive scale to ruler/touch-layout dimensions only, never text.
+
+For a compact tasting overview, group Legacy ratings, cup-wise checks, defect, and optional observations behind labelled expandable sections. A completed result leads with its total, version and adapted/provenance labels; its arithmetic breakdown is available on request. This grouping changes presentation only, not the versioned form fields or validation.
+
 ### Notes
 
 Use one notes field after the score rows on the Cupping screen.

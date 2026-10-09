@@ -4,6 +4,7 @@ import { TypographyAuditText as Text } from "../../../components/ui/TypographyAu
 import { Header } from "../../../components/ui/Header";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { AppIcon } from "../../../components/ui/AppIcon";
+import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
 import { isPinnedCva, isPinnedForm } from "../../forms/sessionFormRoute";
 import {
   deleteSampleFromSession,
@@ -752,13 +753,8 @@ export function ActiveSessionScreen({
               onLayout={(e) => { cupListY.current = e.nativeEvent.layout.y; }}
             >
               {cups.map((cup, index) => isLegacy ? (
-                <Pressable key={cup.id} onPress={() => onSamplePress?.(cup, index, cups.length)} accessibilityRole="button"
-                  accessibilityLabel={`Open Legacy sample ${index + 1}, ${cup.finalScore ? `final score ${cup.finalScore}` : cup.hasAnyFeedback ? 'draft saved' : 'not assessed'}`}
-                  style={styles.emptyState}>
-                  <Text style={styles.emptyBody}>Sample {cup.sampleNumber}: {cup.coffeeNameOrigin || 'Unnamed'}</Text>
-                  <Text style={styles.emptyBody}>{cup.finalScore ? `Legacy final score ${cup.finalScore}` : cup.hasAnyFeedback ? 'Legacy draft saved' : 'Not assessed'}</Text>
-                  {cup.finalScore && cup.resultLabel ? <Text style={styles.emptyBody}>{cup.resultLabel}</Text> : null}
-                </Pressable>
+                <LegacySampleCard key={cup.id} sample={cup} index={index} scale={scale} status={cup}
+                  onPress={typeof onSamplePress === 'function' ? () => onSamplePress(cup, index, cups.length) : undefined} />
               ) : isSupportedForm ? (
                 <ActiveSessionCupRow
                   key={cup.id}

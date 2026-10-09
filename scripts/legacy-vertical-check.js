@@ -229,6 +229,29 @@ async function main() {
     response: { ...completedResponse(5), notes: 'Edit after reset' }, complete: false });
   assert.equal(reopenedEdit.ok, true);
   assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).result, null);
-  console.log('Legacy empty pin, Open-only mode, fail-closed scan, draft/reopen, 1/3/5/8-cup scoring passed.');
+
+  await reopened.saveSessionWithSamples({ sessionUUID: 'legacy-v2-marks', cuppingForm: 2, cuppingMode: 'open',
+    sessionName: 'v2 boundaries', sessionDate: '9 Oct 2026', samples: [sample('v2-marks', 1)] });
+  for (const [mark, expectedScore, outside] of [[0, '78.00', true], [23, '83.75', true],
+    [24, '84.00', false], [39, '87.75', false], [40, '88.00', true]]) {
+    const ratings = { ...completedResponse(1).quality_ratings, fragrance_aroma: mark };
+    const savedMark = await reopened.saveLegacyResponse({ sessionId: 'legacy-v2-marks', sampleId: 'sample-v2-marks',
+      response: { ...completedResponse(1), quality_ratings: ratings }, complete: true });
+    assert.equal(savedMark.ok, true);
+    assert.equal(savedMark.result.display_score, expectedScore);
+    assert.equal(Boolean(savedMark.result.quality_scale_provenance.outside_published_table_fields.length), outside);
+    assert.equal((await repositoryAfterRestart().getLegacyResponse('legacy-v2-marks', 'sample-v2-marks')).result.display_score, expectedScore);
+  }
+  const beforeHistorical = databaseWrites;
+  sqlite.prepare('UPDATE sessions SET form_version = ?, form_hash = ? WHERE id = ?')
+    .run('1.0.0', 'c915e4678f968567091e7eb4b24e97fe19506ebd58bcdd0dbdec2433ea4fb2d4', 'legacy-v2-marks');
+  const historical = await reopened.getSessionById('legacy-v2-marks');
+  assert.equal(historical.formVersion, '1.0.0');
+  assert.throws(() => requireFormRoute(historical, historical.samples[0]), /unsupported or older/);
+  await assert.rejects(reopened.getLegacyResponse('legacy-v2-marks', 'sample-v2-marks'), /identity is unavailable/);
+  await assert.rejects(reopened.saveSessionWithSamples({ sessionUUID: 'legacy-v2-marks', existingSessionId: 'legacy-v2-marks',
+    cuppingForm: 2, cuppingMode: 'open', sessionName: 'v1 retag forbidden', samples: [sample('v2-marks', 1)] }), /older or unsupported prototype session/);
+  assert.equal(databaseWrites, beforeHistorical, 'historical session read/attempted write must not mutate stored rows');
+  console.log('Legacy v2 pin, fail-closed scans, draft/reopen, 1/3/5/8-cup scoring and range boundaries passed.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
