@@ -4,9 +4,14 @@ const legacy = require('./manifests/legacy.json');
 
 const PROFILE = 'ndef4-r1';
 const ADAPTED_LABEL = 'Adapted — five-cup-equivalent Cup App score';
+const HISTORICAL_LEGACY_V1 = Object.freeze({
+  form_key: 'scaa_legacy_2009a_cupapp', form_version: '1.0.0',
+  form_hash: 'c915e4678f968567091e7eb4b24e97fe19506ebd58bcdd0dbdec2433ea4fb2d4',
+});
+const EXTENDED_QUALITY_NOTE = 'Includes Cup App-expanded quality marks outside the published 2009 6.00–9.75 table';
 const REGISTRY = Object.freeze([
   Object.freeze({ profile: PROFILE, f: 1, form_key: 'sca_cva_affective_104_2024', form_version: '1.0.0', form_hash: '0a840b335b4af50d18db3cf210d503b870285c1706710ff803e7633103ad310d' }),
-  Object.freeze({ profile: PROFILE, f: 2, form_key: 'scaa_legacy_2009a_cupapp', form_version: '1.0.0', form_hash: 'c915e4678f968567091e7eb4b24e97fe19506ebd58bcdd0dbdec2433ea4fb2d4' }),
+  Object.freeze({ profile: PROFILE, f: 2, form_key: 'scaa_legacy_2009a_cupapp', form_version: '2.0.0', form_hash: '2a0c0b02bf2bf2f9c5351d45d19c2083adea1dc704241af234ebca0f0c2440de' }),
 ]);
 const MANIFESTS = Object.freeze({ 1: cva, 2: legacy });
 
@@ -162,6 +167,14 @@ function validateResponse(input, expectedSession, registry = REGISTRY) {
   if (!plain(input)) return { ok: false, errors: ['response_envelope:invalid_object'] };
   if (!plain(expectedSession)) return { ok: false, errors: ['trusted_session:required'] };
   const { profile, f, identity, cup_count, response, complete = false } = input;
+  // A trusted historical pin is deliberately not remapped to the active f=2
+  // definition. The caller may display its stored bytes read-only; this pure
+  // contract never mutates or re-scores them.
+  if (expectedSession.profile === PROFILE && expectedSession.f === 2 && plain(expectedSession.identity) &&
+      Object.keys(expectedSession.identity).length === 3 &&
+      Object.keys(HISTORICAL_LEGACY_V1).every(key => expectedSession.identity[key] === HISTORICAL_LEGACY_V1[key])) {
+    return { ok: false, read_only: true, errors: ['trusted_session:unsupported_historical_form_version'] };
+  }
   const pinned = resolveForm(expectedSession.profile, expectedSession.f, registry);
   if (!pinned.ok || !plain(expectedSession.identity) || Object.keys(expectedSession.identity).length !== 3 ||
       expectedSession.identity.form_key !== pinned.identity.form_key ||
@@ -212,7 +225,7 @@ function centsText(cents) {
 
 function scoreResponse(input, expectedSession) {
   const validation = validateResponse(plain(input) ? { ...input, complete: true } : input, expectedSession);
-  if (!validation.ok) return { ok: false, errors: validation.errors };
+  if (!validation.ok) return { ok: false, errors: validation.errors, ...(validation.read_only ? { read_only: true } : {}) };
   const { f, cup_count: n, response, identity } = input;
   let value;
   if (f === 1) {
@@ -237,13 +250,22 @@ function scoreResponse(input, expectedSession) {
         clean_cup: fraction(10 * k, n), defect_deduction: fraction(5 * severity * a, n),
       },
     };
+    const qualityField = field(resolveForm(PROFILE, f).manifest, 'quality_ratings');
+    const outsideFields = qualityField.keys.filter(key => response.quality_ratings[key] < qualityField.published_table_minimum ||
+      response.quality_ratings[key] > qualityField.published_table_maximum);
+    value.quality_scale_provenance = {
+      published_table: '2009 protocol 6.00–9.75',
+      outside_published_table_fields: outsideFields,
+      note: outsideFields.length > 0 ? EXTENDED_QUALITY_NOTE : null,
+    };
   }
   const adapted = n !== 5;
   const label = adapted ? ADAPTED_LABEL : (f === 1 ? 'SCA-104 Affective score' : 'SCAA Legacy five-cup score');
   const result = { ok: true, identity: { ...identity }, cup_count: n, adapted, label, ...value };
   // The pure export projection repeats identity and adaptation provenance;
   // later persistence/network adapters must use an allowlist of their own.
-  return { ...result, export_projection: { identity: { ...identity }, cup_count: n, adapted, label, display_score: value.display_score, exact_score: value.exact_score } };
+  return { ...result, export_projection: { identity: { ...identity }, cup_count: n, adapted, label, display_score: value.display_score, exact_score: value.exact_score,
+    ...(value.quality_scale_provenance ? { quality_scale_provenance: value.quality_scale_provenance } : {}) } };
 }
 
 module.exports = { PROFILE, REGISTRY, resolveForm, validateResponse, scoreResponse };
