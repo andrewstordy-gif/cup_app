@@ -10,6 +10,7 @@ const { formIdentity, requireFormRoute, requireFormTag } = require('../src/featu
 const root = path.resolve(__dirname, '..');
 const sqlite = new DatabaseSync(':memory:');
 let databaseWrites = 0;
+let beforeExclusiveTransaction = null;
 const bridge = {
   async execAsync(sql) { sqlite.exec(sql); },
   async getFirstAsync(sql, args = []) { return sqlite.prepare(sql).get(...args) || null; },
@@ -18,6 +19,16 @@ const bridge = {
   async withTransactionAsync(callback) {
     sqlite.exec('BEGIN');
     try { const result = await callback(); sqlite.exec('COMMIT'); return result; }
+    catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+  },
+  async withExclusiveTransactionAsync(callback) {
+    if (beforeExclusiveTransaction) {
+      const hook = beforeExclusiveTransaction;
+      beforeExclusiveTransaction = null;
+      await hook();
+    }
+    sqlite.exec('BEGIN IMMEDIATE');
+    try { await callback(bridge); sqlite.exec('COMMIT'); }
     catch (error) { sqlite.exec('ROLLBACK'); throw error; }
   },
 };
@@ -199,6 +210,17 @@ async function main() {
   assert.equal(rejected.ok, false);
   assert.ok(rejected.errors.includes('scored_defect.affected_cups:marked_clean'));
   assert.equal((await reopened.getLegacyResponse('legacy-count-3', 'sample-3')).result.display_score, '79.33');
+
+  // A previously stored v1/mismatched row cannot be replaced by a v2 UPSERT.
+  const beforeMismatch = sqlite.prepare('SELECT response_json, is_complete FROM legacy_responses WHERE sample_id = ?').get('sample-3');
+  sqlite.prepare('UPDATE legacy_responses SET form_version = ? WHERE sample_id = ?').run('1.0.0', 'sample-3');
+  const writesBeforeMismatch = databaseWrites;
+  const mismatchedRow = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-3', sampleId: 'sample-3',
+    response: { ...tainted, notes: 'Must not overwrite old pin' }, complete: false });
+  assert.deepEqual(mismatchedRow, { ok: false, errors: ['response:stored_identity_mismatch'] });
+  assert.equal(databaseWrites, writesBeforeMismatch);
+  assert.deepEqual(sqlite.prepare('SELECT response_json, is_complete FROM legacy_responses WHERE sample_id = ?').get('sample-3'), beforeMismatch);
+  sqlite.prepare('UPDATE legacy_responses SET form_version = ? WHERE sample_id = ?').run(pin.form_version, 'sample-3');
   await reopened.manuallyMarkSessionComplete('legacy-count-5');
   assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).sessionComplete, true);
   const completedBefore = await reopened.getSessionById('legacy-count-5');
@@ -229,6 +251,31 @@ async function main() {
     response: { ...completedResponse(5), notes: 'Edit after reset' }, complete: false });
   assert.equal(reopenedEdit.ok, true);
   assert.equal((await reopened.getLegacyResponse('legacy-count-5', 'sample-5')).result, null);
+
+  // Deterministically complete the Session between the initial read and the
+  // exclusive write. The draft must not replace a completed response.
+  const beforeInterleave = sqlite.prepare('SELECT response_json, is_complete FROM legacy_responses WHERE sample_id = ?').get('sample-3');
+  beforeExclusiveTransaction = () => reopened.manuallyMarkSessionComplete('legacy-count-3');
+  const racedDraft = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-3', sampleId: 'sample-3',
+    response: { ...tainted, notes: 'Late draft' }, complete: false });
+  assert.deepEqual(racedDraft, { ok: false, errors: ['session:complete_read_only'] });
+  assert.deepEqual(sqlite.prepare('SELECT response_json, is_complete FROM legacy_responses WHERE sample_id = ?').get('sample-3'), beforeInterleave);
+  assert.equal((await reopened.getSessionById('legacy-count-3')).status, 'complete');
+
+  const beforeChangedSample = sqlite.prepare('SELECT response_json, is_complete FROM legacy_responses WHERE sample_id = ?').get('sample-8');
+  beforeExclusiveTransaction = () => sqlite.prepare('UPDATE samples SET cup_number = ? WHERE id = ?').run(7, 'sample-8');
+  const changedSample = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-8', sampleId: 'sample-8',
+    response: { ...completedResponse(8), notes: 'Stale cup count' }, complete: false });
+  assert.deepEqual(changedSample, { ok: false, errors: ['session:form_or_sample_changed'] });
+  assert.deepEqual(sqlite.prepare('SELECT response_json, is_complete FROM legacy_responses WHERE sample_id = ?').get('sample-8'), beforeChangedSample);
+  sqlite.prepare('UPDATE samples SET cup_number = ? WHERE id = ?').run(8, 'sample-8');
+
+  beforeExclusiveTransaction = () => sqlite.prepare('UPDATE sessions SET form_version = ? WHERE id = ?').run('1.0.0', 'legacy-count-8');
+  const changedPin = await reopened.saveLegacyResponse({ sessionId: 'legacy-count-8', sampleId: 'sample-8',
+    response: { ...completedResponse(8), notes: 'Stale form pin' }, complete: false });
+  assert.deepEqual(changedPin, { ok: false, errors: ['session:form_or_sample_changed'] });
+  assert.deepEqual(sqlite.prepare('SELECT response_json, is_complete FROM legacy_responses WHERE sample_id = ?').get('sample-8'), beforeChangedSample);
+  sqlite.prepare('UPDATE sessions SET form_version = ? WHERE id = ?').run(pin.form_version, 'legacy-count-8');
 
   await reopened.saveSessionWithSamples({ sessionUUID: 'legacy-v2-marks', cuppingForm: 2, cuppingMode: 'open',
     sessionName: 'v2 boundaries', sessionDate: '9 Oct 2026', samples: [sample('v2-marks', 1)] });

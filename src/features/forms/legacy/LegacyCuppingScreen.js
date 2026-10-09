@@ -34,6 +34,8 @@ const errorText = errors => (errors || []).map(error => {
   if (error === 'scored_defect.affected_cups:empty' || error === 'scored_defect.affected_cups:unassessed') return 'Select at least one cup affected by the scored defect.';
   if (error === 'scored_defect.affected_cups:marked_clean') return 'A scored-defect cup cannot also be marked Clean Cup.';
   if (error === 'session:complete_read_only') return 'This Session is complete. Reset it to Pending before editing.';
+  if (error === 'session:form_or_sample_changed') return 'The Session or sample changed while saving. Reopen it before editing; your previous saved response is unchanged.';
+  if (error === 'response:stored_identity_mismatch') return 'This saved Legacy response uses a different form or cup count. It is read-only; start a new Session instead.';
   return 'Some assessment data could not be saved. Reopen this Session and review its saved form.';
 }).filter((message, index, list) => list.indexOf(message) === index).join('\n');
 
@@ -99,6 +101,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       if (cancelled) return;
       setResponse(saved?.response || { quality_ratings: {}, consistent_cups: n === 1 ? [1] : null });
       setResult(saved?.result || null);
+      setExpandedSection(saved?.result?.ok ? null : 'quality');
       setReadOnly(Boolean(saved?.sessionComplete));
       setErrors(saved?.errors || []);
       setLoading(false);
@@ -144,6 +147,21 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const defect = response.scored_defect;
   const assessedQualityCount = QUALITY.filter(([key]) => response.quality_ratings?.[key] != null).length;
   const openQuality = key => { setShowLowerScores(revealLowerForSelected(response.quality_ratings?.[key])); setQualityField(key); };
+  const resultSummary = result?.ok ? <View style={styles.resultCard}><Text style={styles.sectionTitle}>Legacy result</Text>
+    <Text style={styles.total}>{result.display_score}</Text><Text style={styles.hint}>{result.label}</Text>
+    <Text style={styles.hint}>SCA Legacy · version {result.identity.form_version}</Text>
+    {result.quality_scale_provenance?.outside_published_table_fields?.length ? <Text style={styles.hint}>{result.quality_scale_provenance.note}</Text> : null}
+    <Pressable onPress={() => setShowResultBreakdown(!showResultBreakdown)} accessibilityRole="button"
+      accessibilityState={{ expanded: showResultBreakdown }} style={styles.sectionHeader}>
+      <Text style={styles.rowValue}>{showResultBreakdown ? 'Hide score breakdown' : 'Show score breakdown'}</Text></Pressable>
+    {showResultBreakdown ? <View style={styles.breakdown}>
+      {QUALITY.map(([key, label]) => <Text key={key} style={styles.resultRow}>{label}: {scoreText(response.quality_ratings[key])}</Text>)}
+      <Text style={styles.resultRow}>Uniformity: {(result.components.uniformity.numerator / result.components.uniformity.denominator).toFixed(2)}</Text>
+      <Text style={styles.resultRow}>Sweetness: {(result.components.sweetness.numerator / result.components.sweetness.denominator).toFixed(2)}</Text>
+      <Text style={styles.resultRow}>Clean Cup: {(result.components.clean_cup.numerator / result.components.clean_cup.denominator).toFixed(2)}</Text>
+      <Text style={styles.resultRow}>Defect deduction: {defectDeductionText(result.components.defect_deduction)}</Text>
+    </View> : null}
+  </View> : null;
   return <View style={styles.screen}>
     <Header title="SCA Legacy" variant="back" onBackPress={onBackPress} />
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -153,6 +171,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       <Text style={styles.hint}>Tap a ruler to choose an exact quarter-point mark. Your draft is saved on this device as you go.</Text>
       {readOnly ? <Text style={styles.hint}>This Session is complete. Its Legacy result is read-only; reset the Session to Pending before editing.</Text> : null}
       {message ? <Text style={styles.hint} accessibilityLiveRegion="polite">{message}</Text> : null}
+      {resultSummary}
 
       <Pressable onPress={() => setExpandedSection(expandedSection === 'quality' ? null : 'quality')} accessibilityRole="button"
         accessibilityState={{ expanded: expandedSection === 'quality' }} style={styles.sectionHeader}>
@@ -213,21 +232,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       </View> : null}
 
       {errors.length > 0 && <View style={styles.section}><Text style={styles.error}>Assessment needs attention:</Text><Text style={styles.error}>{errorText(errors)}</Text></View>}
-      {result?.ok ? <View style={styles.resultCard}><Text style={styles.sectionTitle}>Legacy result</Text>
-        <Text style={styles.total}>{result.display_score}</Text><Text style={styles.hint}>{result.label}</Text>
-        <Text style={styles.hint}>SCA Legacy · version {result.identity.form_version}</Text>
-        {result.quality_scale_provenance?.outside_published_table_fields?.length ? <Text style={styles.hint}>{result.quality_scale_provenance.note}</Text> : null}
-        <Pressable onPress={() => setShowResultBreakdown(!showResultBreakdown)} accessibilityRole="button"
-          accessibilityState={{ expanded: showResultBreakdown }} style={styles.sectionHeader}>
-          <Text style={styles.rowValue}>{showResultBreakdown ? 'Hide score breakdown' : 'Show score breakdown'}</Text></Pressable>
-        {showResultBreakdown ? <View style={styles.breakdown}>
-          {QUALITY.map(([key, label]) => <Text key={key} style={styles.resultRow}>{label}: {scoreText(response.quality_ratings[key])}</Text>)}
-          <Text style={styles.resultRow}>Uniformity: {(result.components.uniformity.numerator / result.components.uniformity.denominator).toFixed(2)}</Text>
-          <Text style={styles.resultRow}>Sweetness: {(result.components.sweetness.numerator / result.components.sweetness.denominator).toFixed(2)}</Text>
-          <Text style={styles.resultRow}>Clean Cup: {(result.components.clean_cup.numerator / result.components.clean_cup.denominator).toFixed(2)}</Text>
-          <Text style={styles.resultRow}>Defect deduction: {defectDeductionText(result.components.defect_deduction)}</Text>
-        </View> : null}
-      </View> : <Text style={styles.hint}>No final score until this assessment is complete.</Text>}
+      {!result?.ok ? <Text style={styles.hint}>No final score until this assessment is complete.</Text> : null}
       {!readOnly && !result?.ok ? <Pressable onPress={complete} accessibilityRole="button" accessibilityLabel="Complete Legacy assessment and calculate result" style={styles.completeButton}>
         <Text style={styles.completeText}>COMPLETE & SCORE</Text>
       </Pressable> : null}
@@ -239,6 +244,9 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
         <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>{QUALITY.find(([key]) => key === qualityField)?.[1] || 'Quality mark'}</Text>
           <Pressable onPress={() => setQualityField(null)} accessibilityRole="button" accessibilityLabel="Close quality marks" style={styles.modalClose}><Text style={styles.rowLabel}>Close</Text></Pressable></View>
         <Text style={styles.hint}>Choose an exact quarter-point mark. 6.00–9.75 is the protocol's printed table; other values are a Cup App extension.</Text>
+        {revealLowerForSelected(response.quality_ratings?.[qualityField]) ?
+          <View style={styles.selectedLow}><Text style={styles.rowLabel}>Current selection: {scoreText(response.quality_ratings[qualityField])}</Text>
+            <Text style={styles.hint}>Cup App extended range · lower scores shown below</Text></View> : null}
         <ScrollView keyboardShouldPersistTaps="always" contentContainerStyle={styles.selectorScroll}>
         <View style={styles.grid}>{ORDINARY_MARKS.map(mark => <Choice key={mark} label={scoreText(mark)} selected={response.quality_ratings?.[qualityField] === mark}
           onPress={() => { edit(r => ({ ...r, quality_ratings: { ...(r.quality_ratings || {}), [qualityField]: mark } })); setQualityField(null); }} />)}</View>
@@ -290,6 +298,7 @@ const styles = StyleSheet.create({
   modalPanel: { backgroundColor: colors.surface, borderRadius: 18, padding: spacing.md, gap: spacing.sm, maxHeight: '85%' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: spacing.xs },
   selectorScroll: { gap: spacing.sm, paddingBottom: spacing.sm },
+  selectedLow: { backgroundColor: colors.panel, borderRadius: 8, padding: spacing.sm, gap: spacing.xs },
   modalClose: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
   lowerToggle: { minHeight: 44, justifyContent: 'center' },
 });

@@ -1081,16 +1081,52 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
   const result = complete ? scoreResponse(input, trusted) : null;
   if (complete && !result?.ok) return { ok: false, errors: result?.errors || ['score:invalid'] };
   const db = await getLocalDatabase();
-  await db.runAsync(
-    `INSERT INTO legacy_responses (sample_id, session_id, form_key, form_version, form_hash, cup_count, response_json, is_complete, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(sample_id) DO UPDATE SET response_json = excluded.response_json, is_complete = excluded.is_complete,
-       updated_at = excluded.updated_at`,
-    [sampleId, sessionId, trusted.identity.form_key, trusted.identity.form_version, trusted.identity.form_hash,
-      Number(sample.cupNumber), JSON.stringify(response), complete ? 1 : 0, new Date().toISOString()]
-  );
-  await recomputeSessionProgressStatusWithDb(db, sessionId);
-  return { ok: true, result, errors: validation.errors };
+  let outcome = null;
+  // The earlier UI/validation read is not authority for a later write. Hold an
+  // exclusive transaction while rechecking the current pin, Session state,
+  // Sample mode/count, and any response row that an UPSERT would replace.
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const current = await txn.getFirstAsync(
+      `SELECT s.status, s.cupping_form AS cuppingForm, s.form_key AS formKey,
+              s.form_version AS formVersion, s.form_hash AS formHash, s.cupping_mode AS cuppingMode,
+              sm.cupping_form AS sampleForm, sm.cupping_mode AS sampleMode, sm.cup_number AS cupCount
+       FROM sessions s JOIN samples sm ON sm.session_id = s.id
+       WHERE s.id = ? AND sm.id = ? LIMIT 1`, [sessionId, sampleId]
+    );
+    if (current?.status === 'complete') {
+      outcome = { ok: false, errors: ['session:complete_read_only'] };
+      return;
+    }
+    if (!current || current.cuppingForm !== 2 || current.sampleForm !== 2 ||
+        current.cuppingMode !== 'open' || current.sampleMode !== 'open' ||
+        current.formKey !== trusted.identity.form_key || current.formVersion !== trusted.identity.form_version ||
+        current.formHash !== trusted.identity.form_hash || Number(current.cupCount) !== Number(sample.cupNumber)) {
+      outcome = { ok: false, errors: ['session:form_or_sample_changed'] };
+      return;
+    }
+    const prior = await txn.getFirstAsync(
+      `SELECT session_id AS sessionId, form_key AS formKey, form_version AS formVersion,
+              form_hash AS formHash, cup_count AS cupCount
+       FROM legacy_responses WHERE sample_id = ? LIMIT 1`, [sampleId]
+    );
+    if (prior && (prior.sessionId !== sessionId || prior.formKey !== trusted.identity.form_key ||
+        prior.formVersion !== trusted.identity.form_version || prior.formHash !== trusted.identity.form_hash ||
+        Number(prior.cupCount) !== Number(sample.cupNumber))) {
+      outcome = { ok: false, errors: ['response:stored_identity_mismatch'] };
+      return;
+    }
+    await txn.runAsync(
+      `INSERT INTO legacy_responses (sample_id, session_id, form_key, form_version, form_hash, cup_count, response_json, is_complete, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(sample_id) DO UPDATE SET response_json = excluded.response_json, is_complete = excluded.is_complete,
+         updated_at = excluded.updated_at`,
+      [sampleId, sessionId, trusted.identity.form_key, trusted.identity.form_version, trusted.identity.form_hash,
+        Number(sample.cupNumber), JSON.stringify(response), complete ? 1 : 0, new Date().toISOString()]
+    );
+    await recomputeSessionProgressStatusWithDb(txn, sessionId);
+    outcome = { ok: true, result, errors: validation.errors };
+  });
+  return outcome;
 }
 
 export async function getSessionSampleFinalStatus(sessionId) {
