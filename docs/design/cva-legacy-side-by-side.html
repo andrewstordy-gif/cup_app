@@ -1,0 +1,261 @@
+<div id="cup-form-comparison" class="viz-dotted-background">
+  <div class="cup-compare-grid">
+    <section class="cup-column" aria-label="CVA form with defects drawer open"><h2>CVA · Open Cupping · Defects Open</h2><div class="cup-phone cva-phone">
+      <div class="cup-status">9:41 <span>●●● ▰</span></div>
+      <header class="cup-header"><span aria-hidden="true">‹</span><strong>1</strong><span class="cup-temp"><i data-lucide="thermometer" aria-hidden="true"></i>— °C</span></header>
+      <div class="cup-coffee"><strong>Sample A</strong><span>Washed (Wet)</span></div>
+      <main class="cup-content">
+        <div id="compare-cva-first"></div>
+        <label class="cup-note-label" for="compare-cva-aroma">Fragrance / Aroma Notes</label><textarea id="compare-cva-aroma" placeholder="Add fragrance / aroma notes..." rows="3"></textarea>
+        <div id="compare-cva-more"></div>
+        <section class="cva-rating cva-uniformity"><h3>Uniformity</h3><p>Select any cups that differ from the sample.</p><div class="cup-defect-cups" role="group" aria-label="Non-uniform cups"><button type="button" aria-pressed="false">1</button><button type="button" aria-pressed="false">2</button><button type="button" aria-pressed="false">3</button><button type="button" aria-pressed="false">4</button><button type="button" aria-pressed="false">5</button></div></section>
+        <label class="cup-note-label" for="compare-cva-flavour">Flavour Notes</label><textarea id="compare-cva-flavour" placeholder="Add flavour notes..." rows="3"></textarea>
+      </main>
+      <div class="cup-defects-panel" id="compare-cva-defects-panel">
+        <section class="cup-defect-group"><h3>Defective cups</h3><p>Select any cups with a defect.</p><div class="cup-defect-cups" role="group" aria-label="Defective cups"><button type="button" aria-pressed="false">1</button><button type="button" aria-pressed="false">2</button><button type="button" aria-pressed="false">3</button><button type="button" aria-pressed="false">4</button><button type="button" aria-pressed="false">5</button></div></section>
+        <section class="cup-defect-group"><h3>Defect type</h3><div class="cup-defect-types" role="group" aria-label="Defect type"><button type="button" aria-pressed="false">Potato</button><button type="button" aria-pressed="false">Mouldy</button><button type="button" aria-pressed="false">Phenolic</button></div></section>
+        <section class="cup-defect-group"><label class="cup-note-label" for="compare-cva-defect-description">Describe the defect</label><input class="legacy-defect-description" id="compare-cva-defect-description" type="text" placeholder="e.g. sour, rubbery, ferment"></section>
+        <div class="cup-defect-deduction" aria-live="polite">Score deduction <strong id="compare-cva-defect-deduction">0.00</strong></div>
+      </div>
+      <button class="cup-defects" id="compare-cva-defects-toggle" type="button" aria-expanded="true" aria-controls="compare-cva-defects-panel"><i data-lucide="chevron-down" aria-hidden="true"></i>Defects</button>
+      <div class="cup-overall-score" aria-live="polite"><span>Overall score</span><strong id="compare-cva-overall-score">94.00</strong></div>
+      <div class="cup-footer"><button type="button" class="cup-scan-action">SCAN CUP</button><p class="cup-scan-hint" aria-live="polite" hidden>Hold your phone near the cup.</p></div>
+    </div></section>
+
+    <section class="cup-column" aria-label="Proposed Legacy form with defects drawer open"><h2>Proposed Legacy · Open Cupping · Defects Open</h2><div class="cup-phone legacy-phone">
+      <div class="cup-status">9:41 <span>●●● ▰</span></div>
+      <header class="cup-header"><span aria-hidden="true">‹</span><strong>1</strong><span class="cup-temp"><i data-lucide="thermometer" aria-hidden="true"></i>— °C</span></header>
+      <div class="cup-coffee"><strong>Sample A</strong><span>Washed (Wet)</span></div>
+      <main class="cup-content">
+        <div class="legacy-quality"><div class="legacy-line"><strong>Fragrance / Aroma</strong><b>8.25</b></div><div class="legacy-ruler"><span class="legacy-ticks"><i class="legacy-selected" style="left:56.25%"></i></span><span class="legacy-numbers"><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></span></div>
+          <div class="legacy-intensity-pair"><div class="legacy-intensity-title">Intensity</div><div class="legacy-pair"><div><strong>Dry</strong><div class="legacy-vertical"><button type="button" aria-label="Dry intensity 5"></button><button type="button" aria-label="Dry intensity 4"></button><button type="button" class="active" aria-label="Dry intensity 3"></button><button type="button" aria-label="Dry intensity 2"></button><button type="button" aria-label="Dry intensity 1"></button></div></div><div><strong>Break</strong><div class="legacy-vertical"><button type="button" aria-label="Break intensity 5"></button><button type="button" class="active" aria-label="Break intensity 4"></button><button type="button" aria-label="Break intensity 3"></button><button type="button" aria-label="Break intensity 2"></button><button type="button" aria-label="Break intensity 1"></button></div></div></div></div>
+          <label class="cup-note-label" for="compare-legacy-qualities">Qualities</label><textarea id="compare-legacy-qualities" placeholder="Add qualities..." rows="2"></textarea>
+        </div>
+        <div id="compare-legacy-more"></div>
+        <div id="compare-legacy-checks"></div>
+        <label class="cup-note-label" for="compare-legacy-flavour">Flavour Notes</label><textarea id="compare-legacy-flavour" placeholder="Add flavour notes..." rows="3"></textarea>
+      </main>
+      <div class="cup-defects-panel" id="compare-legacy-defects-panel">
+        <section class="cup-defect-group"><h3>Defective cups</h3><p>Select any cups with a defect.</p><div class="legacy-defect-count" role="group" aria-label="Defective cups"><button type="button" data-count="1" aria-pressed="true">1</button><button type="button" data-count="2" aria-pressed="true">2</button><button type="button" data-count="3" aria-pressed="false">3</button><button type="button" data-count="4" aria-pressed="false">4</button><button type="button" data-count="5" aria-pressed="false">5</button></div></section>
+        <section class="cup-defect-group"><h3>Classification</h3><div class="legacy-defect-types" role="group" aria-label="Defect classification"><button type="button" data-type="none" aria-pressed="false">None</button><button type="button" data-type="taint" aria-pressed="true">Taint · 2</button><button type="button" data-type="fault" aria-pressed="false">Fault · 4</button></div></section>
+        <section class="cup-defect-group"><h3>Defect type</h3><div class="cup-defect-types legacy-defect-kind" role="group" aria-label="Legacy defect type"><button type="button" aria-pressed="false">Potato</button><button type="button" aria-pressed="false">Mouldy</button><button type="button" aria-pressed="false">Phenolic</button></div></section>
+        <section class="cup-defect-group"><label class="cup-note-label" for="compare-legacy-defect-description">Describe the defect</label><input class="legacy-defect-description" id="compare-legacy-defect-description" type="text" value="Sour" placeholder="e.g. sour, rubbery, ferment"></section>
+        <div class="cup-defect-deduction" aria-live="polite">Score deduction <strong id="compare-legacy-defect-deduction">−4.00</strong></div>
+      </div>
+      <button class="cup-defects" id="compare-legacy-defects-toggle" type="button" aria-expanded="true" aria-controls="compare-legacy-defects-panel"><i data-lucide="chevron-down" aria-hidden="true"></i>Defects</button>
+      <div class="cup-overall-score" aria-live="polite"><span>Overall score</span><strong id="compare-legacy-overall-score">82.25</strong></div>
+      <div class="cup-footer"><button type="button" class="cup-scan-action">SCAN CUP</button><p class="cup-scan-hint" aria-live="polite" hidden>Hold your phone near the cup.</p></div>
+    </div></section>
+  </div>
+</div>
+<style>
+#cup-form-comparison{color-scheme:light dark;padding:18px 8px 26px}
+#cup-form-comparison *{box-sizing:border-box}
+#cup-form-comparison .cup-compare-grid{display:grid;grid-template-columns:repeat(2,minmax(0,420px));justify-content:center;gap:24px;align-items:start}
+#cup-form-comparison .cup-column>h2{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:17px;font-weight:700;margin:0 0 12px;text-align:center;color:light-dark(#3f4852,#f0f2f4)}
+#cup-form-comparison .cup-phone{--cp-bg:light-dark(#fff,#1c2228);--cp-ink:light-dark(#3f4852,#f0f2f4);--cp-soft:light-dark(#667078,#aeb7c0);--cp-line:light-dark(#d7dadd,#4b5660);--cp-input:light-dark(#f4f5f6,#2a3239);--cp-blue:light-dark(#3478f6,#6d9fff);width:100%;background:var(--cp-bg);color:var(--cp-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;border:1px solid var(--cp-line);border-radius:30px;overflow:hidden;box-shadow:0 14px 35px light-dark(#3f485226,#0007)}
+#cup-form-comparison .cup-status{height:40px;padding:12px 22px 0;font-size:13px;font-weight:700;display:flex;justify-content:space-between}
+#cup-form-comparison .cup-header{height:66px;border-bottom:1px solid var(--cp-line);display:grid;grid-template-columns:1fr 2fr 1fr;align-items:center;text-align:center;padding:0 20px;font-size:23px}
+#cup-form-comparison .cup-header span:first-child{text-align:left;font-size:34px;color:var(--cp-soft);line-height:1}
+#cup-form-comparison .cup-temp{display:flex;align-items:center;justify-content:flex-end;gap:2px;color:var(--cp-soft);font-size:17px;font-weight:700;white-space:nowrap}
+#cup-form-comparison .cup-coffee{padding:19px 20px 17px;border-bottom:1px solid var(--cp-line);display:flex;flex-direction:column;gap:5px}
+#cup-form-comparison .cup-coffee strong{font-size:23px}
+#cup-form-comparison .cup-coffee span{font-size:16px;color:var(--cp-soft);font-weight:600}
+#cup-form-comparison .cup-content{padding:10px 20px 24px}
+#cup-form-comparison button,#cup-form-comparison textarea{font-family:inherit}
+#cup-form-comparison .cup-note-label{display:block;font-size:15px;font-weight:700;margin:9px 0 7px}
+#cup-form-comparison textarea{width:100%;resize:vertical;border:1px solid var(--cp-line);border-radius:12px;background:var(--cp-input);color:var(--cp-ink);padding:11px 12px;font-size:16px;min-height:90px;margin-bottom:20px}
+#cup-form-comparison .cva-rating{margin:0;padding:23px 0 24px;border-bottom:1px solid var(--cp-line)}
+#cup-form-comparison .cva-rating h3,#cup-form-comparison .legacy-line strong{font-size:21px;line-height:1.2;font-weight:800}
+#cup-form-comparison .cva-rating h3{margin:0 0 12px}
+#cup-form-comparison .cva-uniformity p{margin:0 0 13px;font-size:14px;color:var(--cp-soft)}
+#cup-form-comparison .cva-choices{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:4px}
+#cup-form-comparison .cva-choices button{aspect-ratio:1;min-height:33px;border:2px solid var(--cp-ink);border-radius:50%;background:var(--cp-bg);color:var(--cp-ink);font-size:16px;font-weight:600;padding:0}
+#cup-form-comparison .cva-choices button.active{background:var(--cp-ink);color:var(--cp-bg)}
+#cup-form-comparison .cup-defects{width:100%;border:0;border-top:1px solid var(--cp-line);border-bottom:1px solid var(--cp-line);background:var(--cp-bg);color:var(--cp-ink);display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;font-size:20px;font-weight:800}
+#cup-form-comparison .cup-defects[aria-expanded="false"] i{transform:rotate(180deg)}
+#cup-form-comparison .cup-defects-panel{padding:10px 20px 20px;background:var(--cp-bg)}
+#cup-form-comparison .cup-defect-group{padding:17px 0;border-bottom:1px solid var(--cp-line)}
+#cup-form-comparison .cup-defect-group:last-child{border-bottom:0}
+#cup-form-comparison .cup-defect-group h3{margin:0 0 5px;font-size:21px;font-weight:800}
+#cup-form-comparison .cup-defect-group p{margin:0 0 13px;font-size:14px;color:var(--cp-soft)}
+#cup-form-comparison .cup-defect-cups{display:flex;justify-content:space-between;gap:5px}
+#cup-form-comparison .cup-defect-cups button{width:44px;height:44px;border:2px solid var(--cp-ink);border-radius:50%;background:var(--cp-bg);color:var(--cp-ink);font-size:16px;font-weight:700}
+#cup-form-comparison .cup-defect-types{display:flex;flex-wrap:wrap;gap:8px;margin-top:13px}
+#cup-form-comparison .cup-defect-types button{min-height:40px;padding:6px 11px;border:1px solid var(--cp-line);border-radius:20px;background:var(--cp-bg);color:var(--cp-ink);font-size:14px;font-weight:700}
+#cup-form-comparison .cup-defect-cups button[aria-pressed="true"],#cup-form-comparison .cup-defect-types button[aria-pressed="true"]{background:var(--cp-ink);color:var(--cp-bg)}
+#cup-form-comparison .legacy-defect-types{display:flex;flex-wrap:wrap;gap:8px;margin-top:13px}
+#cup-form-comparison .legacy-defect-types button{min-height:44px;border:1px solid var(--cp-line);border-radius:22px;padding:7px 12px;background:var(--cp-bg);color:var(--cp-ink);font-size:14px;font-weight:700}
+#cup-form-comparison .legacy-defect-count{display:flex;justify-content:space-between;gap:5px;margin-top:13px}
+#cup-form-comparison .legacy-defect-count button{width:44px;height:44px;border:2px solid var(--cp-ink);border-radius:50%;background:var(--cp-bg);color:var(--cp-ink);font-size:16px;font-weight:700}
+#cup-form-comparison .legacy-defect-types button[aria-pressed="true"],#cup-form-comparison .legacy-defect-count button[aria-pressed="true"]{background:var(--cp-ink);color:var(--cp-bg)}
+#cup-form-comparison .legacy-defect-description{width:100%;min-height:44px;padding:9px 12px;border:1px solid var(--cp-line);border-radius:12px;background:var(--cp-input);color:var(--cp-ink);font:inherit}
+#cup-form-comparison .cup-defect-deduction{display:flex;justify-content:space-between;padding:16px 0 3px;font-size:18px;font-weight:700}
+#cup-form-comparison .cup-defect-deduction strong{color:var(--cp-blue)}
+#cup-form-comparison .cup-overall-score{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:17px 20px;border-bottom:1px solid var(--cp-line);font-size:21px;font-weight:800}
+#cup-form-comparison .cup-overall-score strong{font-size:36px;line-height:1;color:var(--cp-ink)}
+#cup-form-comparison .cup-footer{padding:17px 20px 24px;border-top:1px solid var(--cp-line)}
+#cup-form-comparison .cup-footer button{width:100%;height:58px;border:0;border-radius:29px;background:var(--cp-blue);color:light-dark(#fff,#101922);font-size:15px;font-weight:700;letter-spacing:1px}
+#cup-form-comparison .cup-scan-hint{margin:10px 0 0;text-align:center;font-size:14px;color:var(--cp-soft)}
+#cup-form-comparison .legacy-phone .cup-content>h3{font-size:21px;font-weight:800;margin:17px 0 10px}
+#cup-form-comparison .legacy-quality{border-bottom:1px solid var(--cp-line);padding:17px 0 19px}
+#cup-form-comparison .legacy-line{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:21px;line-height:1.2;font-weight:800}
+#cup-form-comparison .legacy-line b{font-size:20px;color:var(--cp-blue)}
+#cup-form-comparison .legacy-ruler{padding-top:14px}
+#cup-form-comparison .legacy-ticks{display:block;height:24px;border-bottom:2px solid var(--cp-ink);position:relative;background:repeating-linear-gradient(to right,transparent 0,transparent calc(6.25% - 1px),var(--cp-soft) calc(6.25% - 1px),var(--cp-soft) 6.25%)}
+#cup-form-comparison .legacy-ticks::before{content:"";position:absolute;left:0;bottom:0;width:2px;height:24px;background:var(--cp-ink)}
+#cup-form-comparison .legacy-selected{position:absolute;bottom:-2px;width:5px;height:28px;background:var(--cp-blue);transform:translateX(-50%);border-radius:2px}
+#cup-form-comparison .legacy-numbers{display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:var(--cp-soft);padding-top:5px}
+#cup-form-comparison .legacy-intensity-pair{width:220px;max-width:100%;margin:20px auto;text-align:center}
+#cup-form-comparison .legacy-intensity-title{font-size:15px;font-weight:700;color:var(--cp-soft);margin-bottom:8px}
+#cup-form-comparison .legacy-pair{display:grid;grid-template-columns:1fr 1fr;gap:28px}
+#cup-form-comparison .legacy-pair strong{font-size:16px}
+#cup-form-comparison .legacy-vertical{position:relative;width:64px;margin:9px auto 0;display:flex;flex-direction:column;align-items:center;gap:2px;padding:0 0 2px}
+#cup-form-comparison .legacy-vertical::before{content:"";position:absolute;left:calc(50% - 1px);top:0;bottom:0;width:2px;background:var(--cp-ink)}
+#cup-form-comparison .legacy-vertical::after{content:"";position:absolute;bottom:0;left:3px;right:3px;height:2px;background:var(--cp-ink)}
+#cup-form-comparison .legacy-vertical button{position:relative;width:58px;height:32px;border:0;border-top:2px solid var(--cp-ink);background:none;z-index:1}
+#cup-form-comparison .legacy-vertical button.active::after{content:"";position:absolute;top:-3px;left:0;right:0;height:5px;border-radius:3px;background:var(--cp-blue)}
+#cup-form-comparison .legacy-vertical-small{width:100%;margin:18px auto 4px}
+#cup-form-comparison .legacy-vertical-small strong{display:block;width:154px;max-width:100%;margin:0 auto;font-size:15px;color:var(--cp-soft)}
+#cup-form-comparison .legacy-vertical-with-labels{display:flex;align-items:stretch;justify-content:center;gap:22px}
+#cup-form-comparison .legacy-vertical-small .legacy-vertical{margin:9px 0 0}
+#cup-form-comparison .legacy-scale-labels{display:flex;flex-direction:column;justify-content:space-between;padding:10px 0 2px;font-size:15px;color:var(--cp-ink)}
+#cup-form-comparison .legacy-check{padding:15px 0;border-bottom:1px solid var(--cp-line)}
+#cup-form-comparison .legacy-check .legacy-line strong{font-size:21px}
+#cup-form-comparison .legacy-cups{display:flex;justify-content:space-between;gap:5px;margin-top:12px}
+#cup-form-comparison .legacy-cups button{height:44px;width:44px;border-radius:50%;border:2px solid var(--cp-ink);background:var(--cp-bg);color:var(--cp-ink);font-size:16px;font-weight:700}
+#cup-form-comparison .legacy-cups button.active{background:var(--cp-ink);color:var(--cp-bg)}
+@media(max-width:760px){#cup-form-comparison .cup-compare-grid{grid-template-columns:minmax(0,420px);gap:26px}}
+@media(max-width:360px){#cup-form-comparison .cup-content{padding-left:15px;padding-right:15px}#cup-form-comparison .cva-choices{gap:3px}#cup-form-comparison .cva-choices button{font-size:14px}#cup-form-comparison .legacy-cups button{height:40px;width:40px}}
+</style>
+<script>
+(()=>{
+  const root=document.getElementById('cup-form-comparison');
+  const defectsPanel=root.querySelector('#compare-cva-defects-panel');
+  const cvaDeduction=defectsPanel.querySelector('#compare-cva-defect-deduction');
+  function updateCvaDefect(){
+    const defectiveCups=defectsPanel.querySelectorAll('.cup-defect-cups button[aria-pressed="true"]').length;
+    cvaDeduction.textContent=defectiveCups?`−${(20*defectiveCups/5).toFixed(2)}`:'0.00';
+    updateCvaOverall();
+  }
+  function updateCvaOverall(){
+    const ratings=[...root.querySelectorAll('.cva-phone .cva-choices button.active')].map(button=>Number(button.textContent));
+    const nonUniform=root.querySelectorAll('.cva-uniformity .cup-defect-cups button[aria-pressed="true"]').length;
+    const defective=defectsPanel.querySelectorAll('.cup-defect-cups button[aria-pressed="true"]').length;
+    const score=root.querySelector('#compare-cva-overall-score');
+    score.textContent=ratings.length===8?(Math.round((52.75+0.65625*ratings.reduce((a,b)=>a+b,0)-10*nonUniform/5-20*defective/5)*4)/4).toFixed(2):'—';
+  }
+  for(const form of ['cva','legacy']){
+    const toggle=root.querySelector(`#compare-${form}-defects-toggle`);
+    const panel=root.querySelector(`#compare-${form}-defects-panel`);
+    toggle.addEventListener('click',()=>{
+      const opening=panel.hidden;
+      panel.hidden=!opening;
+      toggle.setAttribute('aria-expanded',String(opening));
+    });
+  }
+  for(const button of root.querySelectorAll('.cup-defect-cups button')){
+    button.addEventListener('click',()=>{
+      button.setAttribute('aria-pressed',String(button.getAttribute('aria-pressed')!=='true'));
+      if(defectsPanel.contains(button))updateCvaDefect();
+      else if(button.closest('.cva-uniformity'))updateCvaOverall();
+    });
+  }
+  for(const button of root.querySelectorAll('.cup-scan-action')){
+    button.addEventListener('click',()=>{button.parentElement.querySelector('.cup-scan-hint').hidden=false;});
+  }
+  for(const button of root.querySelectorAll('.cup-defect-types button')){
+    button.addEventListener('click',()=>{
+      const wasSelected=button.getAttribute('aria-pressed')==='true';
+      for(const choice of button.closest('.cup-defect-types').querySelectorAll('button'))choice.setAttribute('aria-pressed','false');
+      if(!wasSelected)button.setAttribute('aria-pressed','true');
+    });
+  }
+  const legacyDefects=root.querySelector('#compare-legacy-defects-panel');
+  const legacyDescription=legacyDefects.querySelector('#compare-legacy-defect-description');
+  const legacyDeduction=legacyDefects.querySelector('#compare-legacy-defect-deduction');
+  function updateLegacyOverall(){
+    const quality=[...root.querySelectorAll('.legacy-quality .legacy-line b')].map(node=>Number(node.textContent));
+    const checks=[...root.querySelectorAll('.legacy-check .legacy-line b')].map(node=>Number(node.textContent));
+    const type=legacyDefects.querySelector('[data-type][aria-pressed="true"]').dataset.type;
+    const count=legacyDefects.querySelectorAll('[data-count][aria-pressed="true"]').length;
+    const deduction=type==='none'?0:(type==='taint'?2:4)*count;
+    root.querySelector('#compare-legacy-overall-score').textContent=(quality.reduce((a,b)=>a+b,0)+checks.reduce((a,b)=>a+b,0)-deduction).toFixed(2);
+  }
+  function updateLegacyDefect(){
+    const type=legacyDefects.querySelector('[data-type][aria-pressed="true"]').dataset.type;
+    const count=legacyDefects.querySelectorAll('[data-count][aria-pressed="true"]').length;
+    const inactive=type==='none';
+    legacyDescription.disabled=inactive;
+    for(const button of legacyDefects.querySelectorAll('[data-count]'))button.disabled=inactive;
+    for(const button of legacyDefects.querySelectorAll('.legacy-defect-kind button'))button.disabled=inactive;
+    legacyDeduction.textContent=`−${(inactive?0:(type==='taint'?2:4)*count).toFixed(2)}`;
+    updateLegacyOverall();
+  }
+  for(const choice of legacyDefects.querySelectorAll('[data-type]'))choice.addEventListener('click',()=>{
+    for(const button of legacyDefects.querySelectorAll('[data-type]'))button.setAttribute('aria-pressed',String(button===choice));
+    updateLegacyDefect();
+  });
+  for(const choice of legacyDefects.querySelectorAll('[data-count]'))choice.addEventListener('click',()=>{
+    choice.setAttribute('aria-pressed',String(choice.getAttribute('aria-pressed')!=='true'));
+    updateLegacyDefect();
+  });
+  updateLegacyDefect();
+  function cvaRow(name,value){
+    const section=document.createElement('section');section.className='cva-rating';
+    const heading=document.createElement('h3');heading.textContent=name;
+    const choices=document.createElement('div');choices.className='cva-choices';choices.setAttribute('role','group');choices.setAttribute('aria-label',`${name} score`);
+    for(let n=1;n<=9;n++){const b=document.createElement('button');b.type='button';b.textContent=String(n);b.setAttribute('aria-label',`${name} ${n}`);b.classList.toggle('active',n===value);b.addEventListener('click',()=>{for(const choice of choices.querySelectorAll('button'))choice.classList.toggle('active',choice===b);updateCvaOverall()});choices.append(b)}
+    section.append(heading,choices);return section;
+  }
+  const cvaFirst=root.querySelector('#compare-cva-first');const cvaMore=root.querySelector('#compare-cva-more');
+  cvaFirst.append(cvaRow('Fragrance',7),cvaRow('Aroma',8));
+  for(const name of ['Flavour','Aftertaste','Acidity','Sweetness','Mouthfeel','Overall'])cvaMore.append(cvaRow(name,8));
+  updateCvaOverall();
+  function legacyRow(name,extra){
+    const section=document.createElement('section');section.className='legacy-quality';
+    const line=document.createElement('div');line.className='legacy-line';
+    const label=document.createElement('strong');label.textContent=name;
+    const score=document.createElement('b');score.textContent='8.00';line.append(label,score);
+    const ruler=document.createElement('div');ruler.className='legacy-ruler';
+    ruler.innerHTML='<span class="legacy-ticks"><i class="legacy-selected" style="left:50%"></i></span><span class="legacy-numbers"><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></span>';
+    section.append(line,ruler);
+    if(extra){
+      const wrap=document.createElement('div');wrap.className='legacy-vertical-small';
+      const title=document.createElement('strong');title.textContent=extra;
+      const row=document.createElement('div');row.className='legacy-vertical-with-labels';
+      const vertical=document.createElement('div');vertical.className='legacy-vertical';
+      for(let i=5;i>=1;i--){const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',`${name} ${extra} ${i}`);vertical.append(b)}
+      const scaleLabels=document.createElement('div');scaleLabels.className='legacy-scale-labels';
+      const top=document.createElement('span');top.textContent=name==='Body'?'Heavy':'High';
+      const bottom=document.createElement('span');bottom.textContent=name==='Body'?'Thin':'Low';
+      scaleLabels.append(top,bottom);row.append(vertical,scaleLabels);wrap.append(title,row);section.append(wrap);
+    }
+    return section;
+  }
+  const legacyMore=root.querySelector('#compare-legacy-more');
+  for(const [name,extra] of [['Flavour',null],['Aftertaste',null],['Acidity','Intensity'],['Body','Level'],['Balance',null],['Overall',null]])legacyMore.append(legacyRow(name,extra));
+  const checks=root.querySelector('#compare-legacy-checks');
+  for(const name of ['Uniformity','Sweetness','Clean Cup']){
+    const section=document.createElement('section');section.className='legacy-check';
+    const line=document.createElement('div');line.className='legacy-line';
+    const title=document.createElement('strong');title.textContent=name;
+    const score=document.createElement('b');score.textContent='10.00';score.setAttribute('aria-live','polite');
+    line.append(title,score);
+    const cups=document.createElement('div');cups.className='legacy-cups';cups.setAttribute('role','group');cups.setAttribute('aria-label',`${name} cups`);
+    for(let n=1;n<=5;n++){
+      const b=document.createElement('button');b.type='button';b.textContent=String(n);b.className='active';
+      b.setAttribute('aria-label',`${name} cup ${n} consistent`);b.setAttribute('aria-pressed','true');
+      b.addEventListener('click',()=>{
+        const selected=b.classList.toggle('active');b.setAttribute('aria-pressed',String(selected));
+        b.setAttribute('aria-label',`${name} cup ${n} ${selected?'consistent':'not consistent'}`);
+        score.textContent=(10*cups.querySelectorAll('button.active').length/5).toFixed(2);
+        updateLegacyOverall();
+      });
+      cups.append(b);
+    }
+    section.append(line,cups);checks.append(section);
+  }
+  updateLegacyOverall();
+})();
+</script>

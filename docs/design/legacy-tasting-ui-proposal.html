@@ -1,0 +1,154 @@
+<div id="cup-legacy-design">
+  <div class="viz-carousel viz-dotted-background" aria-label="SCA Legacy tasting screen design choices">
+    <section data-variant="Compact overview" aria-label="Compact overview Legacy tasting screen">
+      <div class="cup-stage">
+        <div class="cup-phone">
+          <div class="cup-status" aria-hidden="true">9:41 <span>●●● ▰</span></div>
+          <div class="cup-header">
+            <button class="cup-icon" type="button" aria-label="Back"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+            <strong>SCA Legacy</strong>
+            <span class="cup-header-space"></span>
+          </div>
+          <div class="cup-content">
+            <div class="cup-sample-head">
+              <div class="cup-kicker">SAMPLE 1 OF 1</div>
+              <h2>Legacy Coffee Test</h2>
+              <div class="cup-subline">Open cupping · 1 cup</div>
+            </div>
+            <div class="cup-save-line"><span>Draft saved on this phone</span><span>2 of 7 marks</span></div>
+            <div class="cup-section-title">Quality marks</div>
+            <div class="cup-mark-list">
+              <div class="cup-mark-row"><span>Fragrance / Aroma</span><button type="button" data-open-picker data-label="Fragrance / Aroma">9.75</button></div>
+              <div class="cup-mark-row"><span>Flavor</span><button type="button" data-open-picker data-label="Flavor">8.00</button></div>
+              <div class="cup-mark-row"><span>Aftertaste</span><button class="cup-empty" type="button" data-open-picker data-label="Aftertaste">Choose mark</button></div>
+              <div class="cup-mark-row"><span>Acidity</span><button class="cup-empty" type="button" data-open-picker data-label="Acidity">Choose mark</button></div>
+              <div class="cup-mark-row"><span>Body</span><button class="cup-empty" type="button" data-open-picker data-label="Body">Choose mark</button></div>
+              <div class="cup-mark-row"><span>Balance</span><button class="cup-empty" type="button" data-open-picker data-label="Balance">Choose mark</button></div>
+              <div class="cup-mark-row"><span>Overall</span><button class="cup-empty" type="button" data-open-picker data-label="Overall">Choose mark</button></div>
+            </div>
+            <div class="cup-group-row"><div><strong>Cup checks</strong><small>Uniformity · Sweetness · Clean Cup</small></div><span>Review <i data-lucide="chevron-right" aria-hidden="true"></i></span></div>
+            <div class="cup-group-row"><div><strong>Defect & notes</strong><small>No entry yet</small></div><span>Review <i data-lucide="chevron-right" aria-hidden="true"></i></span></div>
+          </div>
+          <div class="cup-footer"><button type="button" disabled>COMPLETE & SCORE</button><small>Finish the required judgments first</small></div>
+        </div>
+      </div>
+    </section>
+    <section data-variant="Guided entry" aria-label="Guided entry Legacy tasting screen" hidden>
+      <div class="cup-stage">
+        <div class="cup-phone">
+          <div class="cup-status" aria-hidden="true">9:41 <span>●●● ▰</span></div>
+          <div class="cup-header">
+            <button class="cup-icon" type="button" aria-label="Back"><i data-lucide="chevron-left" aria-hidden="true"></i></button>
+            <strong>SCA Legacy</strong>
+            <span class="cup-header-space"></span>
+          </div>
+          <div class="cup-content">
+            <div class="cup-sample-head">
+              <div class="cup-kicker">SAMPLE 1 OF 1</div>
+              <h2>Legacy Coffee Test</h2>
+              <div class="cup-subline">Open cupping · 1 cup</div>
+            </div>
+            <div class="cup-save-line"><span>Draft saved on this phone</span><span>Quality 1 of 7</span></div>
+            <div class="cup-guided-heading"><div class="cup-kicker">QUALITY MARK</div><h3>Fragrance / Aroma</h3><p>Choose one quarter-point mark.</p></div>
+            <div class="cup-grid" aria-label="Fragrance and aroma marks">
+              <button type="button" data-guided-mark>6.00</button><button type="button" data-guided-mark>6.25</button><button type="button" data-guided-mark>6.50</button><button type="button" data-guided-mark>6.75</button>
+              <button type="button" data-guided-mark>7.00</button><button type="button" data-guided-mark>7.25</button><button type="button" data-guided-mark>7.50</button><button type="button" data-guided-mark>7.75</button>
+              <button type="button" data-guided-mark>8.00</button><button type="button" data-guided-mark>8.25</button><button type="button" data-guided-mark>8.50</button><button type="button" data-guided-mark>8.75</button>
+              <button type="button" data-guided-mark>9.00</button><button type="button" data-guided-mark>9.25</button><button type="button" data-guided-mark>9.50</button><button class="cup-selected" type="button" aria-pressed="true" data-guided-mark>9.75</button>
+            </div>
+            <div class="cup-guided-next"><div class="cup-kicker">NEXT</div><strong>Flavor</strong><span>Six more quality marks, then cup checks</span></div>
+          </div>
+          <div class="cup-footer"><button class="cup-forward" type="button">NEXT: FLAVOR</button><small>Saved as you go</small></div>
+        </div>
+      </div>
+    </section>
+  </div>
+  <div class="cup-picker" id="cup-overview-picker" hidden>
+    <div class="cup-picker-panel" role="dialog" aria-modal="true" aria-labelledby="cup-picker-heading">
+      <h3 id="cup-picker-heading">Quality mark</h3>
+      <p>Choose one quarter-point mark.</p>
+      <div class="cup-grid">
+        <button type="button" data-mark-option>6.00</button><button type="button" data-mark-option>6.25</button><button type="button" data-mark-option>6.50</button><button type="button" data-mark-option>6.75</button>
+        <button type="button" data-mark-option>7.00</button><button type="button" data-mark-option>7.25</button><button type="button" data-mark-option>7.50</button><button type="button" data-mark-option>7.75</button>
+        <button type="button" data-mark-option>8.00</button><button type="button" data-mark-option>8.25</button><button type="button" data-mark-option>8.50</button><button type="button" data-mark-option>8.75</button>
+        <button type="button" data-mark-option>9.00</button><button type="button" data-mark-option>9.25</button><button type="button" data-mark-option>9.50</button><button type="button" data-mark-option>9.75</button>
+      </div>
+      <button class="cup-close" type="button" data-close-picker>Close</button>
+    </div>
+  </div>
+</div>
+<style>
+  #cup-legacy-design { color-scheme: light dark; position: relative; }
+  #cup-legacy-design * { box-sizing: border-box; }
+  #cup-legacy-design .cup-stage { min-height: 945px; display: flex; justify-content: center; align-items: flex-start; padding: 12px 12px 22px; }
+  #cup-legacy-design .cup-phone { width: min(100%, 390px); overflow: hidden; border: 1px solid light-dark(#D7DADD,#3A444D); border-radius: 30px; background: light-dark(#FFFFFF,#1B2026); color: light-dark(#3F4852,#E9EDF0); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; box-shadow: 0 9px 30px light-dark(#3F485219,#00000045); }
+  #cup-legacy-design .cup-status { height: 38px; padding: 11px 24px 0; display: flex; justify-content: space-between; font-size: 14px; font-weight: 700; }
+  #cup-legacy-design .cup-header { height: 58px; display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; border-bottom: 1px solid light-dark(#D7DADD,#3A444D); text-align: center; }
+  #cup-legacy-design .cup-header strong { font-size: 22px; font-weight: 700; }
+  #cup-legacy-design .cup-icon { width: 44px; height: 44px; border: 0; background: transparent; color: light-dark(#667078,#BCC6CF); display: grid; place-items: center; }
+  #cup-legacy-design .cup-icon svg { width: 24px; height: 24px; }
+  #cup-legacy-design .cup-content { padding: 22px 24px 12px; }
+  #cup-legacy-design .cup-sample-head h2 { margin: 6px 0 5px; font-size: 27px; line-height: 1.2; font-weight: 700; }
+  #cup-legacy-design .cup-kicker { color: light-dark(#667078,#BCC6CF); font-size: 12px; font-weight: 700; letter-spacing: 1px; }
+  #cup-legacy-design .cup-subline { color: light-dark(#667078,#BCC6CF); font-size: 15px; font-weight: 600; }
+  #cup-legacy-design .cup-save-line { display: flex; justify-content: space-between; gap: 8px; margin: 20px 0 22px; color: light-dark(#667078,#BCC6CF); font-size: 13px; font-weight: 600; }
+  #cup-legacy-design .cup-section-title { margin: 0 0 4px; font-size: 20px; font-weight: 800; }
+  #cup-legacy-design .cup-mark-row { min-height: 60px; border-bottom: 1px solid light-dark(#D7DADD,#3A444D); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  #cup-legacy-design .cup-mark-row span { font-size: 17px; font-weight: 600; }
+  #cup-legacy-design .cup-mark-row button { min-width: 82px; min-height: 44px; border: 1px solid light-dark(#D7DADD,#3A444D); border-radius: 10px; background: light-dark(#FFFFFF,#1B2026); color: light-dark(#3F4852,#E9EDF0); font-size: 17px; font-weight: 700; }
+  #cup-legacy-design .cup-mark-row button.cup-empty { min-width: 108px; border-color: transparent; color: light-dark(#3478F6,#78A9FF); font-size: 15px; }
+  #cup-legacy-design .cup-group-row { min-height: 72px; border-bottom: 1px solid light-dark(#D7DADD,#3A444D); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  #cup-legacy-design .cup-group-row strong, #cup-legacy-design .cup-group-row small { display: block; }
+  #cup-legacy-design .cup-group-row strong { font-size: 17px; font-weight: 700; }
+  #cup-legacy-design .cup-group-row small { margin-top: 3px; color: light-dark(#667078,#BCC6CF); font-size: 13px; }
+  #cup-legacy-design .cup-group-row > span { white-space: nowrap; color: light-dark(#3478F6,#78A9FF); display: flex; align-items: center; font-size: 14px; font-weight: 700; }
+  #cup-legacy-design .cup-group-row svg { width: 17px; height: 17px; }
+  #cup-legacy-design .cup-footer { padding: 14px 24px 20px; border-top: 1px solid light-dark(#D7DADD,#3A444D); text-align: center; }
+  #cup-legacy-design .cup-footer button { width: 100%; height: 56px; border: 0; border-radius: 28px; background: light-dark(#3F4852,#D4DEE7); color: light-dark(#FFFFFF,#1B2026); font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+  #cup-legacy-design .cup-footer button:disabled { background: light-dark(#B8BEC5,#667078); color: light-dark(#3F4852,#EEF0F2); }
+  #cup-legacy-design .cup-footer button.cup-forward { background: light-dark(#3478F6,#78A9FF); color: light-dark(#FFFFFF,#1B2026); }
+  #cup-legacy-design .cup-footer small { display: block; margin-top: 9px; color: light-dark(#667078,#BCC6CF); font-size: 12px; }
+  #cup-legacy-design .cup-guided-heading { margin-top: 42px; }
+  #cup-legacy-design .cup-guided-heading h3 { margin: 7px 0 8px; font-size: 24px; line-height: 1.2; }
+  #cup-legacy-design .cup-guided-heading p { margin: 0 0 18px; color: light-dark(#667078,#BCC6CF); font-size: 16px; }
+  #cup-legacy-design .cup-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; }
+  #cup-legacy-design .cup-grid button { min-width: 0; min-height: 57px; border: 1px solid light-dark(#D7DADD,#3A444D); border-radius: 12px; background: light-dark(#FFFFFF,#1B2026); color: light-dark(#3F4852,#E9EDF0); font-size: 16px; font-weight: 700; }
+  #cup-legacy-design .cup-grid button.cup-selected { background: light-dark(#3F4852,#E9EDF0); color: light-dark(#FFFFFF,#1B2026); }
+  #cup-legacy-design .cup-guided-next { margin: 32px 0 94px; padding-top: 18px; border-top: 1px solid light-dark(#D7DADD,#3A444D); }
+  #cup-legacy-design .cup-guided-next strong, #cup-legacy-design .cup-guided-next span { display: block; }
+  #cup-legacy-design .cup-guided-next strong { margin-top: 7px; font-size: 20px; }
+  #cup-legacy-design .cup-guided-next span { margin-top: 5px; color: light-dark(#667078,#BCC6CF); font-size: 14px; }
+  #cup-legacy-design .cup-picker[hidden] { display: none; }
+  #cup-legacy-design .cup-picker { position: absolute; inset: 0; z-index: 5; display: flex; justify-content: center; align-items: flex-start; padding: 130px 15px 30px; background: light-dark(#3F485299,#000000AA); }
+  #cup-legacy-design .cup-picker-panel { width: min(100%,390px); padding: 22px; border-radius: 18px; background: light-dark(#FFFFFF,#242B32); color: light-dark(#3F4852,#E9EDF0); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+  #cup-legacy-design .cup-picker-panel h3 { margin: 0; font-size: 22px; }
+  #cup-legacy-design .cup-picker-panel p { margin: 7px 0 18px; color: light-dark(#667078,#BCC6CF); font-size: 15px; }
+  #cup-legacy-design .cup-close { display: block; min-height: 44px; margin: 17px auto 0; border: 0; background: transparent; color: light-dark(#3F4852,#E9EDF0); font-size: 16px; font-weight: 700; }
+  @media (max-width: 420px) { #cup-legacy-design .cup-stage { min-height: 950px; padding-inline: 3px; } #cup-legacy-design .cup-content { padding-inline: 17px; } #cup-legacy-design .cup-mark-row span { font-size: 16px; } #cup-legacy-design .cup-grid { gap: 6px; } #cup-legacy-design .cup-grid button { font-size: 14px; } }
+</style>
+<script>
+  (() => {
+    const root = document.getElementById('cup-legacy-design');
+    const picker = root.querySelector('#cup-overview-picker');
+    const heading = picker.querySelector('#cup-picker-heading');
+    let chosenRow = null;
+    root.querySelectorAll('[data-open-picker]').forEach(button => button.addEventListener('click', () => {
+      chosenRow = button;
+      heading.textContent = button.dataset.label;
+      picker.hidden = false;
+    }));
+    root.querySelectorAll('[data-mark-option]').forEach(button => button.addEventListener('click', () => {
+      if (chosenRow) {
+        chosenRow.textContent = button.textContent;
+        chosenRow.classList.remove('cup-empty');
+      }
+      picker.hidden = true;
+    }));
+    root.querySelector('[data-close-picker]').addEventListener('click', () => { picker.hidden = true; });
+    root.querySelectorAll('[data-guided-mark]').forEach(button => button.addEventListener('click', () => {
+      root.querySelectorAll('[data-guided-mark]').forEach(other => { other.classList.remove('cup-selected'); other.setAttribute('aria-pressed', 'false'); });
+      button.classList.add('cup-selected');
+      button.setAttribute('aria-pressed', 'true');
+    }));
+  })();
+</script>

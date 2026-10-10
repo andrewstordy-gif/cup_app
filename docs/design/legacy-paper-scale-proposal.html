@@ -1,0 +1,115 @@
+<div id="legacy-paper-scale-proposal">
+  <div class="viz-carousel viz-dotted-background" aria-label="Paper-scale scoring designs">
+    <section data-variant="Two-step ruler" aria-label="Two-step paper-style scoring control">
+      <div class="scale-stage">
+        <div class="scale-phone">
+          <div class="scale-header"><strong>Fragrance / Aroma</strong><div><small>SCORE</small><output data-score-a>8.25</output></div></div>
+          <div class="scale-hint">Mark a quarter-point score on the paper scale.</div>
+          <div class="scale-ruler" aria-label="Printed scale from 6 to 10, with 10 shown as the paper endpoint">
+            <div class="scale-marker" data-marker-a></div>
+            <div class="scale-ticks" aria-hidden="true">
+              <span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span>
+            </div>
+            <div class="scale-labels" aria-hidden="true"><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
+          </div>
+          <div class="scale-control-label">Choose the whole-point band</div>
+          <div class="scale-choice-row" data-bands>
+            <button type="button" data-band="6">6</button><button type="button" data-band="7">7</button><button class="selected" type="button" data-band="8" aria-pressed="true">8</button><button type="button" data-band="9">9</button>
+          </div>
+          <div class="scale-control-label">Then choose the quarter mark</div>
+          <div class="scale-choice-row" data-quarters>
+            <button type="button" data-quarter="0">8.00</button><button class="selected" type="button" data-quarter="0.25" aria-pressed="true">8.25</button><button type="button" data-quarter="0.5">8.50</button><button type="button" data-quarter="0.75">8.75</button>
+          </div>
+          <div class="scale-bottom"><span>Draft saved on this phone</span><button type="button">NEXT: FLAVOR</button></div>
+        </div>
+      </div>
+    </section>
+    <section data-variant="Direct mark sheet" aria-label="Single-tap mark sheet with paper-scale preview" hidden>
+      <div class="scale-stage">
+        <div class="scale-phone">
+          <div class="scale-header"><strong>Fragrance / Aroma</strong><div><small>SCORE</small><output data-score-b>8.25</output></div></div>
+          <div class="scale-hint">The selected mark appears on the familiar paper ruler.</div>
+          <div class="scale-ruler" aria-label="Printed scale from 6 to 10, with 10 shown as the paper endpoint">
+            <div class="scale-marker" data-marker-b></div>
+            <div class="scale-ticks" aria-hidden="true">
+              <span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span><span></span><span class="half"></span><span></span><span class="major"></span>
+            </div>
+            <div class="scale-labels" aria-hidden="true"><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span></div>
+          </div>
+          <div class="scale-control-label">Choose one mark</div>
+          <div class="scale-mark-grid" data-mark-grid>
+            <button type="button">6.00</button><button type="button">6.25</button><button type="button">6.50</button><button type="button">6.75</button>
+            <button type="button">7.00</button><button type="button">7.25</button><button type="button">7.50</button><button type="button">7.75</button>
+            <button type="button">8.00</button><button class="selected" type="button" aria-pressed="true">8.25</button><button type="button">8.50</button><button type="button">8.75</button>
+            <button type="button">9.00</button><button type="button">9.25</button><button type="button">9.50</button><button type="button">9.75</button>
+          </div>
+          <div class="scale-bottom"><span>Draft saved on this phone</span><button type="button">NEXT: FLAVOR</button></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<style>
+  #legacy-paper-scale-proposal { color-scheme: light dark; }
+  #legacy-paper-scale-proposal * { box-sizing: border-box; }
+  #legacy-paper-scale-proposal .scale-stage { min-height: 690px; padding: 12px 8px 24px; display: flex; justify-content: center; align-items: flex-start; }
+  #legacy-paper-scale-proposal .scale-phone { width: min(100%,390px); padding: 27px 22px 21px; border: 1px solid light-dark(#D7DADD,#3A444D); border-radius: 25px; background: light-dark(#FFFFFF,#1B2026); color: light-dark(#3F4852,#E9EDF0); font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; box-shadow: 0 9px 30px light-dark(#3F485219,#00000045); }
+  #legacy-paper-scale-proposal .scale-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+  #legacy-paper-scale-proposal .scale-header strong { padding-top: 8px; font-size: 20px; font-weight: 800; }
+  #legacy-paper-scale-proposal .scale-header div { min-width: 76px; text-align: center; }
+  #legacy-paper-scale-proposal .scale-header small { display: block; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: light-dark(#667078,#BCC6CF); }
+  #legacy-paper-scale-proposal .scale-header output { display: block; margin-top: 3px; padding: 7px 7px; border: 2px solid light-dark(#3F4852,#E9EDF0); border-radius: 9px; font-size: 21px; font-weight: 800; }
+  #legacy-paper-scale-proposal .scale-hint { margin-top: 20px; color: light-dark(#667078,#BCC6CF); font-size: 15px; line-height: 1.4; }
+  #legacy-paper-scale-proposal .scale-ruler { position: relative; margin: 22px 4px 33px; }
+  #legacy-paper-scale-proposal .scale-marker { position: absolute; top: -9px; left: 56.25%; width: 3px; height: 57px; transform: translateX(-50%); background: light-dark(#3478F6,#78A9FF); border-radius: 2px; z-index: 1; }
+  #legacy-paper-scale-proposal .scale-marker::before { content: ""; position: absolute; top: -5px; left: 50%; transform: translateX(-50%); width: 9px; height: 9px; border-radius: 50%; background: light-dark(#3478F6,#78A9FF); }
+  #legacy-paper-scale-proposal .scale-ticks { display: flex; justify-content: space-between; align-items: flex-start; }
+  #legacy-paper-scale-proposal .scale-ticks span { width: 2px; height: 18px; background: light-dark(#3F4852,#E9EDF0); }
+  #legacy-paper-scale-proposal .scale-ticks span.half { height: 28px; }
+  #legacy-paper-scale-proposal .scale-ticks span.major { height: 37px; }
+  #legacy-paper-scale-proposal .scale-labels { display: flex; justify-content: space-between; margin-top: 5px; color: light-dark(#3F4852,#E9EDF0); font-size: 15px; font-weight: 700; }
+  #legacy-paper-scale-proposal .scale-control-label { margin: 24px 0 10px; font-size: 16px; font-weight: 700; }
+  #legacy-paper-scale-proposal .scale-choice-row { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+  #legacy-paper-scale-proposal button { min-width: 0; min-height: 50px; border: 1px solid light-dark(#D7DADD,#3A444D); border-radius: 11px; background: light-dark(#FFFFFF,#1B2026); color: light-dark(#3F4852,#E9EDF0); font-size: 16px; font-weight: 700; }
+  #legacy-paper-scale-proposal button.selected { background: light-dark(#3F4852,#E9EDF0); color: light-dark(#FFFFFF,#1B2026); }
+  #legacy-paper-scale-proposal .scale-mark-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+  #legacy-paper-scale-proposal .scale-mark-grid button { min-height: 55px; font-size: 15px; }
+  #legacy-paper-scale-proposal .scale-bottom { display: flex; flex-direction: column; align-items: stretch; gap: 14px; margin-top: 31px; padding-top: 18px; border-top: 1px solid light-dark(#D7DADD,#3A444D); }
+  #legacy-paper-scale-proposal .scale-bottom span { color: light-dark(#667078,#BCC6CF); font-size: 13px; font-weight: 600; }
+  #legacy-paper-scale-proposal .scale-bottom button { border: 0; border-radius: 28px; background: light-dark(#3478F6,#78A9FF); color: light-dark(#FFFFFF,#1B2026); font-size: 15px; letter-spacing: 1px; }
+  @media (max-width: 390px) { #legacy-paper-scale-proposal .scale-phone { padding-inline: 15px; } #legacy-paper-scale-proposal .scale-choice-row, #legacy-paper-scale-proposal .scale-mark-grid { gap: 5px; } #legacy-paper-scale-proposal .scale-mark-grid button { font-size: 14px; } }
+</style>
+<script>
+  (() => {
+    const root = document.getElementById('legacy-paper-scale-proposal');
+    const scoreA = root.querySelector('[data-score-a]');
+    const markerA = root.querySelector('[data-marker-a]');
+    const scoreB = root.querySelector('[data-score-b]');
+    const markerB = root.querySelector('[data-marker-b]');
+    let band = 8;
+    let quarter = 0.25;
+    const renderA = () => {
+      const score = band + quarter;
+      scoreA.textContent = score.toFixed(2);
+      markerA.style.left = `${(score - 6) * 25}%`;
+      root.querySelectorAll('[data-quarter]').forEach(button => { button.textContent = (band + Number(button.dataset.quarter)).toFixed(2); });
+    };
+    root.querySelectorAll('[data-band]').forEach(button => button.addEventListener('click', () => {
+      band = Number(button.dataset.band);
+      root.querySelectorAll('[data-band]').forEach(other => { other.classList.remove('selected'); other.setAttribute('aria-pressed','false'); });
+      button.classList.add('selected'); button.setAttribute('aria-pressed','true'); renderA();
+    }));
+    root.querySelectorAll('[data-quarter]').forEach(button => button.addEventListener('click', () => {
+      quarter = Number(button.dataset.quarter);
+      root.querySelectorAll('[data-quarter]').forEach(other => { other.classList.remove('selected'); other.setAttribute('aria-pressed','false'); });
+      button.classList.add('selected'); button.setAttribute('aria-pressed','true'); renderA();
+    }));
+    root.querySelectorAll('[data-mark-grid] button').forEach(button => button.addEventListener('click', () => {
+      const score = Number(button.textContent);
+      root.querySelectorAll('[data-mark-grid] button').forEach(other => { other.classList.remove('selected'); other.setAttribute('aria-pressed','false'); });
+      button.classList.add('selected'); button.setAttribute('aria-pressed','true');
+      scoreB.textContent = score.toFixed(2);
+      markerB.style.left = `${(score - 6) * 25}%`;
+    }));
+  })();
+</script>

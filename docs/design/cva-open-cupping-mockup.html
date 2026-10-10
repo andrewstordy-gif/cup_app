@@ -1,0 +1,47 @@
+<div id="cup-cva-open-preview" class="viz-dotted-background">
+  <div class="cva-phone" aria-label="CVA Affective form in Open Cupping mode">
+    <div class="cva-status">9:41 <span>●●● ▰</span></div>
+    <header class="cva-header"><span aria-hidden="true">‹</span><strong>1</strong><span class="cva-temperature" aria-label="Temperature unavailable"><i data-lucide="thermometer" aria-hidden="true"></i>— °C</span></header>
+    <div class="cva-coffee"><strong>R1-009</strong><span>Washed (Wet)</span></div>
+    <main class="cva-main">
+      <div id="cva-first-ratings"></div>
+      <label class="cva-notes-label" for="cva-aroma-notes">Fragrance / Aroma Notes</label>
+      <textarea id="cva-aroma-notes" rows="3" placeholder="Add fragrance / aroma notes..."></textarea>
+      <div id="cva-more-ratings"></div>
+      <label class="cva-notes-label" for="cva-flavour-notes">Flavour Notes</label>
+      <textarea id="cva-flavour-notes" rows="3" placeholder="Add flavour notes..."></textarea>
+      <div class="cva-score-summary"><span>Final score</span><strong>—</strong></div>
+    </main>
+    <div class="cva-defects"><i data-lucide="chevron-up" aria-hidden="true"></i><span>Defects</span></div>
+    <footer class="cva-footer"><button type="button">SCAN CUP</button></footer>
+  </div>
+</div>
+<style>
+#cup-cva-open-preview{display:flex;justify-content:center;padding:18px 8px 26px;color-scheme:light dark}
+#cup-cva-open-preview *{box-sizing:border-box}
+#cup-cva-open-preview .cva-phone{--cva-bg:light-dark(#fff,#1c2228);--cva-ink:light-dark(#3f4852,#f0f2f4);--cva-soft:light-dark(#667078,#aeb7c0);--cva-line:light-dark(#d7dadd,#4b5660);--cva-input:light-dark(#f4f5f6,#2a3239);--cva-blue:light-dark(#3478f6,#6d9fff);width:min(100%,390px);background:var(--cva-bg);color:var(--cva-ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;border:1px solid var(--cva-line);border-radius:32px;overflow:hidden;box-shadow:0 14px 35px light-dark(#3f485226,#0007)}
+#cup-cva-open-preview .cva-status{height:40px;padding:12px 22px 0;font-size:13px;font-weight:700;display:flex;justify-content:space-between}
+#cup-cva-open-preview .cva-header{height:66px;border-bottom:1px solid var(--cva-line);display:grid;grid-template-columns:1fr 2fr 1fr;align-items:center;text-align:center;padding:0 20px;font-size:23px}
+#cup-cva-open-preview .cva-header span:first-child{text-align:left;font-size:34px;color:var(--cva-soft);line-height:1}
+#cup-cva-open-preview .cva-temperature{display:flex;align-items:center;justify-content:flex-end;gap:2px;color:var(--cva-soft);font-size:17px;font-weight:700;white-space:nowrap}
+#cup-cva-open-preview .cva-coffee{padding:19px 20px 17px;border-bottom:1px solid var(--cva-line);display:flex;flex-direction:column;gap:5px}
+#cup-cva-open-preview .cva-coffee strong{font-size:23px}
+#cup-cva-open-preview .cva-coffee span{font-size:16px;color:var(--cva-soft);font-weight:600}
+#cup-cva-open-preview .cva-main{padding:10px 20px 25px}
+#cup-cva-open-preview .cva-rating{margin:15px 0 30px}
+#cup-cva-open-preview .cva-rating h2{font-size:21px;line-height:1.2;margin:0 0 12px;font-weight:800}
+#cup-cva-open-preview .cva-choice-row{display:grid;grid-template-columns:repeat(9,minmax(0,1fr));gap:4px}
+#cup-cva-open-preview .cva-choice-row button{aspect-ratio:1;min-height:34px;border:2px solid var(--cva-ink);border-radius:50%;background:var(--cva-bg);color:var(--cva-ink);font-family:inherit;font-size:16px;font-weight:600;padding:0}
+#cup-cva-open-preview .cva-choice-row button.active{background:var(--cva-ink);color:var(--cva-bg)}
+#cup-cva-open-preview .cva-notes-label{display:block;font-size:15px;font-weight:700;margin:6px 0 7px}
+#cup-cva-open-preview textarea{width:100%;resize:vertical;border:1px solid var(--cva-line);border-radius:12px;background:var(--cva-input);color:var(--cva-ink);padding:11px 12px;font-size:16px;font-family:inherit;min-height:105px;margin-bottom:22px}
+#cup-cva-open-preview .cva-score-summary{border-top:1px solid var(--cva-line);padding:17px 0;display:flex;align-items:baseline;justify-content:space-between;font-size:16px;font-weight:700}
+#cup-cva-open-preview .cva-score-summary strong{font-size:28px}
+#cup-cva-open-preview .cva-defects{border-top:1px solid var(--cva-line);border-bottom:1px solid var(--cva-line);display:flex;align-items:center;justify-content:center;gap:8px;padding:16px;background:var(--cva-bg);font-size:20px;font-weight:800}
+#cup-cva-open-preview .cva-footer{padding:17px 20px 24px;background:var(--cva-bg)}
+#cup-cva-open-preview .cva-footer button{width:100%;height:58px;border:0;border-radius:29px;background:var(--cva-blue);color:light-dark(#fff,#101922);font-family:inherit;font-size:15px;font-weight:700;letter-spacing:1px}
+@media(max-width:350px){#cup-cva-open-preview .cva-main{padding-left:15px;padding-right:15px}#cup-cva-open-preview .cva-choice-row{gap:3px}#cup-cva-open-preview .cva-choice-row button{font-size:14px}}
+</style>
+<script>
+(()=>{const root=document.getElementById('cup-cva-open-preview');const first=root.querySelector('#cva-first-ratings');const more=root.querySelector('#cva-more-ratings');function row(label,selected){const wrap=document.createElement('section');wrap.className='cva-rating';const heading=document.createElement('h2');heading.textContent=label;const choices=document.createElement('div');choices.className='cva-choice-row';choices.setAttribute('role','group');choices.setAttribute('aria-label',`${label} score`);for(let n=1;n<=9;n++){const b=document.createElement('button');b.type='button';b.textContent=String(n);b.setAttribute('aria-label',`${label} ${n}`);b.setAttribute('aria-pressed',String(n===selected));b.classList.toggle('active',n===selected);b.addEventListener('click',()=>{const was=b.classList.contains('active');choices.querySelectorAll('button').forEach(x=>{x.classList.remove('active');x.setAttribute('aria-pressed','false')});if(!was){b.classList.add('active');b.setAttribute('aria-pressed','true')}});choices.append(b)}wrap.append(heading,choices);return wrap}first.append(row('Fragrance',7),row('Aroma',7));for(const name of ['Flavour','Aftertaste','Acidity','Sweetness','Mouthfeel','Overall'])more.append(row(name,null))})();
+</script>
