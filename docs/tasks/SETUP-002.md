@@ -2,7 +2,7 @@
 
 - **Task ID:** SETUP-002
 - **Title:** Preserve and index the approved two-form UI design for recovery
-- **Status:** Documentation-only archive and recovery pointers committed on isolated branches; independent review passed. Prospective integration, protected PR merge, and post-merge validation pending.
+- **Status:** Documentation-only archive and recovery pointers committed on isolated branches; independent review and initial prospective fast-forward validation passed. Protected PR creation is blocked by GitHub authorisation; `main` is unchanged.
 - **Product Specification references:** §6.6 and FR-010/030/032 govern the two Release 1 forms; this task does not change their requirements.
 - **Technical specification references:** `docs/AI_DEVELOPMENT_OPERATING_MODEL.md` §§1, 7–11, 13 and `docs/PROJECT_MANAGER_RECOVERY.md`; form-specific contracts remain in R1-010 and R1-012.
 - **Objective:** Make the approved 9 October 2026 CVA/Legacy visual comparison and its design history recoverable from GitHub without Codex local visualization storage or chat history, and give a new Project Manager a direct, unambiguous route to it.
@@ -31,15 +31,16 @@
 
 - **Files changed:** `docs/design/` preview archive and index; recovery guide; R1-010 and R1-012 task-record pointers on their respective branches.
 - **Implementation summary:** Documentation preservation only; no application code.
-- **Tests/checks run:** Byte comparison of each source/archived HTML passed; independent documentation/recovery review passed at `88dfbe736a600adbf2aa051bb6abbbcab2a4ba83`; prospective and post-merge validation pending.
+- **Tests/checks run:** Byte comparison of each source/archived HTML passed; independent documentation/recovery review passed at `88dfbe736a600adbf2aa051bb6abbbcab2a4ba83`; initial prospective fast-forward/diff/clean checks passed at `95d2bcad54c2515b61b263ee111dd4d2dfc5cd47` against fetched `origin/main=34f95a8119574557e5e67cc5246888a9d1c089c4`. Final PR-head checks and post-merge validation pending.
 - **Known limitations:** HTML fragments may show icon placeholders outside the original visualization host; content and layout source are preserved. Earlier alternatives are not the final agreed layout.
-- **Unresolved issues:** Controlled integration pending. The independent reviewer could not perform a fresh GitHub clone because DNS resolution failed; the pushed remote-tracking ref was verified locally.
+- **Unresolved issues:** Controlled integration pending. The independent reviewer could not perform a fresh GitHub clone because DNS resolution failed; a later `git push` and `git fetch` succeeded, and GitHub's compare page displayed the three archive commits and an automatically mergeable result. PR creation via connector returned HTTP 403; local `gh` authentication is expired; signed-in Chrome browser access was not approved. The Project Manager must retry PR creation after GitHub authorisation is restored.
 - **Changelog-worthy information:** None for app release; repository recovery documentation now preserves the form design.
 
 ## Tests and evidence
 
 - Initial archive commit `6392c7ba731750f95fa7b8e7c7265f15ff01c642` was pushed to `origin/codex/form-design-archive`. `cmp` found no difference for any of the five HTML source/archive pairs. A targeted scan found no URLs, local absolute paths, tokens, passwords, or credentials in the HTML files. This is source preservation, not a rendered visual QA claim.
 - Recovery-guide and index commit `88dfbe736a600adbf2aa051bb6abbbcab2a4ba83` is present at `origin/codex/form-design-archive`. R1-010 task-record pointer commit `f885ae3` and R1-012 task-record pointer commit `1e55ff1` were pushed on their own task branches; neither changes application code or review status.
+- On 10 October 2026, `git fetch origin main` confirmed `origin/main=34f95a8119574557e5e67cc5246888a9d1c089c4`. Its merge base with archive head `95d2bcad54c2515b61b263ee111dd4d2dfc5cd47` is that exact `main` commit, so the prospective integrated tree is the archive head without conflict resolution. `git diff --check origin/main...HEAD`, `git status --short --branch`, and repeat `cmp` of all five source/archived HTML pairs passed. The eight changed files are solely the recovery guide, design archive/index, and this task record. GitHub's compare page also reported “Able to merge”. This evidence update requires a final head check after commit, before merge.
 
 ## Review findings
 
@@ -50,18 +51,18 @@
 
 ## Definition of Done
 
-- Acceptance criteria satisfied: Pending.
+- Acceptance criteria satisfied: Partial — preservation, discoverability, review and initial prospective checks pass; protected PR integration is blocked.
 - Automated tests added/updated where required: N/A — documentation-only source preservation; byte comparison is required.
 - Existing relevant tests pass: N/A — no application change; prospective diff/links check required.
 - Build/bundle validation passes where relevant: N/A — no application code or assets consumed by the build.
-- No unrelated refactoring or product changes: Pending.
+- No unrelated refactoring or product changes: PASS — documentation files only in the prospective diff.
 - Documentation updated when contracts or behaviour change: N/A — no contract/behaviour change.
 - UI checked against guidance where relevant: N/A — exact approved preview archived; no UI implementation.
-- Security/privacy review completed where relevant: Pending content/secrets audit.
-- Identified regression checks performed: Pending link and source comparisons.
-- Exact commit tested recorded: Pending.
-- Branch/worktree validation recorded: Pending.
-- Prospective integrated-`main` validation recorded before merge: Pending.
+- Security/privacy review completed where relevant: PASS — targeted content/secrets and external-dependency audit by author and independent reviewer.
+- Identified regression checks performed: PASS — relative links resolve and all five archived files match their originals byte-for-byte.
+- Exact commit tested recorded: PASS — initial prospective checks at `95d2bcad54c2515b61b263ee111dd4d2dfc5cd47`; final PR head still requires checks.
+- Branch/worktree validation recorded: PASS — clean worktree, `git diff --check`, source comparisons and documentation-only diff at `95d2bca`.
+- Prospective integrated-`main` validation recorded before merge: PASS for initial fast-forward result `95d2bca` against `main=34f95a8`; repeat on final PR head and then-current `main` required.
 - Physical NFC/device verification distinguished clearly from simulation: N/A — documentation-only; no device claim.
 - Review findings resolved; handoff and clean Git state recorded: Pending.
 
