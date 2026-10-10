@@ -34,6 +34,7 @@ import {
   pruneSampleFlavourObservations,
 } from "../../../data/sessionRepository";
 import { DefectsSection } from "../components/DefectsSection";
+import { AssessmentHeader } from "../components/AssessmentHeader";
 import { KeywordPillRow } from "../components/KeywordPillRow";
 import { tokenizeFlavourKeywords } from "../data/flavourKeywords";
 import { getProcessLabel, normalizeCuppingModeKey } from "../constants/sessionDetails";
@@ -399,15 +400,6 @@ function getNoteGroupId(group) {
   return group.fields.join("-");
 }
 
-function formatTitleTemperature(value) {
-  const raw = String(value || "").trim();
-  const numeric = Number.parseFloat(raw);
-  if (Number.isFinite(numeric)) {
-    return `${Math.round(numeric)} °C`;
-  }
-  return raw.replace(/\s*C$/i, " °C") || "-- °C";
-}
-
 function formatElapsedTime(value) {
   const numeric = Number.parseInt(value, 10);
   if (!Number.isFinite(numeric) || numeric < 0) {
@@ -417,58 +409,6 @@ function formatElapsedTime(value) {
   const minutes = Math.floor(numeric / 60);
   const seconds = numeric % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function resolveSampleNumber(sampleNumber, cupIndex) {
-  const explicitSampleNumber = Number.parseInt(sampleNumber, 10);
-  if (Number.isInteger(explicitSampleNumber) && explicitSampleNumber > 0) {
-    return explicitSampleNumber;
-  }
-
-  const index = Number.parseInt(cupIndex, 10);
-  return Number.isInteger(index) && index >= 0 ? index + 1 : 1;
-}
-
-function CuppingTitleContent({ sampleNumber, cupIndex, scale }) {
-  const displayNumber = resolveSampleNumber(sampleNumber, cupIndex);
-
-  return (
-    <View style={[styles.cuppingHeaderTitleStack, { gap: 2 * scale }]}>
-      <Text style={styles.cuppingHeaderTitleText}>{displayNumber}</Text>
-    </View>
-  );
-}
-
-function CuppingHeaderTemperature({ temp, scale }) {
-  return (
-    <View style={[styles.cuppingHeaderTemp, { gap: 7 * scale }]}>
-      <View style={[styles.cuppingHeaderThermometer, { width: 14 * scale, height: 32 * scale }]}>
-        <View
-          style={[
-            styles.cuppingHeaderThermometerStem,
-            {
-              width: 6 * scale,
-              height: 23 * scale,
-              borderRadius: 3 * scale,
-              borderWidth: 2 * scale,
-            },
-          ]}
-        />
-        <View
-          style={[
-            styles.cuppingHeaderThermometerBulb,
-            {
-              width: 14 * scale,
-              height: 14 * scale,
-              borderRadius: 7 * scale,
-              borderWidth: 2 * scale,
-            },
-          ]}
-        />
-      </View>
-      <Text style={styles.cuppingHeaderTempText}>{formatTitleTemperature(temp)}</Text>
-    </View>
-  );
 }
 
 function SamplePagerIndicator({ current, total, scale, compact = false }) {
@@ -1913,22 +1853,13 @@ export function CuppingScreen({
     <View style={styles.screen} {...panResponder.panHandlers}>
       {usesMockCuppingLayout ? (
         <View style={styles.cuppingHeaderLayer}>
-          <Header
-            variant="back"
+          <AssessmentHeader
             onBackPress={onBackPress}
-            backAccessibilityLabel="Back"
             hideBack={isDefectsDrawerOpen}
-            sideWidth={112}
-            titleContent={
-              <CuppingTitleContent
-                sampleNumber={sampleNumber}
-                samplesInSession={cupTotal}
-                cupIndex={cupIndex}
-                scale={scale}
-              />
-            }
-            rightContent={<CuppingHeaderTemperature temp={statusDisplay.temp} scale={scale} />}
-            debugTag="CuppingScreen"
+            sampleNumber={sampleNumber}
+            cupIndex={cupIndex}
+            temperature={cupStatus?.temp}
+            scale={scale}
           />
         </View>
       ) : (
@@ -1941,7 +1872,6 @@ export function CuppingScreen({
             onRightPress={isFinalMode && isFinalSaved ? handleEditFinalScore : undefined}
             rightIconName="edit"
             rightAccessibilityLabel="Edit final score"
-            debugTag="CuppingScreen"
           />
 
           <View style={styles.hero}>
@@ -2203,36 +2133,6 @@ const styles = StyleSheet.create({
     zIndex: 40,
     elevation: 40,
     backgroundColor: colors.surface,
-  },
-  cuppingHeaderTitleStack: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cuppingHeaderTitleText: {
-    ...typography.text_screen_title,
-    lineHeight: 28,
-  },
-  cuppingHeaderTemp: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  cuppingHeaderThermometer: {
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  cuppingHeaderThermometerStem: {
-    position: "absolute",
-    top: 1,
-    borderColor: colors.ink,
-    backgroundColor: colors.surface,
-  },
-  cuppingHeaderThermometerBulb: {
-    backgroundColor: colors.ink,
-    borderColor: colors.ink,
-  },
-  cuppingHeaderTempText: {
-    ...typography.text_screen_title,
   },
   coffeeMetaBlock: {
     backgroundColor: colors.surface,

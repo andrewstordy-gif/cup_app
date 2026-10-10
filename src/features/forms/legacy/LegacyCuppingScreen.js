@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { TypographyAuditText as Text } from '../../../components/ui/TypographyAuditText';
-import { Header } from '../../../components/ui/Header';
+import { AssessmentHeader } from '../../cupping/components/AssessmentHeader';
 import { AppIcon } from '../../../components/ui/AppIcon';
 import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
@@ -181,7 +181,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     if (typeof onScanPress === 'function') onScanPress();
   };
 
-  if (loading || !response) return <View style={styles.screen}><Header title="SCA Legacy" variant="back" onBackPress={onBackPress} /><Text style={styles.hint}>{message || 'Loading saved assessment…'}</Text></View>;
+  if (loading || !response) return <View style={styles.screen}><AssessmentHeader sampleNumber={sampleNumber} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} /><Text style={styles.hint}>{message || 'Loading saved assessment…'}</Text></View>;
   const defect = response.scored_defect;
   const form = resolveForm(PROFILE, 2);
   const liveResult = form.ok ? scoreResponse({ profile: PROFILE, f: 2, identity: form.identity, cup_count: n, response },
@@ -189,10 +189,6 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const displayedResult = result?.ok ? result : liveResult?.ok ? liveResult : null;
   const defectDeduction = defect?.kind && Array.isArray(defect.affected_cups)
     ? defectDeductionText({ numerator: (defect.kind === 'taint' ? 2 : 4) * defect.affected_cups.length * 5, denominator: n }) : '0.00';
-  const displaySampleNumber = Number(sampleNumber) || (Number(cupIndex) || 0) + 1;
-  const measuredTemperature = Number.parseFloat(cupStatus?.temp);
-  const temperatureText = cupStatus?.temp != null && cupStatus?.temp !== 'N/A' && Number.isFinite(measuredTemperature)
-    ? `${Math.round(measuredTemperature)} °C` : null;
   const openQuality = key => {
     setShowLowerScores(revealLowerForSelected(response.quality_ratings?.[key]));
     selectorScroll.current?.scrollTo({ y: 0, animated: false });
@@ -214,8 +210,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     </View> : null}
   </View> : null;
   return <View style={styles.screen}>
-    <Header variant="back" onBackPress={onBackPress} titleContent={<Text style={styles.headerNumber}>{displaySampleNumber}</Text>}
-      rightContent={temperatureText ? <Text style={styles.headerTemperature}>{temperatureText}</Text> : <Text style={styles.headerUnavailable}>— °C</Text>} sideWidth={88} />
+    <AssessmentHeader sampleNumber={sampleNumber} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} />
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={[styles.content, { paddingHorizontal: 24 * scale }]}>
       <View style={styles.sampleIdentity}><Text style={styles.heading}>{coffeeNameOrigin || 'Sample'}</Text>
@@ -336,9 +331,6 @@ const styles = StyleSheet.create({
   cupChoice: { minWidth: 44, width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: colors.ink, paddingHorizontal: 0 },
   checkSection: { gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: spacing.md },
   sampleIdentity: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.md, gap: spacing.xs },
-  headerNumber: { ...typography.text_screen_title, color: colors.ink },
-  headerTemperature: { ...typography.text_screen_title, color: colors.ink },
-  headerUnavailable: { ...typography.text_secondary_body, color: colors.inkSoft },
   fragranceExtras: { gap: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   intensityPair: { alignSelf: 'center', flexDirection: 'row', gap: spacing.lg },
   verticalGroup: { alignSelf: 'center', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
