@@ -21,6 +21,10 @@ A task record is durable evidence, not a live process oracle. Completed records 
 
 No Git procedure can recover work that existed only in a deleted worktree or failed computer. Uncommitted, untracked, ignored, or unpushed work may be irrecoverable. Do not claim otherwise.
 
+### Recovering the approved cupping-form visual design
+
+The 9 October 2026 approved SCA CVA/Legacy side-by-side visual is indexed at [`design/README.md`](design/README.md) and preserved as [`design/cva-legacy-side-by-side.html`](design/cva-legacy-side-by-side.html). The four earlier exploratory previews are in the same directory and are labelled in that README. If these files are not yet on the recovered `main`, inspect the pushed remote branch `codex/form-design-archive` (archive source commit `6392c7ba731750f95fa7b8e7c7265f15ff01c642`) during the read-only branch/PR audit below. Do not rely on the former Codex-local visualization path or chat history. The visual is a layout reference; the Product Specification, canonical form contracts and R1-010/R1-012 task records retain their normal authority and release gates.
+
 The OpenAI article [Run long-horizon tasks with Codex](https://developers.openai.com/blog/run-long-horizon-tasks-with-codex) similarly recommends durable project memory and explicit progress artifacts for work that must survive context boundaries. For Cup App, the repository operating model, canonical specifications, task records, commits, reviews, and protected Git workflow define the required form of that memory.
 
 ## 2. Same-machine recovery: preserve local evidence first

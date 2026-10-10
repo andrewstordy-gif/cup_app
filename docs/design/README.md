@@ -2,6 +2,8 @@
 
 These HTML previews preserve the 9 October 2026 SCA CVA and SCA Legacy UI design discussion inside the Cup App Git repository. They were copied byte-for-byte from the Codex visualization workspace so the visual work is recoverable without that workspace or chat.
 
+For clean-machine recovery, read [`../PROJECT_MANAGER_RECOVERY.md`](../PROJECT_MANAGER_RECOVERY.md). If this directory is absent from `main`, inspect the pushed `codex/form-design-archive` branch and its normal protected-PR status. Do not assume that being archived means the related app changes were merged or device-verified.
+
 - [`cva-legacy-side-by-side.html`](cva-legacy-side-by-side.html) is the final side-by-side layout reference Andrew approved for the two Open Cupping forms. It includes illustrative scores and interactions; those figures are **not** scoring fixtures or implementation requirements.
 - [`legacy-form-layout-mockup.html`](legacy-form-layout-mockup.html) and [`cva-open-cupping-mockup.html`](cva-open-cupping-mockup.html) are earlier individual-screen explorations.
 - [`legacy-paper-scale-proposal.html`](legacy-paper-scale-proposal.html) and [`legacy-tasting-ui-proposal.html`](legacy-tasting-ui-proposal.html) show earlier ruler and layout alternatives. The selected concepts were the two-step ruler and compact overview, but the later side-by-side preview supersedes these files as the overall layout reference.
