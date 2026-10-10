@@ -2,7 +2,7 @@
 
 - **Task ID:** SETUP-002
 - **Title:** Preserve and index the approved two-form UI design for recovery
-- **Status:** Documentation-only archive committed on an isolated branch; recovery pointers, independent review, prospective integration, protected PR merge, and post-merge validation pending.
+- **Status:** Documentation-only archive and recovery pointers committed on isolated branches; independent review passed. Prospective integration, protected PR merge, and post-merge validation pending.
 - **Product Specification references:** §6.6 and FR-010/030/032 govern the two Release 1 forms; this task does not change their requirements.
 - **Technical specification references:** `docs/AI_DEVELOPMENT_OPERATING_MODEL.md` §§1, 7–11, 13 and `docs/PROJECT_MANAGER_RECOVERY.md`; form-specific contracts remain in R1-010 and R1-012.
 - **Objective:** Make the approved 9 October 2026 CVA/Legacy visual comparison and its design history recoverable from GitHub without Codex local visualization storage or chat history, and give a new Project Manager a direct, unambiguous route to it.
@@ -29,23 +29,24 @@
 
 ## Implementation handoff
 
-- **Files changed:** `docs/design/` preview archive and index; recovery guide and cross-branch task pointers pending.
+- **Files changed:** `docs/design/` preview archive and index; recovery guide; R1-010 and R1-012 task-record pointers on their respective branches.
 - **Implementation summary:** Documentation preservation only; no application code.
-- **Tests/checks run:** Byte comparison of each source/archived HTML passed; remaining validation pending.
+- **Tests/checks run:** Byte comparison of each source/archived HTML passed; independent documentation/recovery review passed at `88dfbe736a600adbf2aa051bb6abbbcab2a4ba83`; prospective and post-merge validation pending.
 - **Known limitations:** HTML fragments may show icon placeholders outside the original visualization host; content and layout source are preserved. Earlier alternatives are not the final agreed layout.
-- **Unresolved issues:** Independent review and controlled integration pending.
+- **Unresolved issues:** Controlled integration pending. The independent reviewer could not perform a fresh GitHub clone because DNS resolution failed; the pushed remote-tracking ref was verified locally.
 - **Changelog-worthy information:** None for app release; repository recovery documentation now preserves the form design.
 
 ## Tests and evidence
 
 - Initial archive commit `6392c7ba731750f95fa7b8e7c7265f15ff01c642` was pushed to `origin/codex/form-design-archive`. `cmp` found no difference for any of the five HTML source/archive pairs. A targeted scan found no URLs, local absolute paths, tokens, passwords, or credentials in the HTML files. This is source preservation, not a rendered visual QA claim.
+- Recovery-guide and index commit `88dfbe736a600adbf2aa051bb6abbbcab2a4ba83` is present at `origin/codex/form-design-archive`. R1-010 task-record pointer commit `f885ae3` and R1-012 task-record pointer commit `1e55ff1` were pushed on their own task branches; neither changes application code or review status.
 
 ## Review findings
 
-- **Outcome:** Pending independent non-author review.
-- **Findings by severity:** Pending.
-- **Specification/test evidence:** Pending.
-- **Required corrective actions:** Pending.
+- **Outcome:** PASS from independent non-author reviewer at archive commit `88dfbe736a600adbf2aa051bb6abbbcab2a4ba83`; this is not merge/release approval.
+- **Findings by severity:** No blocking findings. Documentation note: task-record status/handoff text was stale about the separate pointer commits; corrected here. Verification limitation: fresh-clone GitHub access was unavailable because DNS resolution failed.
+- **Specification/test evidence:** Only documentation/source files changed; no app or specification changes. All five HTML files match their original sources byte-for-byte. `git diff --check` passed, relative recovery links resolved, and no external asset dependencies or secrets were found. Final versus exploratory previews and their non-authoritative status are explicit.
+- **Required corrective actions:** Update this record (done); complete prospective integration and protected-PR gates before merge.
 
 ## Definition of Done
 
