@@ -183,13 +183,16 @@ async function main() {
     sessionName: "Older prototype", samples: [{ cupUUID: "CUP-1", cuppingForm: 1 }],
   }), /older or unsupported prototype session/);
   assert.equal(databaseWrites, writesBeforeOldRow, "old unversioned rows must not be rewritten as versioned CVA");
-  for (const badForm of [undefined, "1", 2, 99]) {
+  for (const badForm of [undefined, "1", 99]) {
     const writesBeforeRejectedTag = databaseWrites;
     await assert.rejects(repository.resolveActiveSampleFromCupMetadata({
       cupUUID: "CUP-1", metadata: { u: collision, f: badForm },
     }), /form is missing, unsupported/);
     assert.equal(databaseWrites, writesBeforeRejectedTag, "unsupported scan must fail before any local write or fallback");
   }
+  await assert.rejects(repository.resolveActiveSampleFromCupMetadata({
+    cupUUID: "CUP-1", metadata: { u: collision, f: 2 },
+  }), /cupping mode is missing/);
   existingSession = null;
   await repository.assertSessionReferenceAvailable(collision);
   console.log("Secure identifier and local collision checks passed.");

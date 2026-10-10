@@ -49,7 +49,8 @@ export const CUPPING_MODE_OPTIONS = [
 ];
 
 export const CUPPING_FORM_OPTIONS = [
-  { key: 1, label: "SCA CVA" },
+  { key: 1, label: "SCA CVA — Affective Assessment" },
+  { key: 2, label: "SCA Legacy (2004–2023)" },
 ];
 
 export const PENDING_CONFLICT_ERROR = "PENDING_CUP_CONFLICT";
@@ -367,7 +368,7 @@ export function doesMetadataMatchExpected(actual, expected) {
     String(compactCuppingModeValue(actual.m ?? actual.cuppingMode ?? "")) ===
       String(compactCuppingModeValue(expected.m ?? expected.cuppingMode ?? "")) &&
     (actual.f ?? actual.cuppingForm) === (expected.f ?? expected.cuppingForm) &&
-    (expected.f ?? expected.cuppingForm) === 1 &&
+    [1, 2].includes(expected.f ?? expected.cuppingForm) &&
     String(actual.e || actual.sessionName || "") === String(expected.e || "") &&
     String(compactSessionTypeValue(actual.t ?? actual.sessionType ?? "")) ===
       String(compactSessionTypeValue(expected.t ?? "")) &&

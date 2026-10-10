@@ -151,10 +151,12 @@ export function AddCoffeeSampleSheet({
   isCupNumberDefault = false,
   cuppingForm,
   cuppingMode,
+  lockedCuppingMode = false,
   isCuppingModeDefault = false,
   errors,
   loading,
   statusMessage,
+  errorMessage,
   onChangeCoffeeNameOrigin,
   onChangeProcess,
   onSelectCupNumber,
@@ -190,6 +192,7 @@ export function AddCoffeeSampleSheet({
   };
 
   const openCuppingModeMenu = () => {
+    if (lockedCuppingMode) return;
     cuppingModeRowRef.current?.measure((x, y, w, h, pageX, pageY) => {
       setCuppingModeAnchor({ x: pageX, y: pageY, width: w, height: h });
     });
@@ -212,6 +215,11 @@ export function AddCoffeeSampleSheet({
               accessibilityLabel={isEditMode ? "Close edit sample" : "Close add sample"}
             />
           </View>
+
+          {errorMessage ? <View style={styles.errorBanner} accessibilityLiveRegion="assertive">
+            <Text style={styles.errorBannerTitle}>Cup already in use</Text>
+            <Text style={styles.errorBannerBody}>{errorMessage} Choose a different cup, or finish/reassign its earlier Session before scanning again.</Text>
+          </View> : null}
 
           <ScrollView
             showsVerticalScrollIndicator={false}
@@ -300,9 +308,12 @@ export function AddCoffeeSampleSheet({
             <Pressable
               ref={cuppingModeRowRef}
               onPress={openCuppingModeMenu}
+              disabled={lockedCuppingMode}
               accessibilityRole="button"
-              accessibilityLabel="Select cupping mode"
-              accessibilityState={{ expanded: Boolean(cuppingModeAnchor) }}
+              accessibilityLabel={lockedCuppingMode
+                ? `Cupping mode, ${cuppingModeLabel}, locked for SCA Legacy`
+                : `Select cupping mode, current ${isCuppingModeDefault ? 'not selected' : cuppingModeLabel}`}
+              accessibilityState={{ expanded: Boolean(cuppingModeAnchor), disabled: lockedCuppingMode }}
               style={[styles.metaRow, { paddingBottom: 14 * scale }]}
             >
               <Text style={styles.metaLabel}>Cupping Mode</Text>
@@ -313,8 +324,9 @@ export function AddCoffeeSampleSheet({
                 <AppIcon name="chevron-down" role="icon_navigation" size={22} color={colors.inkSoft} />
               </View>
             </Pressable>
+            {lockedCuppingMode ? <Text style={styles.statusText}>SCA Legacy is Open Cupping only in this prototype. Blind tasting is not yet available.</Text> : null}
 
-            {statusMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
+            {statusMessage && !errorMessage ? <Text style={styles.statusText}>{statusMessage}</Text> : null}
           </ScrollView>
 
           <View style={styles.sheetFooter}>
@@ -437,6 +449,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
+  errorBanner: { marginHorizontal: spacing.md, marginTop: spacing.sm, padding: spacing.sm, borderWidth: 1, borderColor: colors.danger, borderRadius: 8, backgroundColor: colors.surface, gap: spacing.xs },
+  errorBannerTitle: { ...typography.text_secondary_body, color: colors.danger },
+  errorBannerBody: { ...typography.text_secondary_body, color: colors.ink },
   scanButton: {
     backgroundColor: colors.action,
   },
