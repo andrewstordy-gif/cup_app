@@ -35,6 +35,7 @@ import {
 } from "../../../data/sessionRepository";
 import { DefectsSection } from "../components/DefectsSection";
 import { AssessmentHeader } from "../components/AssessmentHeader";
+import { AssessmentSampleIdentity } from "../components/AssessmentSampleIdentity";
 import { KeywordPillRow } from "../components/KeywordPillRow";
 import { tokenizeFlavourKeywords } from "../data/flavourKeywords";
 import { getProcessLabel, normalizeCuppingModeKey } from "../constants/sessionDetails";
@@ -1887,13 +1888,12 @@ export function CuppingScreen({
       )}
 
       {usesMockCuppingLayout && isOpenCuppingMode ? (
-        <View
-          style={[styles.coffeeMetaBlock, { paddingHorizontal: 26 * scale }]}
+        <AssessmentSampleIdentity
+          name={coffeeNameLabel}
+          process={processLabel}
+          scale={scale}
           onLayout={(event) => setCoffeeMetaHeight(event.nativeEvent.layout.height)}
-        >
-          <Text style={styles.coffeeName}>{coffeeNameLabel}</Text>
-          <Text style={styles.coffeeProcess}>{processLabel}</Text>
-        </View>
+        />
       ) : null}
 
       {statusMessage ? (
@@ -2133,23 +2133,6 @@ const styles = StyleSheet.create({
     zIndex: 40,
     elevation: 40,
     backgroundColor: colors.surface,
-  },
-  coffeeMetaBlock: {
-    backgroundColor: colors.surface,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderColor: colors.quietBorder,
-    zIndex: 1,
-  },
-  coffeeName: {
-    ...typography.text_section_title,
-    letterSpacing: 0,
-  },
-  coffeeProcess: {
-    ...typography.text_secondary_body,
-    color: colors.inkSoft,
-    marginTop: 2,
   },
   samplePager: {
     flexDirection: "row",

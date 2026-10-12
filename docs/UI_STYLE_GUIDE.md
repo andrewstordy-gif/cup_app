@@ -197,6 +197,8 @@ Cupping assessment header:
 
 Assessment-form default: use the shared `src/features/cupping/components/AssessmentHeader.js` at the top of every current and future cupping assessment form. It gives the forms one consistent back control, centred sample number, right-side temperature treatment, typography, spacing, and divider. Show a temperature only when it was actually measured; otherwise show the component's unavailable state. Keep form-specific coffee details and scoring content below this shared header. A form should depart from this pattern only for a documented interaction or accessibility reason approved in its task record. This guidance does not require redesigning unrelated Session setup forms or sheets.
 
+For **Open Cupping**, place the shared `AssessmentSampleIdentity` immediately beneath that header, outside the scrolling scoring/notes area. It shows the coffee name and process in the established CVA neutral type treatment. Pass it only caller-approved visible identity: blind assessment screens must not pass protected coffee metadata or render the strip before the participant's permitted reveal. Keep form name, mode, and cup count in scrolling content rather than enlarging the fixed strip. Preserve the measured strip height when positioning any fixed drawer/overlay beneath it.
+
 ### Bottom Action
 
 Use one fixed bottom action button.

@@ -903,7 +903,8 @@ export function AppNavigator() {
         <LegacyCuppingScreen key={selectedCupContext?.sampleId} sessionId={selectedCupContext.sessionId}
           sampleId={selectedCupContext.sampleId} cupCount={selectedCupContext.defectsCupTotal}
           coffeeNameOrigin={selectedCupContext.coffeeNameOrigin}
-          process={selectedCupContext.process} sampleNumber={selectedCupContext.sampleNumber} cupIndex={selectedCupContext.cupIndex}
+          process={selectedCupContext.process} cuppingMode={selectedCupContext.cuppingMode}
+          sampleNumber={selectedCupContext.sampleNumber} cupIndex={selectedCupContext.cupIndex}
           cupStatus={selectedCupContext.cupStatus} onScanPress={handleScanNextCupFromCupping}
           onBackPress={() => { setSelectedSessionId(selectedCupContext.sessionId); setRoute(cuppingReturnRoute); }} />
       );

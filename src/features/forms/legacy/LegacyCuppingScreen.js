@@ -2,12 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from 'react-native';
 import { TypographyAuditText as Text } from '../../../components/ui/TypographyAuditText';
 import { AssessmentHeader } from '../../cupping/components/AssessmentHeader';
+import { AssessmentSampleIdentity } from '../../cupping/components/AssessmentSampleIdentity';
 import { AppIcon } from '../../../components/ui/AppIcon';
 import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { getLegacyResponse, saveLegacyResponse } from '../../../data/sessionRepository';
-import { getProcessLabel } from '../../cupping/constants/sessionDetails';
+import { getProcessLabel, normalizeCuppingModeKey } from '../../cupping/constants/sessionDetails';
 import { PROFILE, resolveForm, scoreResponse } from '../contract';
 import { ORDINARY_MARKS, visibleMarks, scoreText, isExtendedMark, revealLowerForSelected, defectDeductionText } from './legacyQualityPresentation';
 import { createLegacySaveQueue } from './legacySaveQueue';
@@ -101,11 +102,12 @@ function componentScore(value, n, oneCupUniformity = false) {
   return Array.isArray(value) ? (10 * value.length / n).toFixed(2) : '—';
 }
 
-export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameOrigin, process, sampleNumber, cupIndex, cupStatus, onBackPress, onScanPress }) {
+export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameOrigin, process, cuppingMode, sampleNumber, cupIndex, cupStatus, onBackPress, onScanPress }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const scoreChoiceWidth = Math.max(44, (width - 4 * spacing.md - 3 * spacing.xs) / 4);
   const n = Number(cupCount);
+  const showOpenIdentity = normalizeCuppingModeKey(cuppingMode) === 'open';
   const [response, setResponse] = useState(null);
   const [result, setResult] = useState(null);
   const [errors, setErrors] = useState([]);
@@ -211,10 +213,11 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   </View> : null;
   return <View style={styles.screen}>
     <AssessmentHeader sampleNumber={sampleNumber} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} />
+    {showOpenIdentity ? <AssessmentSampleIdentity name={String(coffeeNameOrigin || '').trim() || 'Sample'}
+      process={getProcessLabel(process) || String(process || '').trim()} scale={scale} /> : null}
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={[styles.content, { paddingHorizontal: 24 * scale }]}>
-      <View style={styles.sampleIdentity}><Text style={styles.heading}>{coffeeNameOrigin || 'Sample'}</Text>
-        <Text style={styles.hint}>{process ? `${getProcessLabel(process)} · ` : ''}SCA Legacy (2004–2023) · Open Cupping · {n} {n === 1 ? 'cup' : 'cups'}</Text></View>
+      <Text style={styles.hint}>SCA Legacy (2004–2023) · Open Cupping · {n} {n === 1 ? 'cup' : 'cups'}</Text>
       <Text style={styles.hint}>Tap a ruler to choose an exact quarter-point mark. Your draft saves on this device as you go.</Text>
       {readOnly ? <Text style={styles.hint}>This Session is complete. Its Legacy result is read-only; reset the Session to Pending before editing.</Text> : null}
       {message ? <Text style={styles.hint} accessibilityLiveRegion="polite">{message}</Text> : null}
@@ -306,7 +309,6 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { paddingTop: spacing.md, paddingBottom: spacing.lg, gap: spacing.md },
-  heading: { ...typography.text_screen_title, color: colors.ink },
   section: { gap: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md },
   sectionTitle: { ...typography.text_section_title, color: colors.ink },
   hint: { ...typography.text_secondary_body, color: colors.inkSoft },
@@ -330,7 +332,6 @@ const styles = StyleSheet.create({
   choiceTextSelected: { color: colors.surface },
   cupChoice: { minWidth: 44, width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: colors.ink, paddingHorizontal: 0 },
   checkSection: { gap: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, paddingVertical: spacing.md },
-  sampleIdentity: { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: spacing.md, gap: spacing.xs },
   fragranceExtras: { gap: spacing.sm, paddingTop: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
   intensityPair: { alignSelf: 'center', flexDirection: 'row', gap: spacing.lg },
   verticalGroup: { alignSelf: 'center', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm },
