@@ -3,6 +3,7 @@ import { Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView,
 import { TypographyAuditText as Text } from '../../../components/ui/TypographyAuditText';
 import { AssessmentHeader } from '../../cupping/components/AssessmentHeader';
 import { AssessmentSampleIdentity } from '../../cupping/components/AssessmentSampleIdentity';
+import { AssessmentFormIntro } from '../../cupping/components/AssessmentFormIntro';
 import { AppIcon } from '../../../components/ui/AppIcon';
 import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
@@ -217,8 +218,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       process={getProcessLabel(process) || String(process || '').trim()} scale={scale} /> : null}
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <ScrollView keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={[styles.content, { paddingHorizontal: 24 * scale }]}>
-      <Text style={styles.hint}>SCA Legacy (2004–2023) · Open Cupping · {n} {n === 1 ? 'cup' : 'cups'}</Text>
-      <Text style={styles.hint}>Tap a ruler to choose an exact quarter-point mark. Your draft saves on this device as you go.</Text>
+      <AssessmentFormIntro form={2} cuppingMode={cuppingMode} cupCount={n} />
       {readOnly ? <Text style={styles.hint}>This Session is complete. Its Legacy result is read-only; reset the Session to Pending before editing.</Text> : null}
       {message ? <Text style={styles.hint} accessibilityLiveRegion="polite">{message}</Text> : null}
       {resultSummary}

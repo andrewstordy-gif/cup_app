@@ -199,6 +199,8 @@ Assessment-form default: use the shared `src/features/cupping/components/Assessm
 
 For **Open Cupping**, place the shared `AssessmentSampleIdentity` immediately beneath that header, outside the scrolling scoring/notes area. It shows the coffee name and process in the established CVA neutral type treatment. Pass it only caller-approved visible identity: blind assessment screens must not pass protected coffee metadata or render the strip before the participant's permitted reveal. Keep form name, mode, and cup count in scrolling content rather than enlarging the fixed strip. Preserve the measured strip height when positioning any fixed drawer/overlay beneath it.
 
+At the beginning of the scrolling assessment content, use `AssessmentFormIntro` for the selected form title, cupping mode, and known physical cup count. Both current forms use this quiet text treatment; future assessment forms should use the same component by default. Do not substitute the number of Session samples for the physical cup count, and do not put protected coffee identity in this intro. Score-entry instructions are not part of the default intro.
+
 ### Bottom Action
 
 Use one fixed bottom action button.

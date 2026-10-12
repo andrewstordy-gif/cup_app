@@ -48,8 +48,8 @@ assert.match(legacy, /showOpenIdentity = normalizeCuppingModeKey\(cuppingMode\) 
 assert.match(legacy, /showOpenIdentity \? <AssessmentSampleIdentity/);
 assert.ok(legacy.indexOf('<AssessmentSampleIdentity name=') < legacy.indexOf('<KeyboardAvoidingView'),
   'Legacy identity is outside the scoring scroll');
-assert.match(legacy, /SCA Legacy \(2004–2023\) · Open Cupping · \{n\}/,
-  'Legacy form/mode/cup count stay in scrolling content');
+assert.match(legacy, /<AssessmentFormIntro form=\{2\} cuppingMode=\{cuppingMode\} cupCount=\{n\} \/>/,
+  'Legacy form/mode/physical cup count stay in scrolling content');
 assert.match(nav, /<LegacyCuppingScreen[\s\S]*?cuppingMode=\{selectedCupContext\.cuppingMode\}/,
   'Legacy receives trusted routed mode for fail-closed identity display');
 console.log('Shared fixed sample identity, CVA blind gate/overlay height and Legacy mode gate checks passed.');

@@ -36,6 +36,7 @@ import {
 import { DefectsSection } from "../components/DefectsSection";
 import { AssessmentHeader } from "../components/AssessmentHeader";
 import { AssessmentSampleIdentity } from "../components/AssessmentSampleIdentity";
+import { AssessmentFormIntro } from "../components/AssessmentFormIntro";
 import { KeywordPillRow } from "../components/KeywordPillRow";
 import { tokenizeFlavourKeywords } from "../data/flavourKeywords";
 import { getProcessLabel, normalizeCuppingModeKey } from "../constants/sessionDetails";
@@ -1460,6 +1461,9 @@ export function CuppingScreen({
 
     return (
       <View style={styles.cuppingForm}>
+        <View style={{ marginBottom: spacing.lg * scale }}>
+          <AssessmentFormIntro form={1} cuppingMode={cuppingMode} cupCount={defectsCupTotal} />
+        </View>
         {visibleFields.map((field) => {
           const noteGroup = getNoteGroupForField(field);
           const fieldEnabled = isFieldEnabled(field);
