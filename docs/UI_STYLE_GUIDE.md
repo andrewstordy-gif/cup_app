@@ -189,11 +189,13 @@ Standard arrangement:
 - Centre: screen title or sample indicator.
 - Right: optional contextual metric such as temperature.
 
-Cupping header:
+Cupping assessment header:
 
-- Centre: small sample-colour dot and sample position such as `2/4`.
-- Right: thermometer icon and temperature.
+- Centre: the current sample number, such as `1`, without an extra colour dot.
+- Right: thermometer icon with a genuinely measured temperature, or a clear unavailable state when there is no reading.
 - Keep the header visible while the content scrolls or the keyboard opens.
+
+Assessment-form default: use the shared `src/features/cupping/components/AssessmentHeader.js` at the top of every current and future cupping assessment form. It gives the forms one consistent back control, centred sample number, right-side temperature treatment, typography, spacing, and divider. Show a temperature only when it was actually measured; otherwise show the component's unavailable state. Keep form-specific coffee details and scoring content below this shared header. A form should depart from this pattern only for a documented interaction or accessibility reason approved in its task record. This guidance does not require redesigning unrelated Session setup forms or sheets.
 
 ### Bottom Action
 
