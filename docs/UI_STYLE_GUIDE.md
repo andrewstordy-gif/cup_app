@@ -189,11 +189,17 @@ Standard arrangement:
 - Centre: screen title or sample indicator.
 - Right: optional contextual metric such as temperature.
 
-Cupping header:
+Cupping assessment header:
 
-- Centre: small sample-colour dot and sample position such as `2/4`.
-- Right: thermometer icon and temperature.
+- Centre: the current sample number, such as `1`, without an extra colour dot.
+- Right: thermometer icon with a genuinely measured temperature, or a clear unavailable state when there is no reading.
 - Keep the header visible while the content scrolls or the keyboard opens.
+
+Assessment-form default: use the shared `src/features/cupping/components/AssessmentHeader.js` at the top of every current and future cupping assessment form. It gives the forms one consistent back control, centred sample number, right-side temperature treatment, typography, spacing, and divider. Show a temperature only when it was actually measured; otherwise show the component's unavailable state. Keep form-specific coffee details and scoring content below this shared header. A form should depart from this pattern only for a documented interaction or accessibility reason approved in its task record. This guidance does not require redesigning unrelated Session setup forms or sheets.
+
+For **Open Cupping**, place the shared `AssessmentSampleIdentity` immediately beneath that header, outside the scrolling scoring/notes area. It shows the coffee name and process in the established CVA neutral type treatment. Pass it only caller-approved visible identity: blind assessment screens must not pass protected coffee metadata or render the strip before the participant's permitted reveal. Keep form name, mode, and cup count in scrolling content rather than enlarging the fixed strip. Preserve the measured strip height when positioning any fixed drawer/overlay beneath it.
+
+At the beginning of the scrolling assessment content, use `AssessmentFormIntro` for the selected form title, cupping mode, and known physical cup count. Both current forms use this quiet text treatment; future assessment forms should use the same component by default. Do not substitute the number of Session samples for the physical cup count, and do not put protected coffee identity in this intro. Score-entry instructions are not part of the default intro.
 
 ### Bottom Action
 
@@ -272,6 +278,12 @@ Requirements:
 - Score rows remain editable until the form is saved.
 - Saving commits selected scores internally as final values for scoring and session completion.
 - Saving a changed score supersedes the previous saved final value for that row.
+
+### SCA Legacy quality ruler and exact marks
+
+The Legacy quality scale is not the CVA `1–9` circle row. For each of its seven ratings, show a quiet paper-form-inspired `6–10` ruler with the current exact mark alongside its label. The whole row is a generous button; the ruler is a visual guide, not a drag slider. Use the established `action` blue for a selected tick, visibly thicker than ordinary ticks and with rounded ends; show both ruler endpoints. A tap opens a scrollable dialog of exact quarter-point buttons. Show `6.00–10.00` first. An explicit **Show lower scores** control reveals `0.00–5.75` before `6.00` in one ascending four-column grid; reopening a selected low mark shows that selection immediately above the value grid and reveals the lower choices again. Keep the reveal control above the grid and reset its scroll position when opening or switching ranges. The row continues to display its value. Unset is visibly distinct from every numeric value. In the dialog and result, identify marks outside the protocol's printed `6.00–9.75` table as Cup App's expanded range. Keep a clear close control, accessible labels/states, and at least 44-point targets. Apply responsive scale to ruler/touch-layout dimensions only, never text.
+
+Keep Legacy's seven ratings and the Uniformity, Sweetness, and Clean Cup rows visible without redundant group headings. Place Defects in the bottom drawer and Flavour Notes at the end of the scoring content. Keep optional secondary observations accessible without changing their versioned fields. A completed result leads with its total, version and adapted/provenance labels; its arithmetic breakdown is available on request. This layout changes presentation only, not the versioned form fields or validation.
 
 ### Notes
 

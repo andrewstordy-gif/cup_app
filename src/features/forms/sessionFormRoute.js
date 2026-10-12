@@ -1,13 +1,14 @@
 const { resolveForm } = require('./contract');
 
 const PROFILE = 'ndef4-r1';
-const UNSUPPORTED_MESSAGE = 'This session uses an unsupported or older prototype form. Start a new SCA CVA session to taste; the existing record has not been changed.';
+const UNSUPPORTED_MESSAGE = 'This session uses an unsupported or older prototype form. Start a new supported SCA session to taste; the existing record has not been changed.';
 
-function cvaIdentity() {
-  const resolved = resolveForm(PROFILE, 1);
-  if (!resolved.ok) throw new Error('The bundled SCA CVA form is unavailable.');
-  return { f: 1, ...resolved.identity };
+function formIdentity(f) {
+  const resolved = resolveForm(PROFILE, f);
+  if (!resolved.ok) throw new Error('The bundled session form is unavailable.');
+  return { f, ...resolved.identity };
 }
+const cvaIdentity = () => formIdentity(1);
 
 function rawFormValue(metadata) {
   if (!metadata || typeof metadata !== 'object') return null;
@@ -17,6 +18,12 @@ function rawFormValue(metadata) {
   if (hasF && hasAlias && metadata.f !== metadata.cuppingForm) return null;
   const value = hasF ? metadata.f : metadata.cuppingForm;
   return typeof value === 'number' && Number.isInteger(value) ? value : null;
+}
+
+function requireFormTag(metadata) {
+  const f = rawFormValue(metadata);
+  if (!resolveForm(PROFILE, f).ok) throw new Error('Cup form is missing, unsupported, or malformed. No tasting form was opened.');
+  return f;
 }
 
 function requireCvaTag(metadata) {
@@ -36,25 +43,36 @@ function requireTagCuppingMode(metadata) {
   return fromCompact || fromAlias;
 }
 
-function isPinnedCva(session) {
-  const identity = cvaIdentity();
+function isPinnedForm(session, f) {
+  if (!resolveForm(PROFILE, f).ok) return false;
+  const identity = formIdentity(f);
   return session?.cuppingForm === identity.f &&
     session?.formKey === identity.form_key &&
     session?.formVersion === identity.form_version &&
     session?.formHash === identity.form_hash;
 }
+const isPinnedCva = session => isPinnedForm(session, 1);
 
 function isSessionFormReady(sessionId, loadedForm) {
   return sessionId
-    ? loadedForm?.loadedSessionId === sessionId && isPinnedCva(loadedForm)
-    : loadedForm?.f === 1 && loadedForm?.form_hash === cvaIdentity().form_hash;
+    ? loadedForm?.loadedSessionId === sessionId && isPinnedForm(loadedForm, loadedForm?.cuppingForm)
+    : isPinnedForm({ cuppingForm: loadedForm?.f, formKey: loadedForm?.form_key, formVersion: loadedForm?.form_version, formHash: loadedForm?.form_hash }, loadedForm?.f);
 }
 
-function requireCvaRoute(session, sample, metadata) {
-  if (!isPinnedCva(session) || !sample || sample.cuppingForm !== 1 ||
-      (metadata !== undefined && rawFormValue(metadata) !== 1)) {
+function requireFormRoute(session, sample, metadata) {
+  const f = session?.cuppingForm;
+  if (!isPinnedForm(session, f) || !sample || sample.cuppingForm !== f ||
+      (metadata !== undefined && rawFormValue(metadata) !== f)) {
     throw new Error(UNSUPPORTED_MESSAGE);
   }
+  if (f === 2 && (session.cuppingMode !== 'open' || sample.cuppingMode !== 'open' ||
+      (metadata !== undefined && requireTagCuppingMode(metadata) !== 'open'))) {
+    throw new Error('SCA Legacy is available only for Open Cupping in this prototype. No tasting form was opened.');
+  }
+  return f;
+}
+function requireCvaRoute(session, sample, metadata) {
+  if (requireFormRoute(session, sample, metadata) !== 1) throw new Error(UNSUPPORTED_MESSAGE);
 }
 
-module.exports = { PROFILE, UNSUPPORTED_MESSAGE, cvaIdentity, rawFormValue, requireCvaTag, requireTagCuppingMode, isPinnedCva, isSessionFormReady, requireCvaRoute };
+module.exports = { PROFILE, UNSUPPORTED_MESSAGE, formIdentity, cvaIdentity, rawFormValue, requireFormTag, requireCvaTag, requireTagCuppingMode, isPinnedForm, isPinnedCva, isSessionFormReady, requireFormRoute, requireCvaRoute };

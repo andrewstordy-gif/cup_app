@@ -4,7 +4,8 @@ import { TypographyAuditText as Text } from "../../../components/ui/TypographyAu
 import { Header } from "../../../components/ui/Header";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { AppIcon } from "../../../components/ui/AppIcon";
-import { isPinnedCva } from "../../forms/sessionFormRoute";
+import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
+import { isPinnedCva, isPinnedForm } from "../../forms/sessionFormRoute";
 import {
   deleteSampleFromSession,
   getSessionCompletionSummary,
@@ -573,7 +574,7 @@ export function ActiveSessionScreen({
           const pending = (sessions || []).filter(
             (item) => String(item.status || "").toLowerCase() !== "complete"
           );
-          const active = pending.find(isPinnedCva) || pending[0];
+          const active = pending.find(item => isPinnedForm(item, item.cuppingForm)) || pending[0];
           targetId = active?.id || null;
         }
 
@@ -587,7 +588,12 @@ export function ActiveSessionScreen({
 
         const fullSession = await getSessionById(targetId);
         const finalStatus = await getSessionSampleFinalStatus(targetId);
-        const rows = !isPinnedCva(fullSession) ? (fullSession?.samples || []).map((sample) => ({ ...sample })) : await Promise.all(
+        const rows = isPinnedForm(fullSession, 2) ? (fullSession?.samples || []).map((sample, index) => ({
+          ...sample, sessionId: fullSession.id, sampleNumber: Number(sample.sampleNumber) || index + 1,
+          finalScore: finalStatus?.[sample.id]?.finalScore ?? null,
+          resultLabel: finalStatus?.[sample.id]?.resultLabel ?? null,
+          hasAnyFeedback: Boolean(finalStatus?.[sample.id]?.hasAnyFeedback),
+        })) : !isPinnedCva(fullSession) ? (fullSession?.samples || []).map((sample) => ({ ...sample })) : await Promise.all(
           (fullSession?.samples || []).map(async (sample, index) => {
             const feedback = await getSampleFeedback(sample.id);
             const defects = await getSampleDefects(sample.id);
@@ -644,7 +650,8 @@ export function ActiveSessionScreen({
     }
     return formatStatus(session.status);
   }, [session]);
-  const isSupportedForm = isPinnedCva(session);
+  const isLegacy = isPinnedForm(session, 2) && session?.cuppingMode === 'open';
+  const isSupportedForm = isPinnedCva(session) || isLegacy;
 
   const handleMarkComplete = async () => {
     const sid = sessionIdRef.current || session?.id;
@@ -731,8 +738,8 @@ export function ActiveSessionScreen({
               <MetaRow label="Session Name" value={session.sessionName} scale={scale} />
               <MetaRow label="Session Type" value={getSessionTypeLabel(session.sessionType)} scale={scale} />
               <MetaRow label="Status" value={status} scale={scale} />
-              <MetaRow label="Form" value={isSupportedForm ? "SCA CVA — Affective Assessment" : "Older prototype — read-only"} scale={scale} />
-              {!isSupportedForm ? <Text style={styles.emptyBody}>Scoring and session actions are unavailable for this older prototype record. Start a new SCA CVA session to taste.</Text> : null}
+              <MetaRow label="Form" value={isLegacy ? "SCA Legacy (2004–2023) · Open Cupping" : isSupportedForm ? "SCA CVA — Affective Assessment" : "Older prototype — read-only"} scale={scale} />
+              {!isSupportedForm ? <Text style={styles.emptyBody}>Scoring and session actions are unavailable for this older prototype record. Start a new supported session to taste.</Text> : null}
             </View>
 
             {/* Cups section header */}
@@ -745,7 +752,10 @@ export function ActiveSessionScreen({
               style={styles.cupList}
               onLayout={(e) => { cupListY.current = e.nativeEvent.layout.y; }}
             >
-              {cups.map((cup, index) => isSupportedForm ? (
+              {cups.map((cup, index) => isLegacy ? (
+                <LegacySampleCard key={cup.id} sample={cup} index={index} scale={scale} status={cup}
+                  onPress={typeof onSamplePress === 'function' ? () => onSamplePress(cup, index, cups.length) : undefined} />
+              ) : isSupportedForm ? (
                 <ActiveSessionCupRow
                   key={cup.id}
                   cup={cup}
@@ -820,6 +830,11 @@ export function ActiveSessionScreen({
             accessibilityLabel="Scan cup"
             style={styles.scanButton}
           />
+        </View>
+      ) : mode === "complete" && isLegacy ? (
+        <View style={[styles.footer, { paddingHorizontal: 26 * scale }]}>
+          <FullPageButton label="RESET TO PENDING" onPress={() => onResetToPending?.(session?.id)}
+            disabled={!session || typeof onResetToPending !== "function"} accessibilityLabel="Reset session to pending" style={styles.scanButton} />
         </View>
       ) : mode === "complete" && isSupportedForm ? (
         <View style={[styles.footer, { paddingHorizontal: 26 * scale, gap: 10 * scale }]}>
