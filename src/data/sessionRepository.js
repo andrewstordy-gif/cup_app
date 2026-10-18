@@ -148,9 +148,12 @@ async function requireSameTastingActor(actor) {
   if (!validActor(actor) || await getLocalProfileIdentity() !== actor) tastingFail('tasting:actor_changed');
 }
 
-async function withTastingResponseAccess(db, sessionId, sampleId, form, saved) {
-  let actor = null;
-  try { actor = await getOrCreateLocalProfileIdentity(); } catch { /* unavailable fails closed */ }
+async function withTastingResponseAccess(db, sessionId, sampleId, form, saved, capturedActor = undefined) {
+  let actor = capturedActor;
+  if (actor === undefined) {
+    actor = null;
+    try { actor = await getOrCreateLocalProfileIdentity(); } catch { /* unavailable fails closed */ }
+  }
   const access = await streamWithDb(db, sessionId, sampleId, form, actor);
   const presentation = await getLocalTastingPresentationWithDb(db, sessionId, 'tasting', actor);
   const sample = presentation.session.samples.find(row => row.id === sampleId);
@@ -784,7 +787,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const projected = {
     id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
     sessionName: raw.sessionName, sessionType: raw.sessionType, sessionDate: raw.sessionDate,
-    samplesInSession: raw.samplesInSession, status: state.completed ? 'complete' : state.started && raw.status !== 'new' ? 'in_progress' : raw.status, cuppingForm: raw.cuppingForm,
+    samplesInSession: raw.samplesInSession, status: state.completed ? 'complete' : raw.status === 'complete' ? 'complete' : state.started && raw.status !== 'new' ? 'in_progress' : raw.status, cuppingForm: raw.cuppingForm,
     formKey: raw.formKey, formVersion: raw.formVersion, formHash: raw.formHash,
     cuppingMode: raw.cuppingMode, formLocked: raw.formLocked, createdAt: raw.createdAt, updatedAt: raw.updatedAt,
     samples: samples.map((sample, index) => ({
@@ -795,7 +798,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     process: show ? sample.process : null, identityHidden: !show,
   })) };
   return { session: projected, identityHidden: !show,
-    tasting: { ...state, canComplete: Boolean(validActor(actor) && supported && validMode && samples.length && !state.completed),
+    tasting: { ...state, canComplete: Boolean(validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete'),
       canManageSetup, isLocalCreator } };
 }
 
@@ -845,6 +848,7 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
   await db.withExclusiveTransactionAsync(async txn => {
     await requireSameTastingActor(actor);
     const session = await getSessionByIdWithDb(txn, sessionId);
+    if (!(await revisionWithDb(txn, sessionId, actor)).matches) tastingFail('tasting:stale_content');
     form = session?.cuppingForm;
     if ((!isActiveFormPin(session, 1) && !isActiveFormPin(session, 2)) || !['new', 'pending', 'in_progress'].includes(session?.status)) tastingFail('tasting:read_only');
     if (await adoptionDuplicateWithDb(txn, sessionId, sampleId, actor, expectedSourceToken)) {
@@ -1432,16 +1436,26 @@ function trustedLegacySession(session) {
 
 export async function getLegacyResponse(sessionId, sampleId) {
   const db = await getLocalDatabase();
+  let actor = null;
+  try { actor = await getOrCreateLocalProfileIdentity(); } catch { /* unavailable fails closed */ }
   let output;
   await db.withExclusiveTransactionAsync(async txn => {
-    output = await withTastingResponseAccess(txn, sessionId, sampleId, 2, await getLegacyResponseWithDb(txn, sessionId, sampleId));
-    const actor = await getLocalProfileIdentity();
+    if (actor) await requireSameTastingActor(actor);
+    output = await withTastingResponseAccess(txn, sessionId, sampleId, 2, await getLegacyResponseWithDb(txn, sessionId, sampleId), actor);
     output.savedFingerprint = await legacyFingerprintWithDb(txn, sessionId, sampleId, actor);
     const draft = validActor(actor) ? await txn.getFirstAsync(`SELECT * FROM local_legacy_recovery_drafts
       WHERE session_id=? AND sample_id=? AND local_profile_id=?`, [sessionId, sampleId, actor]) : null;
     if (draft && draft.base_fingerprint === output.savedFingerprint && output.access.canWrite) {
       let response;
-      try { response = JSON.parse(draft.response_json); canonicalize(response); } catch { tastingFail('tasting:damaged_draft'); }
+      const session = await getSessionByIdWithDb(txn, sessionId);
+      const sample = session.samples.find(value => value.id === sampleId);
+      const expectedContext = canonicalize({ sessionId, sampleId, pin: trustedLegacySession(session).identity, count: sample.cupNumber });
+      if (draft.context_json !== expectedContext || !Number.isFinite(Date.parse(draft.updated_at)) ||
+          new Date(draft.updated_at).toISOString() !== draft.updated_at) tastingFail('tasting:damaged_draft');
+      try { response = JSON.parse(draft.response_json); if (canonicalize(response) !== draft.response_json) tastingFail('tasting:damaged_draft'); }
+      catch { tastingFail('tasting:damaged_draft'); }
+      const validation = validateResponse({ ...trustedLegacySession(session), cup_count: sample.cupNumber, response, complete:false },trustedLegacySession(session));
+      if (!validation.ok) tastingFail('tasting:damaged_draft');
       output.recoveryDraft = response;
     } else output.recoveryDraft = null;
     if (actor) await requireSameTastingActor(actor);
@@ -1792,6 +1806,9 @@ async function manuallyMarkOwnedSessionComplete(db, sessionId) {
   if (!normalizedSessionId) return { updated: false };
   await assertPinnedSessionWithDb(db, normalizedSessionId);
   const session = await getSessionByIdWithDb(db, normalizedSessionId);
+  // Retained historical/global-close commands latch history, but never create
+  // current local completion/reveal evidence. Failed validation rolls this back.
+  await persistHistoryWithDb(db, normalizedSessionId, { completed: true });
   if (isActiveFormPin(session, 1)) return closeCanonicalCva(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'complete', updated_at = ? WHERE id = ?`,
@@ -1888,7 +1905,10 @@ async function markOwnedSessionCompleteIfAllSamplesComplete(db, sessionId) {
 
   await assertPinnedSessionWithDb(db, normalizedSessionId);
   const session = await getSessionByIdWithDb(db, normalizedSessionId);
-  if (isActiveFormPin(session, 1)) return closeCanonicalCva(db, normalizedSessionId);
+  if (isActiveFormPin(session, 1)) {
+    await persistHistoryWithDb(db, normalizedSessionId, { completed: true });
+    return closeCanonicalCva(db, normalizedSessionId);
+  }
 
   const sampleStatusMap = await getSessionSampleFinalStatusWithDb(db, normalizedSessionId);
   const statusEntries = Object.values(sampleStatusMap || {});
@@ -1912,6 +1932,7 @@ async function markOwnedSessionCompleteIfAllSamplesComplete(db, sessionId) {
     return { updated: true, status: "incomplete" };
   }
 
+  await persistHistoryWithDb(db, normalizedSessionId, { completed: true });
   await db.runAsync(
     `
       UPDATE sessions

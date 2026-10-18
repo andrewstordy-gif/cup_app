@@ -93,7 +93,9 @@ async function saveWithDb(db, { sessionId, sampleId, response, expectedRevision,
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [generateId(), sessionId, sampleId, observation.keyword,
         observation.label, observation.colour, observation.sourceField, now]);
     }
-    await txn.runAsync("UPDATE sessions SET status = 'in_progress', updated_at = ? WHERE id = ? AND status <> 'complete'", [now, sessionId]);
+    // Repository hooks own semantic progress (an empty/default-only Save does
+    // not start tasting). Standalone adapter consumers retain their old contract.
+    if (!guard) await txn.runAsync("UPDATE sessions SET status = 'in_progress', updated_at = ? WHERE id = ? AND status <> 'complete'", [now, sessionId]);
     if (typeof guard === 'function') await guard();
     else if (typeof guard?.finalize === 'function') await guard.finalize();
     outcome = { saved: true, revision, response: captured, complete: persistedComplete, result: persistedResult, errors: final.errors,

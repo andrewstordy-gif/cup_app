@@ -16,7 +16,7 @@ const bridge = {
   },
   async getAllAsync(sql, args = []) { return db.prepare(sql).all(...args); },
   async runAsync(sql, args = []) {
-    if (failLate && sql.includes("SET status = 'in_progress'")) throw new Error('injected late failure');
+    if (failLate && sql.includes('INSERT INTO local_tasting_revisions')) throw new Error('injected late failure');
     return db.prepare(sql).run(...args);
   },
   async withTransactionAsync(callback) {

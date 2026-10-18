@@ -53,6 +53,7 @@ async function backfillSessionProgressStatuses(db) {
 
 async function prepareSchema(db) {
   const initialUserVersion = readUserVersion(await db.getFirstAsync("PRAGMA user_version;"));
+  if (initialUserVersion > 5) throw new Error('tasting:unsupported_schema');
 
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS sessions (

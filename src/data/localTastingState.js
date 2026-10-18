@@ -9,16 +9,19 @@ const contextToken = (actor, sessionId, revision = 0, hash = '') => validActor(a
 
 async function historyWithDb(db, sessionId) {
   const row = await db.getFirstAsync('SELECT * FROM local_session_foundations WHERE session_id = ?', [sessionId]);
-  if (row) {
-    if (row.schema_version !== 1 || ![0, 1].includes(row.ever_started) || ![0, 1].includes(row.ever_completed) || row.ever_completed > row.ever_started) fail('tasting:damaged_history');
-    return row;
-  }
   const source = await db.getFirstAsync(`SELECT status, local_tasting_started_at AS startedAt,
-    EXISTS(SELECT 1 FROM local_tasting_completions WHERE session_id = sessions.id) AS completed
+    EXISTS(SELECT 1 FROM local_tasting_completions WHERE session_id = sessions.id) OR
+    EXISTS(SELECT 1 FROM local_tasting_completion_events WHERE session_id = sessions.id) AS completed
     FROM sessions WHERE id = ?`, [sessionId]);
   if (!source) fail('tasting:unavailable');
   const completed = source.status === 'complete' || Boolean(source.completed);
-  return { ever_started: completed || source.startedAt != null || source.status === 'in_progress' ? 1 : 0,
+  const started = completed || source.startedAt != null || source.status === 'in_progress';
+  if (row) {
+    if (row.schema_version !== 1 || ![0, 1].includes(row.ever_started) || ![0, 1].includes(row.ever_completed) ||
+        row.ever_completed > row.ever_started || started && !row.ever_started || completed && !row.ever_completed) fail('tasting:damaged_history');
+    return row;
+  }
+  return { ever_started: started ? 1 : 0,
     ever_completed: completed ? 1 : 0 };
 }
 
@@ -52,7 +55,7 @@ async function aggregateWithDb(db, sessionId, actor) {
     if (owner && (!validActor(owner.local_profile_id) || !validTime(owner.bound_at))) fail('tasting:damaged_provenance');
     entries.push({ id: sample.id, cupUUID: sample.cup_uuid, number: sample.sample_number, form: sample.cupping_form,
       mode: sample.cupping_mode, count: sample.cup_number, owner: owner?.local_profile_id ?? null,
-      response: semanticSource(await sourceWithDb(db, sessionId, sample.id, session.cupping_form)) });
+      response: [1, 2].includes(session.cupping_form) ? semanticSource(await sourceWithDb(db, sessionId, sample.id, session.cupping_form)) : null });
   }
   const content = { version: 1, sessionId, actor, pin: { form: session.cupping_form, key: session.form_key,
     version: session.form_version, hash: session.form_hash, mode: session.cupping_mode }, samples: entries };
@@ -72,11 +75,11 @@ async function revisionWithDb(db, sessionId, actor) {
   return { ...current, row, revision: row?.saved_revision || 0, matches: !row || row.content_json === current.json };
 }
 
-async function commitRevisionWithDb(db, sessionId, actor, { starts = false, force = false } = {}) {
+async function commitRevisionWithDb(db, sessionId, actor, { starts = false } = {}) {
   if (!validActor(actor)) fail('tasting:actor_unavailable');
   const current = await revisionWithDb(db, sessionId, actor);
   await persistHistoryWithDb(db, sessionId, { started: starts });
-  const changed = !current.row || !current.matches || force;
+  const changed = !current.row || !current.matches;
   if (changed) await db.runAsync(`INSERT INTO local_tasting_revisions
     (session_id,local_profile_id,saved_revision,content_json,content_hash,updated_at) VALUES (?,?,?,?,?,?)
     ON CONFLICT(session_id,local_profile_id) DO UPDATE SET saved_revision=excluded.saved_revision,
@@ -90,7 +93,7 @@ function hasScoreOrNote(response, form) {
   if (!response) return false;
   if (form === 1) return Object.values(response.ratings || {}).some(value => value != null) ||
     Object.values(response.affective_notes || {}).some(value => typeof value === 'string' && value.length > 0) ||
-    typeof response.general_affective_notes === 'string' && response.general_affective_notes.length > 0;
+    ['general_affective_notes', 'defect_description'].some(key => typeof response[key] === 'string' && response[key].length > 0);
   return Object.values(response.quality_ratings || {}).some(value => value != null) ||
     ['notes', 'aroma_qualities', 'fragrance_aroma_notes', 'defect_description'].some(key => typeof response[key] === 'string' && response[key].length > 0);
 }

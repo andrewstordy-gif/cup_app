@@ -70,6 +70,16 @@ async function main() {
   assert.notEqual(confirmedSave.revision, explicit.revision, 'a newer edit keeps Save visible');
   assert.equal((await newerEdit.promise).ok, true);
 
+  const immutableCalls = [];
+  const immutable = createLegacySaveQueue(async command=>{immutableCalls.push(command);return {ok:true};});
+  const captured = { notes:'captured' }, metadata = { intent:'recovery',sessionId:'A',sampleId:'sample-A' };
+  const a = immutable.enqueue(captured,false,metadata);
+  captured.notes='mutated'; metadata.sampleId='sample-B';
+  const b = immutable.enqueue({notes:'second'},false,{intent:'save',sessionId:'B',sampleId:'sample-B'});
+  await a.promise; await b.promise;
+  assert.deepEqual(immutableCalls,[{response:{notes:'captured'},complete:false,intent:'recovery',sessionId:'A',sampleId:'sample-A'},
+    {response:{notes:'second'},complete:false,intent:'save',sessionId:'B',sampleId:'sample-B'}], 'queued payload and sample context are immutable');
+
   console.log('Legacy save queue: Complete → edit → Scan ordering, explicit Save revisions and save-failure blocking passed.');
 }
 

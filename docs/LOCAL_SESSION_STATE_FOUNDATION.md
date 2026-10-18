@@ -1,6 +1,6 @@
 # Local session state foundation
 
-18 October 2026. R1-061 technical design for independent review before runtime implementation. Product authority is [PRODUCT_SPEC section 6.8](PRODUCT_SPEC.md#68-agreed-mobile-screen-and-state-map-18-october-2026). This is an additive installation-local prototype evolution, not the fresh encrypted production schema or an upload implementation.
+18 October 2026. R1-061 scoped implemented contract; its design passed independent review before runtime work. Product authority is [PRODUCT_SPEC section 6.8](PRODUCT_SPEC.md#68-agreed-mobile-screen-and-state-map-18-october-2026). This is an additive installation-local prototype evolution, not the fresh encrypted production schema or an upload implementation. Final implementation review and device gates are recorded separately in the task.
 
 ## Scope and preserved evidence
 

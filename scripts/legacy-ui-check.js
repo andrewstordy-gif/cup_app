@@ -177,9 +177,9 @@ assert.doesNotMatch(screen, /setMessage\('Saving assessment locally…'\)/,
   'explicit Save does not insert a transient progress row above the notes fields');
 assert.match(screen, /else setMessage\(`Could not save draft:/, 'draft-save failure remains visible');
 assert.match(screen, /const saved = await saveQueue\.current\.drain\(\)/, 'scan waits for the latest queued save');
-assert.match(screen, /setHasPendingChanges\(true\);[\s\S]*?saveQueue\.current\.enqueue\(next, false\)/, 'every Legacy edit switches the footer to Save while retaining background autosave');
+assert.match(screen, /setHasPendingChanges\(true\);[\s\S]*?saveQueue\.current\.enqueue\(next, false, \{ intent: 'recovery', sessionId, sampleId \}\)/, 'every Legacy edit switches the footer to Save while retaining separate recovery autosave');
 assert.match(screen, /const shouldComplete = Boolean\(score\?\.ok\)/, 'Save finalises only a scoreable response');
-assert.match(screen, /saveQueue\.current\.enqueue\(currentResponse, shouldComplete\)/, 'Save persists the latest response as a final result or draft');
+assert.match(screen, /saveQueue\.current\.enqueue\(currentResponse, shouldComplete, \{ intent: 'save', sessionId, sampleId \}\)/, 'explicit Save commits the latest response as a final result or partial saved assessment');
 assert.match(screen, /setResult\(shouldComplete \? saved\.result : null\)/, 'Overall score shows only a successfully saved final result');
 assert.match(screen, /operation\.revision !== saveQueue\.current\.revision\) return;[\s\S]*?if \(saved\.ok\) \{[\s\S]*?setHasPendingChanges\(false\)/, 'only a successful latest-revision save restores Scan Cup');
 assert.match(screen, /if \(shouldComplete && !wasComplete\) triggerBalloons\(\)/, 'first successful final Save celebrates once');

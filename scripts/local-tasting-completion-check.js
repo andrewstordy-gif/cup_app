@@ -74,7 +74,7 @@ async function complete(id) {
   await assert.rejects(repo.deleteSampleFromSession(sampleId), /setup_started/);
   await save('blind', sampleId);
   const before = sqlite.prepare('SELECT * FROM cva_response_revisions').all();
-  failure = 'INSERT INTO local_tasting_completions';
+  failure = 'INSERT INTO local_tasting_completion_events';
   await assert.rejects(complete('blind'), /injected/); failure = null;
   assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM local_tasting_completions').get().n, 0);
   assert.deepEqual(sqlite.prepare('SELECT * FROM cva_response_revisions').all(), before);
@@ -83,7 +83,11 @@ async function complete(id) {
   assert.equal((await repo.getLocalTastingPresentation('blind')).identityHidden, false);
   assert.equal((await repo.getCvaResponse('blind', sampleId)).identity.visible, true);
   await save('blind', sampleId, partial);
-  assert.equal((await complete('blind')).tasting.completedAt, done.tasting.completedAt);
+  assert.equal((await repo.getLocalTastingPresentation('blind')).identityHidden, true, 'changed Save re-hides');
+  assert.equal((await complete('blind')).status, 'incomplete');
+  await save('blind', sampleId);
+  const redone = await complete('blind');
+  assert.equal(sqlite.prepare('SELECT completed_at FROM local_tasting_completions WHERE session_id=?').get('blind').completed_at, done.tasting.completedAt);
   setActor(actorB);
   assert.equal((await repo.getLocalTastingPresentation('blind')).identityHidden, true);
   assert.equal((await repo.getCvaResponse('blind', sampleId)).access.state, 'foreign');
@@ -94,13 +98,15 @@ async function complete(id) {
   // Actual file-backed database close plus fresh module migration/profile load.
   sqlite.close(); sqlite = new DatabaseSync(filename); repo = reload();
   assert.equal((await repo.getLocalTastingPresentation('blind')).identityHidden, false);
-  assert.equal((await complete('blind')).tasting.completedAt, done.tasting.completedAt);
+  assert.equal((await complete('blind')).tasting.completedAt, redone.tasting.completedAt);
   storage.set(key, '{broken');
   assert.equal((await repo.getLocalTastingPresentation('blind')).identityHidden, true);
   setActor(actorA);
 
   const old = await fixture('old'); await save('old', old, partial);
   sqlite.prepare('DELETE FROM local_response_streams WHERE session_id = ?').run('old');
+  // Simulate a pre-foundation unversioned source, not corruption of a tracked aggregate.
+  sqlite.prepare('DELETE FROM local_tasting_revisions WHERE session_id = ?').run('old');
   const original = sqlite.prepare('SELECT * FROM cva_response_revisions WHERE session_id = ?').get('old');
   const reviewed = await repo.getCvaResponse('old', old);
   assert.equal(reviewed.access.state, 'unattributed'); assert.equal(reviewed.access.canAdopt, true);
@@ -108,7 +114,7 @@ async function complete(id) {
   setActor(actorB);
   await assert.rejects(repo.adoptSavedTasting({ sessionId: 'old', sampleId: old, expectedSourceToken: reviewed.access.sourceToken }), /stale_review/);
   setActor(actorA);
-  failure = "SET status = 'in_progress'";
+  failure = 'INSERT INTO local_tasting_revisions';
   await assert.rejects(repo.adoptSavedTasting({ sessionId: 'old', sampleId: old, expectedSourceToken: reviewed.access.sourceToken }), /injected/);
   failure = null;
   assert.equal((await repo.getCvaResponse('old', old)).access.state, 'unattributed');
@@ -123,16 +129,17 @@ async function complete(id) {
   await complete('old');
   // A newly discovered participant-local sample does not inherit an assessment.
   sqlite.prepare('UPDATE sessions SET local_creator_profile_id = NULL WHERE id = ?').run('old');
-  sqlite.prepare(`INSERT INTO samples (id,session_id,cup_uuid,cup_number,cupping_form,cupping_mode,sample_number,
-    coffee_name_origin,process,position_index,created_at,updated_at) VALUES ('later','old','LATER',1,1,'blind',2,'Later coffee','2',1,?,?)`).run(new Date().toISOString(), new Date().toISOString());
-  assert.equal((await repo.getLocalTastingPresentation('old')).session.samples[1].coffeeNameOrigin, 'Later coffee');
-  assert.equal((await repo.getCvaResponse('old', 'later')).revision, 0);
-  assert.equal((await repo.getSessionSampleFinalStatus('old')).later.isComplete, false);
+  const later = await repo.upsertSessionSampleFromCupMetadata({ sessionId:'old',cupUUID:'LATER',cupNumber:1,
+    cuppingForm:1,cuppingMode:'blind',sampleNumber:2,coffeeNameOrigin:'Later coffee',process:'2' });
+  assert.equal((await repo.getLocalTastingPresentation('old')).session.samples[1].coffeeNameOrigin, 'Sample 2');
+  assert.equal((await repo.getCvaResponse('old', later.id)).revision, 0);
+  assert.equal((await repo.getSessionSampleFinalStatus('old'))[later.id].isComplete, false);
 
   // A fully populated old draft is still a draft until an ordinary explicit
   // Save certifies it. Adoption preserves finality rather than scoring it.
   const draftId = await fixture('unscored-draft'); await save('unscored-draft', draftId);
   sqlite.prepare('DELETE FROM local_response_streams WHERE session_id = ?').run('unscored-draft');
+  sqlite.prepare('DELETE FROM local_tasting_revisions WHERE session_id = ?').run('unscored-draft');
   sqlite.prepare('UPDATE cva_response_revisions SET is_complete = 0, result_json = NULL WHERE session_id = ?').run('unscored-draft');
   const completeDraft = await repo.getCvaResponse('unscored-draft', draftId);
   const preservedDraft = await repo.adoptSavedTasting({ sessionId: 'unscored-draft', sampleId: draftId, expectedSourceToken: completeDraft.access.sourceToken });
@@ -160,6 +167,7 @@ async function complete(id) {
   // snapshot: a real second connection cannot replace source between queries.
   const snapshotId = await fixture('snapshot'); await save('snapshot', snapshotId, partial);
   sqlite.prepare('DELETE FROM local_response_streams WHERE session_id = ?').run('snapshot');
+  sqlite.prepare('DELETE FROM local_tasting_revisions WHERE session_id = ?').run('snapshot');
   const otherConnection = new DatabaseSync(filename); let competingBlocked = false;
   queryHook = sql => {
     if (!sql.includes('is_complete = 1 LIMIT 1')) return false;
@@ -179,6 +187,7 @@ async function complete(id) {
     consistent_cups: [1], clean_cups: [1], sweet_cups: [1], scored_defect: null };
   assert.equal((await repo.saveLegacyResponse({ sessionId: 'legacy', sampleId: legacy, response: legacyValue, complete: true })).ok, true);
   sqlite.prepare('DELETE FROM local_response_streams WHERE session_id = ?').run('legacy');
+  sqlite.prepare('DELETE FROM local_tasting_revisions WHERE session_id = ?').run('legacy');
   const legacyOriginal = sqlite.prepare('SELECT * FROM legacy_responses WHERE sample_id = ?').get(legacy);
   const legacyReview = await repo.getLegacyResponse('legacy', legacy);
   const legacyAdopted = await repo.adoptSavedTasting({ sessionId: 'legacy', sampleId: legacy, expectedSourceToken: legacyReview.access.sourceToken });
