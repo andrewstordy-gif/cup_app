@@ -36,18 +36,26 @@ async function assertLocalCreatorWithDb(db, sessionId) {
 
 export async function getSessionSetupAccess(sessionId) {
   try {
-    const db = await getLocalDatabase();
-    await assertLocalCreatorWithDb(db, sessionId);
-    const started = await hasStartedWithDb(db, sessionId);
-    return { canManageSetup: !started, isLocalCreator: true, started };
+    const presentation = await getLocalTastingPresentation(sessionId, { purpose: 'setup' });
+    return { canManageSetup: presentation.tasting.canManageSetup,
+      isLocalCreator: presentation.tasting.isLocalCreator, started: presentation.tasting.started };
   } catch { return { canManageSetup: false, isLocalCreator: false, started: true }; }
 }
 
 export async function getOwnedSessionSetup(sessionId) {
   const db = await getLocalDatabase();
-  await assertLocalCreatorWithDb(db, sessionId);
-  await assertUnstartedWithDb(db, sessionId);
-  return getSessionById(sessionId);
+  const actor = await getLocalProfileIdentity();
+  let result;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await assertLocalCreatorWithDb(txn, sessionId);
+    await assertUnstartedWithDb(txn, sessionId);
+    const presentation = await getLocalTastingPresentationWithDb(txn, sessionId, 'setup', actor);
+    if (!presentation.tasting.canManageSetup) throw new Error(SETUP_PERMISSION_ERROR);
+    result = await getSessionByIdWithDb(txn, sessionId);
+    await requireSameTastingActor(actor);
+  });
+  await requireSameTastingActor(actor);
+  return result;
 }
 
 async function ownedMutation(sessionId, operation) {
@@ -176,7 +184,7 @@ async function canonicalCvaForSample(db, sampleId) {
 
 async function assertActiveCvaSampleWithDb(db, sessionId, sampleId) {
   const row = await db.getFirstAsync(
-    `SELECT s.id AS sessionId, s.cupping_form AS cuppingForm,
+    `SELECT s.id AS sessionId, s.status, s.cupping_form AS cuppingForm,
             s.form_key AS formKey, s.form_version AS formVersion,
             s.form_hash AS formHash, sm.cupping_form AS sampleForm
      FROM samples sm JOIN sessions s ON s.id = sm.session_id
@@ -184,7 +192,7 @@ async function assertActiveCvaSampleWithDb(db, sessionId, sampleId) {
     [sampleId]
   );
   if (!row || (sessionId && row.sessionId !== sessionId) || row.sampleForm !== 1 ||
-      !isPrototypeCvaPin(row)) {
+      !isPrototypeCvaPin(row) || !['new', 'pending', 'in_progress'].includes(row.status)) {
     throw new Error('This sample is not linked to the active CVA form version. Its saved data was not changed.');
   }
   return row.sessionId;
@@ -294,6 +302,7 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
   }
 
   const currentStatus = cleanString(session.status).toLowerCase();
+  if (!['new', 'pending', 'in_progress', 'complete'].includes(currentStatus)) tastingFail('tasting:damaged_history');
   if (currentStatus === "complete") {
     return "complete";
   }
@@ -786,7 +795,10 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     && (raw.cuppingMode == null || raw.cuppingMode === modes[0]) : ['open', 'blind'].includes(raw.cuppingMode);
   const validMode = consistentMode && (raw.cuppingForm !== 2 || raw.cuppingMode === 'open' && modes.every(mode => mode === 'open'));
   const open = validMode && (samples.length ? modes[0] === 'open' : raw.cuppingMode === 'open');
-  const canManageSetup = Boolean(supported && isLocalCreator && !state.started && raw.status !== 'complete');
+  // An empty, unassigned CVA draft chooses mode when its first sample is added.
+  // NULL here is not the same as malformed non-null or conflicting assigned mode.
+  const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked);
+  const canManageSetup = Boolean(supported && setupModeValid && isLocalCreator && !state.started && raw.status !== 'complete');
   const show = Boolean(supported && validMode && (open || state.revealed || purpose === 'setup' && canManageSetup));
   const projected = {
     id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
@@ -962,12 +974,12 @@ async function getSessionByIdWithDb(db, sessionId, { reconcile = true } = {}) {
 
 async function assertPinnedSessionWithDb(db, sessionId) {
   const row = await db.getFirstAsync(
-    `SELECT cupping_form AS cuppingForm, form_key AS formKey,
+    `SELECT status, cupping_form AS cuppingForm, form_key AS formKey,
             form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode
      FROM sessions WHERE id = ? LIMIT 1`,
     [sessionId]
   );
-  if (!isPinnedForm(row, row?.cuppingForm) || (row.cuppingForm === 2 && row.cuppingMode !== 'open')) {
+  if (!isPinnedForm(row, row?.cuppingForm) || !['new', 'pending', 'in_progress', 'complete'].includes(row.status) || (row.cuppingForm === 2 && row.cuppingMode !== 'open')) {
     throw new Error("This older or unsupported prototype session is read-only. No record was changed.");
   }
 }

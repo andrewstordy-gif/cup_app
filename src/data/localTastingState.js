@@ -14,8 +14,10 @@ async function historyWithDb(db, sessionId) {
     EXISTS(SELECT 1 FROM local_tasting_completion_events WHERE session_id = sessions.id) AS completed
     FROM sessions WHERE id = ?`, [sessionId]);
   if (!source) fail('tasting:unavailable');
+  if (!['new', 'pending', 'in_progress', 'complete'].includes(source.status)) fail('tasting:damaged_history');
   const completed = source.status === 'complete' || Boolean(source.completed);
-  const started = completed || source.startedAt != null || source.status === 'in_progress';
+  // Unknown/corrupt legacy state cannot restore preparation or setup authority.
+  const started = completed || source.startedAt != null || !['new', 'pending'].includes(source.status);
   if (row) {
     if (row.schema_version !== 1 || ![0, 1].includes(row.ever_started) || ![0, 1].includes(row.ever_completed) ||
         row.ever_completed > row.ever_started || started && !row.ever_started || completed && !row.ever_completed) fail('tasting:damaged_history');

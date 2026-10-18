@@ -46,7 +46,7 @@ async function migrateFoundationWithDb(db) {
   // or timestamp changes, and no actor or revision-qualified reveal is invented.
   await db.runAsync(`INSERT OR IGNORE INTO local_session_foundations
     (session_id, schema_version, ever_started, ever_completed)
-    SELECT id, 1, CASE WHEN local_tasting_started_at IS NOT NULL OR status IN ('in_progress','complete') OR
+    SELECT id, 1, CASE WHEN local_tasting_started_at IS NOT NULL OR status IS NULL OR status NOT IN ('new','pending') OR
       EXISTS(SELECT 1 FROM cva_response_revisions WHERE session_id=sessions.id) OR
       EXISTS(SELECT 1 FROM legacy_responses WHERE session_id=sessions.id) OR
       EXISTS(SELECT 1 FROM sample_feedback_entries WHERE session_id=sessions.id) OR
