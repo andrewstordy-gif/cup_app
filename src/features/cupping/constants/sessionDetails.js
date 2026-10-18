@@ -25,7 +25,9 @@ export function hasLocalSessionCompletion(sessionId, presentation) {
     presentation?.tasting?.contextToken && presentation.tasting.completed === true);
 }
 
-export function getSessionStatusBadgeLabel({ samples, sampleStatusById, isSessionComplete, sessionId, tastingPresentation }) {
+export function getSessionStatusBadgeLabel({ samples, sampleStatusById, isSessionComplete, sessionId, tastingPresentation, status }) {
+  const savedStatus = sessionId && tastingPresentation?.session?.id === sessionId ? tastingPresentation.session.status : null;
+  if ((status ?? savedStatus) === 'new') return "Draft";
   if (isSessionComplete || hasLocalSessionCompletion(sessionId, tastingPresentation)) {
     return "Complete";
   }

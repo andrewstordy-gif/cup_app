@@ -48,7 +48,7 @@ const mapRow = new Function('getLocalTastingPresentation', 'getSessionSampleFina
 const detailsTree = ast('src/features/cupping/screens/CuppingSessionDetailsScreen.js');
 const detailsCall = declaration(detailsTree, 'sessionStatusBadgeLabel').init;
 const detailsBadge = new Function('sessionId', 'tastingPresentation', 'samples', 'sampleStatusById', 'isSessionComplete', 'getSessionStatusBadgeLabel',
-  `return (${generate(detailsCall).code});`);
+  `const isSessionDirty = false, sessionStatus = undefined; return (${generate(detailsCall).code});`);
 const activeTree = ast('src/features/cupping/screens/ActiveSessionScreen.js');
 const activeStatus = new Function('loadedSession', 'tastingPresentation', 'hasLocalSessionCompletion', 'formatStatus',
   `return (${generate(declaration(activeTree, 'status').init.arguments[0]).code})();`);

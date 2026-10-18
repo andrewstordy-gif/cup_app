@@ -92,13 +92,21 @@ async function main() {
       sample, index: 0, samples: [sample], sampleStatusById: {},
       savedSessionIdRef: { current: savedSessionId }, onOpenSample: handleOpen,
       isSessionFormSupported: true,
+      sessionStatusBadgeLabel: 'Pending', isSessionDirty: false,
       requestSetupExit: action => action(),
     });
     assert.equal(typeof callback, 'function');
+    const draftCallback = screenCallback(detailsAst, component, prop, {
+      sample, index: 0, samples: [sample], sampleStatusById: {},
+      savedSessionIdRef: {current:savedSessionId}, onOpenSample: handleOpen,
+      isSessionFormSupported: true, sessionStatusBadgeLabel:'Draft', isSessionDirty:false,
+      requestSetupExit: action=>action(),
+    });
+    assert.equal(draftCallback, undefined, 'durably assigned Draft cannot bypass explicit Session Save through a sample card');
     await callback();
     assert.deepEqual(opened, { sessionId: savedSessionId, sampleId: sample.id, cuppingMode: 'open',
       coffeeNameOrigin: undefined, process: '', isSessionComplete: false },
-      `${component} passes the persisted session ID before Session Details Save`);
+      `${component} passes the persisted session ID after Session Details Save`);
     assert.deepEqual(warnings, []);
 
     opened = null;

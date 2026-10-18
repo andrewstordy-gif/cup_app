@@ -58,6 +58,7 @@ function unionDefectSlots(keys, defectCupSlots, total) {
 }
 
 function formatStatus(value) {
+  if (value === 'new') return 'Draft';
   const text = String(value || "new").trim().toLowerCase();
   if (text === "complete") return "Complete";
   if (text === "pending") return "Pending";

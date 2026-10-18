@@ -177,7 +177,8 @@ async function main() {
     findPendingSessionByCupUUID: repo.findPendingSessionByCupUUID,
     playNfcFailureFeedback: async () => {},
     logAppError: input => { logArguments.push(input); },
-    saveSessionWithSamples: async () => { persisted = true; },
+    formState: {}, setSessionStatus: () => {},
+    saveSessionWithSamples: async input => { if (input.intent !== 'setup') persisted = true; return {sessionId:'newref12345678',status:'new'}; },
   };
   const scan = new Function(...Object.keys(dependencies), `return (${generate(declaration.init).code});`)(...Object.values(dependencies));
   const writesBeforeConflict = nativeWrites;

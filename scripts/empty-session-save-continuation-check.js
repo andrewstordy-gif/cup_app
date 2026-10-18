@@ -80,6 +80,7 @@ function harness({ id = `session-${++counter}`, form = 1, saved = false, quick =
     return { ...h, setupWarningSnapshot, canShowSavedSessionIdentity, samples: h.formState.samples,
     isSessionDirty: h.dirty, setSessionName: value => { h.formState = { ...h.formState, sessionName: value }; },
     setIsSaving: value => { h.saving = value; }, setIsSessionDirty: value => { h.dirty = value; },
+    setSessionStatus: value => { h.formState = { ...h.formState, status: value }; },
     setIsCompletingSession() {},
     setScanStatusMessage: message => { h.message = message; },
     setSetupExitMessage: message => { h.dialog = message; },
@@ -132,7 +133,9 @@ async function main() {
   assert.equal((await db.getAllAsync('SELECT id FROM sessions')).length, 1, 'repeat saves update same row');
   const first = sample(1);
   await persistAddedSamples(h, [first]);
+  assert.equal(h.formState.status, 'new', 'actual Add acknowledgement stays Draft');
   await h.run('handleSave');
+  assert.equal(h.formState.status, 'pending', 'actual explicit Save acknowledgement applies before continuation return');
   assert.equal(h.navigations.length, 0, 'first Blind sample does not redirect creator');
   h.opened = false; h.run('handleOpenAddSheet'); assert.equal(h.opened, true);
   await persistAddedSamples(h, [first, sample(2)]);

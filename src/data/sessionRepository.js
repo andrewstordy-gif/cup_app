@@ -136,6 +136,7 @@ export async function saveCvaResponse(input) {
   const actor = await getOrCreateLocalProfileIdentity();
   const result = await saveCanonicalCva(db, command, generateId, cvaDescriptors, async txn => {
     await requireSameTastingActor(actor);
+    await assertAssessmentReadyWithDb(txn, command.sessionId);
     await persistHistoryWithDb(txn, command.sessionId);
     const before = await revisionWithDb(txn, command.sessionId, actor);
     if (!before.matches) tastingFail('tasting:stale_content');
@@ -160,7 +161,13 @@ async function requireSameTastingActor(actor) {
   if (!validActor(actor) || await getLocalProfileIdentity() !== actor) tastingFail('tasting:actor_changed');
 }
 
+async function assertAssessmentReadyWithDb(db, sessionId) {
+  const row = await db.getFirstAsync('SELECT status, local_creator_profile_id AS creator FROM sessions WHERE id = ?', [sessionId]);
+  if (row?.status === 'new' && row.creator) throw new Error('Save this session before opening a tasting assessment.');
+}
+
 async function withTastingResponseAccess(db, sessionId, sampleId, form, saved, capturedActor = undefined) {
+  await assertAssessmentReadyWithDb(db, sessionId);
   let actor = capturedActor;
   if (actor === undefined) {
     actor = null;
@@ -197,6 +204,7 @@ async function assertActiveCvaSampleWithDb(db, sessionId, sampleId) {
   }
   if (row.status === 'complete') throw new Error('This session is complete. Its saved assessment was not changed.');
   if (!['new', 'pending', 'in_progress'].includes(row.status)) tastingFail('tasting:damaged_history');
+  await assertAssessmentReadyWithDb(db, row.sessionId);
   return row.sessionId;
 }
 
@@ -309,6 +317,11 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
     return "complete";
   }
 
+  if (currentStatus === 'new') {
+    const provenance = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [normalizedSessionId]);
+    if (provenance?.creator) return 'new';
+  }
+
   const sampleCountRow = await db.getFirstAsync(
     "SELECT COUNT(*) AS count FROM samples WHERE session_id = ?",
     [normalizedSessionId]
@@ -400,7 +413,9 @@ export async function saveSessionWithSamples({
   status = "new",
   sessionDate,
   samples,
+  intent = 'save',
 }) {
+  if (!['save', 'setup'].includes(intent)) throw new Error('Unsupported session save intent.');
   if (cuppingForm !== 1 && cuppingForm !== 2) {
     throw new Error("The session form is missing or unsupported. No session was saved.");
   }
@@ -442,7 +457,7 @@ export async function saveSessionWithSamples({
   const sessionId = normalizedSessionId;
   const sessionUuidValue = normalizedSessionId;
   const displayIdValue = cleanString(sessionDisplayId) || `SESSION-${sessionUuidValue.slice(0, 8).toUpperCase()}`;
-  const sessionStatusValue = cleanString(status).toLowerCase() || "pending";
+  const sessionStatusValue = intent === 'setup' || !normalizedSamples.length ? 'new' : 'pending';
 
   const creatorId = existingSessionId ? null : await getOrCreateLocalProfileIdentity();
   await db.withExclusiveTransactionAsync(async txn => {
@@ -607,6 +622,7 @@ export async function saveSessionWithSamples({
 
   return {
     sessionId,
+    status: sessionStatusValue,
     savedSampleCount: normalizedSamples.length,
   };
 }
@@ -816,7 +832,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     process: show ? sample.process : null, identityHidden: !show,
   })) };
   return { session: projected, identityHidden: !show,
-    tasting: { ...state, canComplete: Boolean(validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete'),
+    tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete' && !(creator?.creator && raw.status === 'new')),
       canManageSetup, isLocalCreator } };
 }
 
@@ -866,6 +882,7 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
   let committedSource;
   await db.withExclusiveTransactionAsync(async txn => {
     await requireSameTastingActor(actor);
+    await assertAssessmentReadyWithDb(txn, sessionId);
     const session = await getSessionByIdWithDb(txn, sessionId);
     if (!(await revisionWithDb(txn, sessionId, actor)).matches) tastingFail('tasting:stale_content');
     form = session?.cuppingForm;
@@ -1340,6 +1357,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
       if (!storedSample) {
         throw new Error('This Legacy cup has no trusted local assignment. Reopen the Session and assign the cup before scanning; no local data was changed.');
       }
+      await assertAssessmentReadyWithDb(await getLocalDatabase(), existingSession.id);
       if (Number(storedSample.cupNumber) !== rawCupCount ||
           storedSample.coffeeNameOrigin !== cleanString(metadata?.coffeeName ?? metadata?.n) ||
           String(storedSample.process) !== String(metadata?.coffeeProcess ?? metadata?.p) ||
@@ -1361,6 +1379,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
     }
   }
 
+  if (existingSession) await assertAssessmentReadyWithDb(await getLocalDatabase(), existingSession.id);
   const session = f === 2 ? existingSession : await upsertSessionFromCupMetadata({
     sessionUUID,
     cuppingForm: metadata?.f ?? metadata?.cuppingForm,
@@ -1601,6 +1620,7 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
       return;
     }
     await requireSameTastingActor(actor);
+    await assertAssessmentReadyWithDb(txn, sessionId);
     if (fingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
     const access = await streamWithDb(txn, sessionId, sampleId, 2, actor);
     if (!access.canWrite) tastingFail(access.state === 'unattributed' ? 'tasting:review_required' : 'tasting:foreign_stream');
@@ -1815,6 +1835,7 @@ async function activateOwnedSession(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return;
   await assertPinnedSessionWithDb(db, normalizedSessionId);
+  await assertAssessmentReadyWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
     [new Date().toISOString(), normalizedSessionId]

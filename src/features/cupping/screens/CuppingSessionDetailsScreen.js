@@ -262,6 +262,7 @@ export function CuppingSessionDetailsScreen({
   [sessionForm, sessionMode, sessionName, sessionType, sessionDate, samples, savedOpenEvidence, sessionId, tastingPresentation]);
   const hideSavedIdentity = Boolean(sessionId) && visibleIdentity.identityHidden;
   const sessionStatusBadgeLabel = getSessionStatusBadgeLabel({
+    status: isSessionDirty ? 'new' : sessionStatus,
     sessionId,
     tastingPresentation,
     samples,
@@ -748,11 +749,12 @@ export function CuppingSessionDetailsScreen({
     setIsNfcWriting(true);
 
     try {
-      if (!savedSessionIdRef.current || isLegacy) {
+      {
         // Trust the locally pinned Open mode even before the first cup exists.
         const saved = await saveSessionWithSamples({ ...formState, sessionName: effectiveSessionName,
-          sessionType: effectiveSessionType, existingSessionId: savedSessionIdRef.current });
+          sessionType: effectiveSessionType, existingSessionId: savedSessionIdRef.current, intent: 'setup' });
         savedSessionIdRef.current = saved.sessionId;
+        setSessionStatus(saved.status);
       }
       if (setupEpoch !== setupEpochRef.current) return;
       if (!(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup is read-only on this profile.');
@@ -900,9 +902,11 @@ export function CuppingSessionDetailsScreen({
         samplesInSession,
         status: sessionStatus,
         samples: nextSamples,
+        intent: 'setup',
       });
       savedSessionIdRef.current = saved.sessionId;
       if (setupEpoch === setupEpochRef.current) {
+        setSessionStatus(saved.status);
         savedSetupSnapshotRef.current = setupWarningSnapshot({
           cuppingForm: sessionForm?.cuppingForm ?? sessionForm?.f, samples: nextSamples,
         }, sessionForm);
@@ -1300,8 +1304,9 @@ export function CuppingSessionDetailsScreen({
       if (operation.epoch !== setupEpochRef.current) return;
       savedSessionIdRef.current = result.sessionId;
       savedSetupSnapshotRef.current = snapshot;
-      savedSetupInputKeyRef.current = requestKey;
       const hasNewerChanges = currentSetupInputKeyRef.current !== requestKey;
+      savedSetupInputKeyRef.current = JSON.stringify({ ...request, status: result.status });
+      setSessionStatus(result.status);
       setIsSessionDirty(hasNewerChanges);
       if (startsContinuation) setupContinuationRef.current = true;
       if (hasNewerChanges) {
@@ -1471,7 +1476,7 @@ export function CuppingSessionDetailsScreen({
 
           {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
             <LegacySampleCard key={sample.id} sample={sessionId ? visibleIdentity.samples[index] : sample} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
-              onPress={sample.cupUUID && typeof onOpenSample === 'function'
+              onPress={sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
                 ? () => requestSetupExit(() => onOpenSample(sample, index, samples.length, { sessionId: savedSessionIdRef.current, isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) }))
                 : undefined} />
           ) : isSessionFormSupported ? (
@@ -1487,7 +1492,7 @@ export function CuppingSessionDetailsScreen({
               defaultExpanded={isSessionComplete}
               onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : handleOpenEditSheet}
               onOpenSample={
-                isSessionFormSupported && sample.cupUUID && typeof onOpenSample === "function"
+                sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && isSessionFormSupported && sample.cupUUID && typeof onOpenSample === "function"
                   ? () =>
                       requestSetupExit(() => onOpenSample(sample, index, samples.length, {
                         sessionId: savedSessionIdRef.current,
