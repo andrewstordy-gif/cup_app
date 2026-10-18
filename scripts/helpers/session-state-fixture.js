@@ -7,7 +7,7 @@ const actorA = '11111111-1111-4111-8111-111111111111';
 const actorB = '22222222-2222-4222-8222-222222222222';
 function fixture(filename = ':memory:') {
   let sqlite = new DatabaseSync(filename), active = false, tail = Promise.resolve(), serial = 0;
-  let failure = null, hook = null;
+  let failure = null, hook = null, afterCommit = null;
   const storage = new Map([['cup_app:user_profile', JSON.stringify({ uuid: actorA, name: 'Taster' })]]);
   const handle = outer => ({
     async getFirstAsync(sql, args = []) {
@@ -31,8 +31,11 @@ function fixture(filename = ':memory:') {
   const bridge = { ...handle(true), withExclusiveTransactionAsync(callback) {
     const pending = tail.then(async () => {
       sqlite.exec('BEGIN IMMEDIATE'); active = true;
-      try { const value = await callback(handle(false)); sqlite.exec('COMMIT'); return value; }
+      let value;
+      try { value = await callback(handle(false)); sqlite.exec('COMMIT'); }
       catch (error) { sqlite.exec('ROLLBACK'); throw error; } finally { active = false; }
+      const callbackAfterCommit = afterCommit; afterCommit = null;
+      callbackAfterCommit?.(); return value;
     }); tail = pending.catch(() => {}); return pending;
   } };
   const mocks = {
@@ -47,6 +50,7 @@ function fixture(filename = ':memory:') {
     get sqlite() { return sqlite; },
     actor(actor) { storage.set('cup_app:user_profile', JSON.stringify({ uuid: actor, name: 'Taster' })); },
     failAt(text) { failure = text; }, hook(fn) { hook = fn; },
+    afterCommit(fn) { afterCommit = fn; },
     reload() { value.repo = projectLoader(root, mocks)('src/data/sessionRepository.js'); return value.repo; },
     restart() { sqlite.close(); sqlite = new DatabaseSync(filename); return value.reload(); },
     async create(id, form = 1, mode = form === 1 ? 'blind' : 'open', samples = true) {

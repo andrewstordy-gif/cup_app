@@ -67,6 +67,28 @@ async function main() {
   earlier.sqlite.prepare('UPDATE cva_response_revisions SET calculation_policy=?').run('unknown-original-policy');
   assert.equal((await earlier.repo.getLocalTastingPresentation('earlier')).identityHidden,true);
   await assert.rejects(earlier.repo.getCvaResponse('earlier',earlierSample),/unsupported_saved_policy/);
+  // Genuine older shapes are missing original columns, not merely labelled
+  // with an earlier user_version. Preserve every preexisting projected value.
+  const missing = fixture(); await missing.repo.listSessions(); removeFoundation(missing,0);
+  for (const column of ['local_creator_profile_id','local_tasting_started_at','form_key','form_version','form_hash','cupping_form','form_locked']) missing.sqlite.exec(`ALTER TABLE sessions DROP COLUMN ${column}`);
+  for (const column of ['sample_number','cupping_form']) missing.sqlite.exec(`ALTER TABLE samples DROP COLUMN ${column}`);
+  missing.sqlite.exec('DROP INDEX idx_feedback_entries_is_final');
+  missing.sqlite.exec('ALTER TABLE sample_feedback_entries DROP COLUMN is_final');
+  for (const column of ['defect_description','calculation_policy','score_policy','defect_type_masks']) missing.sqlite.exec(`ALTER TABLE sample_defect_entries DROP COLUMN ${column}`);
+  missing.sqlite.exec('ALTER TABLE samples ADD COLUMN sample_colour TEXT');
+  missing.sqlite.exec("INSERT INTO sessions(id,session_uuid,session_display_id,session_name,session_type,status,session_date,cupping_mode,created_at,updated_at) VALUES ('genuine-old','genuine-old','OLD','Old session','Training Session','pending','18 Oct 2026','open','2026-10-18T12:00:00.000Z','2026-10-18T12:00:00.000Z')");
+  missing.sqlite.exec("INSERT INTO samples(id,session_id,cup_uuid,cup_number,cupping_mode,coffee_name_origin,process,position_index,created_at,updated_at,sample_colour) VALUES ('old-sample','genuine-old','OLD-CUP',1,'blind','Old coffee','1',0,'2026-10-18T12:00:00.000Z','2026-10-18T12:00:00.000Z','#historical')");
+  const oldColumns=Object.fromEntries(['sessions','samples','sample_feedback_entries','sample_defect_entries'].map(table=>[table,missing.sqlite.prepare(`PRAGMA table_info(${table})`).all().map(row=>row.name)]));
+  const project=()=>Object.fromEntries(Object.entries(oldColumns).map(([table,columns])=>[table,missing.sqlite.prepare(`SELECT ${columns.join(',')} FROM ${table} ORDER BY rowid`).all()]));
+  const oldRows=project(); missing.failAt('INSERT OR IGNORE INTO local_session_state_schema'); missing.reload();
+  await assert.rejects(missing.repo.listSessions(),/injected/);
+  assert.deepEqual(project(),oldRows);
+  assert.equal(missing.sqlite.prepare('PRAGMA table_info(sessions)').all().some(row=>row.name==='form_key'),false);
+  missing.failAt(null); await missing.repo.listSessions();
+  assert.deepEqual(project(),oldRows);
+  assert.equal(missing.sqlite.prepare("SELECT local_creator_profile_id FROM sessions WHERE id='genuine-old'").get().local_creator_profile_id,null);
+  assert.equal(missing.sqlite.prepare("SELECT cupping_mode FROM samples WHERE id='old-sample'").get().cupping_mode,'blind');
+  missing.reload(); await missing.repo.listSessions(); assert.deepEqual(project(),oldRows);
   console.log('State migration: rollback/retry, raw JSON/89.5/pins/profile/history preservation, repeated/older/partial schemas and fail-closed corruption PASS.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

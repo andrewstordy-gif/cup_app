@@ -119,6 +119,11 @@ async function main() {
   const beforeAdopt = adoption.sqlite.prepare('SELECT * FROM local_tasting_revisions WHERE session_id=?').all('adoption');
   await assert.rejects(adoption.repo.adoptSavedTasting({sessionId:'adoption',sampleId:'old-sample',expectedSourceToken:old.access.sourceToken}),/stale_content/);
   assert.deepEqual(adoption.sqlite.prepare('SELECT * FROM local_tasting_revisions WHERE session_id=?').all('adoption'),beforeAdopt);
+  adoption.sqlite.prepare('UPDATE samples SET sample_number=7 WHERE id=?').run(owned);
+  const adoptionRead = await adoption.repo.getCvaResponse('adoption','old-sample');
+  adoption.afterCommit(()=>adoption.actor(adoption.actorB));
+  await assert.rejects(adoption.repo.adoptSavedTasting({sessionId:'adoption',sampleId:'old-sample',expectedSourceToken:adoptionRead.access.sourceToken}),/actor_changed/);
+  assert.equal(adoption.sqlite.prepare('SELECT local_profile_id FROM local_response_streams WHERE sample_id=?').get('old-sample').local_profile_id,adoption.actorA,'durable adoption remains committed when acknowledgement is rejected');
   const recovery = fixture(); const recoveryId = await recovery.create('recovery',2);
   await recovery.repo.saveLegacyResponse({sessionId:'recovery',sampleId:recoveryId,response:recovery.legacy(),complete:true});
   await recovery.repo.saveLegacyResponse({sessionId:'recovery',sampleId:recoveryId,response:{...recovery.legacy(),notes:'draft'},intent:'recovery'});
@@ -134,6 +139,33 @@ async function main() {
     return originalGet(key);
   };
   await assert.rejects(recovery.repo.getLegacyResponse('recovery',recoveryId),/actor_changed/);
+  // A successful durable Save must not acknowledge a different actor or a later
+  // competing response. Rejecting readback leaves the committed rows intact.
+  const ackActor = fixture(); const ackId = await ackActor.create('ack-actor');
+  const initial = await ackActor.repo.getCvaResponse('ack-actor',ackId);
+  ackActor.afterCommit(()=>ackActor.actor(ackActor.actorB));
+  await assert.rejects(ackActor.repo.saveCvaResponse({sessionId:'ack-actor',sampleId:ackId,response:ackActor.response(),
+    expectedRevision:initial.revision,expectedIdentity:initial.trusted.identity,expectedCupCount:initial.n}),/actor_changed/);
+  assert.equal(ackActor.sqlite.prepare('SELECT COUNT(*) n FROM cva_response_revisions').get().n,1);
+  ackActor.actor(ackActor.actorA);
+  assert.equal((await ackActor.repo.getCvaResponse('ack-actor',ackId)).revision,1);
+  const ackRace = fixture(); const raceId = await ackRace.create('ack-race');
+  const raceInitial = await ackRace.repo.getCvaResponse('ack-race',raceId);
+  ackRace.afterCommit(()=>{
+    const row = ackRace.sqlite.prepare('SELECT * FROM cva_response_revisions').get(), keys=Object.keys(row);
+    ackRace.sqlite.prepare(`INSERT INTO cva_response_revisions(${keys.join(',')}) VALUES (${keys.map(()=>'?').join(',')})`)
+      .run(...keys.map(key=>key==='id'?'competing-noop':key==='revision'?2:row[key]));
+  });
+  await assert.rejects(ackRace.repo.saveCvaResponse({sessionId:'ack-race',sampleId:raceId,response:ackRace.response(),
+    expectedRevision:raceInitial.revision,expectedIdentity:raceInitial.trusted.identity,expectedCupCount:raceInitial.n}),/ack_changed/);
+  assert.equal(ackRace.sqlite.prepare('SELECT COUNT(*) n FROM cva_response_revisions').get().n,2);
+  const legacyRace = fixture(); const legacyRaceId = await legacyRace.create('legacy-race',2);
+  legacyRace.afterCommit(()=>{
+    const row=legacyRace.sqlite.prepare('SELECT response_json FROM legacy_responses').get();
+    legacyRace.sqlite.prepare('UPDATE legacy_responses SET response_json=?').run(JSON.stringify({...JSON.parse(row.response_json),notes:'later competing revision'}));
+  });
+  await assert.rejects(legacyRace.repo.saveLegacyResponse({sessionId:'legacy-race',sampleId:legacyRaceId,response:legacyRace.legacy(),complete:true}),/ack_changed/);
+  assert.equal(JSON.parse(legacyRace.sqlite.prepare('SELECT response_json FROM legacy_responses').get().response_json).notes,'later competing revision');
   console.log('State foundation: semantic Save/no-op/recompletion, history, privacy, actor/stale guards, scanned coverage, Legacy recovery and empty completion PASS.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

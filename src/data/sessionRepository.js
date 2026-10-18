@@ -138,7 +138,11 @@ export async function saveCvaResponse(input) {
       await requireSameTastingActor(actor);
     };
   });
-  return { ...result, ...await getCvaResponse(command.sessionId, command.sampleId), firstComplete: result.firstComplete };
+  await requireSameTastingActor(actor);
+  const acknowledged = await getCvaResponse(command.sessionId, command.sampleId);
+  await requireSameTastingActor(actor);
+  if (acknowledged.revision !== result.revision) tastingFail('tasting:ack_changed');
+  return { ...result, ...acknowledged, firstComplete: result.firstComplete };
 }
 
 const cvaDescriptors = response => cvaNoteGroups(response).flatMap(group => tokenizeFlavourKeywords(group.notes)
@@ -845,6 +849,7 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
   const actor = await getLocalProfileIdentity();
   if (!validActor(actor) || typeof expectedSourceToken !== 'string' || !expectedSourceToken) tastingFail('tasting:stale_review');
   let form;
+  let committedSource;
   await db.withExclusiveTransactionAsync(async txn => {
     await requireSameTastingActor(actor);
     const session = await getSessionByIdWithDb(txn, sessionId);
@@ -852,6 +857,7 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
     form = session?.cuppingForm;
     if ((!isActiveFormPin(session, 1) && !isActiveFormPin(session, 2)) || !['new', 'pending', 'in_progress'].includes(session?.status)) tastingFail('tasting:read_only');
     if (await adoptionDuplicateWithDb(txn, sessionId, sampleId, actor, expectedSourceToken)) {
+      committedSource = await adoptionAckIdentityWithDb(txn, sessionId, sampleId, form, actor);
       await requireSameTastingActor(actor); return;
     }
     const prior = form === 1 ? await readCanonicalCva(txn, sessionId, sampleId) : await getLegacyResponseWithDb(txn, sessionId, sampleId);
@@ -880,9 +886,20 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
         [new Date().toISOString(), sessionId, sampleId]);
       await commitRevisionWithDb(txn, sessionId, actor, { starts: hasScoreOrNote(prior.response, form) });
     }
+    committedSource = await adoptionAckIdentityWithDb(txn, sessionId, sampleId, form, actor);
     await requireSameTastingActor(actor);
   });
-  return form === 1 ? getCvaResponse(sessionId, sampleId) : getLegacyResponse(sessionId, sampleId);
+  await requireSameTastingActor(actor);
+  const acknowledged = form === 1 ? await getCvaResponse(sessionId, sampleId) : await getLegacyResponse(sessionId, sampleId);
+  await requireSameTastingActor(actor);
+  if ((form === 1 ? acknowledged.revision : acknowledged.savedFingerprint) !== committedSource) tastingFail('tasting:ack_changed');
+  return acknowledged;
+}
+
+async function adoptionAckIdentityWithDb(db, sessionId, sampleId, form, actor) {
+  if (form === 2) return legacyFingerprintWithDb(db, sessionId, sampleId, actor);
+  const row = await db.getFirstAsync('SELECT revision FROM cva_response_revisions WHERE session_id=? AND sample_id=? ORDER BY revision DESC LIMIT 1', [sessionId, sampleId]);
+  return row?.revision;
 }
 
 async function getSessionByIdWithDb(db, sessionId, { reconcile = true } = {}) {
@@ -1535,6 +1552,7 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
   if (complete && !result?.ok) return { ok: false, errors: result?.errors || ['score:invalid'] };
   const db = await getLocalDatabase();
   let outcome = null;
+  let committedFingerprint = null;
   // The earlier UI/validation read is not authority for a later write. Hold an
   // exclusive transaction while rechecking the current pin, Session state,
   // Sample mode/count, and any response row that an UPSERT would replace.
@@ -1579,6 +1597,7 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
         context_json=excluded.context_json,base_fingerprint=excluded.base_fingerprint,response_json=excluded.response_json,updated_at=excluded.updated_at`,
       [sessionId, sampleId, actor, canonicalize({ sessionId, sampleId, pin: trusted.identity, count: sample.cupNumber }), fingerprint, canonicalize(response), new Date().toISOString()]);
       await requireSameTastingActor(actor);
+      committedFingerprint = fingerprint;
       outcome = { ok: true, recoverySaved: true }; return;
     }
     await persistHistoryWithDb(txn, sessionId);
@@ -1596,11 +1615,17 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
     await txn.runAsync('DELETE FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?', [sessionId, sampleId, actor]);
     await commitRevisionWithDb(txn, sessionId, actor, { starts: hasScoreOrNote(response, 2) });
     await recomputeSessionProgressStatusWithDb(txn, sessionId);
+    committedFingerprint = await legacyFingerprintWithDb(txn, sessionId, sampleId, actor);
     await requireSameTastingActor(actor);
     outcome = { ok: true, result, errors: validation.errors,
       access: { state: 'mine', canWrite: true, canAdopt: false, sourceToken: null } };
   });
-  return outcome?.ok ? { ...outcome, ...await getLegacyResponse(sessionId, sampleId) } : outcome;
+  if (!outcome?.ok) return outcome;
+  await requireSameTastingActor(actor);
+  const acknowledged = await getLegacyResponse(sessionId, sampleId);
+  await requireSameTastingActor(actor);
+  if (acknowledged.savedFingerprint !== committedFingerprint) tastingFail('tasting:ack_changed');
+  return { ...outcome, ...acknowledged };
 }
 
 export async function getSessionSampleFinalStatus(sessionId) {
