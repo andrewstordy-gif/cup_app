@@ -2,7 +2,7 @@
   "name": "cup-user-test-app",
   "version": "0.1.0",
   "private": true,
-  "main": "node_modules/expo/AppEntry.js",
+  "main": "r1-062-phone-verification-entry.js",
   "scripts": {
     "start": "expo start",
     "start:dev": "expo start --dev-client",
