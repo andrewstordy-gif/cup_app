@@ -33,7 +33,7 @@ const db = {
         formKey: cvaIdentity().form_key, formVersion: cvaIdentity().form_version, formHash: cvaIdentity().form_hash } : null;
     }
     if (sql.includes("FROM sessions WHERE id = ? LIMIT 1")) {
-      return existingSession ? { id: existingSession } : null;
+      return existingSession ? { id: existingSession, status: 'pending' } : null;
     }
     if (sql.includes("FROM sessions WHERE session_uuid = ? LIMIT 1")) {
       return conflictingReferenceOwner

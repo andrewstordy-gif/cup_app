@@ -192,9 +192,11 @@ async function assertActiveCvaSampleWithDb(db, sessionId, sampleId) {
     [sampleId]
   );
   if (!row || (sessionId && row.sessionId !== sessionId) || row.sampleForm !== 1 ||
-      !isPrototypeCvaPin(row) || !['new', 'pending', 'in_progress'].includes(row.status)) {
+      !isPrototypeCvaPin(row)) {
     throw new Error('This sample is not linked to the active CVA form version. Its saved data was not changed.');
   }
+  if (row.status === 'complete') throw new Error('This session is complete. Its saved assessment was not changed.');
+  if (!['new', 'pending', 'in_progress'].includes(row.status)) tastingFail('tasting:damaged_history');
   return row.sessionId;
 }
 
