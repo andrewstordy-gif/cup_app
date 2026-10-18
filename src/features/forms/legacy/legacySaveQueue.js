@@ -3,9 +3,12 @@ function createLegacySaveQueue(save) {
   let revision = 0;
 
   return {
-    enqueue(response, complete) {
+    enqueue(response, complete, metadata = {}) {
       const currentRevision = ++revision;
-      tail = tail.catch(() => ({ ok: false })).then(() => save({ response, complete }))
+      // Capture the command at enqueue time; delayed execution must not retarget
+      // mutable input or another screen's session/sample.
+      const command = { response: JSON.parse(JSON.stringify(response)), complete, ...metadata };
+      tail = tail.catch(() => ({ ok: false })).then(() => save(command))
         .catch(error => ({ ok: false, errors: ['response:save_failed'], error }));
       return { promise: tail, revision: currentRevision };
     },

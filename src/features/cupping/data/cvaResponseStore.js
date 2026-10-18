@@ -21,7 +21,8 @@ async function context(db, sessionId, sampleId) {
 
 async function latest(db, sessionId, sampleId) {
   return db.getFirstAsync(`SELECT revision, form_key AS formKey, form_version AS formVersion, form_hash AS formHash,
-    cup_count AS cupCount, response_json AS responseJson, is_complete AS isComplete, result_json AS resultJson
+    cup_count AS cupCount, response_json AS responseJson, is_complete AS isComplete, result_json AS resultJson,
+    calculation_policy AS calculationPolicy, defect_policy AS defectPolicy
     FROM cva_response_revisions WHERE session_id = ? AND sample_id = ? ORDER BY revision DESC LIMIT 1`, [sessionId, sampleId]);
 }
 
@@ -29,6 +30,7 @@ async function readWithDb(db, sessionId, sampleId) {
   const current = await context(db, sessionId, sampleId);
   const row = await latest(db, sessionId, sampleId);
   if (!row) return { ...current, revision: 0, response: null, complete: false, result: null, errors: [], everComplete: false };
+  if (row.calculationPolicy !== 'sca104-exact-quarter-v1' || row.defectPolicy !== 'sca104-three-types-v1') fail('cva:unsupported_saved_policy');
   if (!samePin({ form_key: row.formKey, form_version: row.formVersion, form_hash: row.formHash }, current.trusted.identity) ||
       row.cupCount !== current.n || !Number.isInteger(row.revision) || ![0, 1].includes(row.isComplete)) fail('cva:stored_identity_mismatch');
   if (row.isComplete === 0 && row.resultJson !== null) fail('cva:damaged_result');

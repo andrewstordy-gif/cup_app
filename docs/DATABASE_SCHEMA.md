@@ -118,3 +118,23 @@ LED brightness, etc.) — is **never persisted**. It's read live from the
 physical cup's NDEF2/NDEF3 records each time (`Cup Settings`, `Home`,
 `CuppingScreen`) and only ever held in transient React state. The cup
 itself is the source of truth for that data, not this database.
+# Installation local state foundation additions
+
+R1-061 adds version-5 prototype state tables without rewriting saved scores,
+response/result JSON, pins, profile IDs or original completion evidence. This
+does not initialize the separately specified encrypted production database.
+
+- `local_session_state_schema`: transactional schema marker, version 1.
+- `local_session_foundations`: per-session durable ever-started/ever-completed
+  latches; neither is current reveal authority.
+- `local_tasting_revisions`: per-session/profile semantic saved revision,
+  canonical roster/response context and hash. CVA append counters and timestamps
+  do not make an unchanged Save a new semantic revision.
+- `local_tasting_completion_events`: append-only completion/reveal evidence for
+  the exact current revision and nonempty local sample coverage. Earlier
+  `local_tasting_completions` timestamps remain untouched.
+- `local_legacy_recovery_drafts`: actor/context/base-fingerprint guarded unsaved
+  Legacy recovery, separate from the committed Legacy response.
+
+The [foundation contract](LOCAL_SESSION_STATE_FOUNDATION.md) specifies the
+schema, transaction boundaries, historical compatibility and later-stage gaps.

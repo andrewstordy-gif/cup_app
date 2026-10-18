@@ -179,8 +179,15 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const { animations: balloonAnimations, triggerBalloons } = useScoreBalloons();
   const saveQueue = useRef(null);
-  if (!saveQueue.current) saveQueue.current = createLegacySaveQueue(({ response: next, complete }) =>
-    saveLegacyResponse({ sessionId, sampleId, response: next, complete }));
+  const savedFingerprints = useRef(new Map());
+  if (!saveQueue.current) saveQueue.current = createLegacySaveQueue(async command => {
+    const key = `${command.sessionId}:${command.sampleId}`;
+    const expectedFingerprint = savedFingerprints.current.get(key);
+    if (!expectedFingerprint) return { ok: false, errors: ['tasting:stale_context'] };
+    const saved = await saveLegacyResponse({ ...command, expectedFingerprint });
+    if (saved?.ok && command.intent === 'save') savedFingerprints.current.set(key, saved.savedFingerprint);
+    return saved;
+  });
   const responseRef = useRef(null);
   const savedCompleteRef = useRef(false);
   const selectorScroll = useRef(null);
@@ -203,15 +210,16 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     setShowResultBreakdown(false);
     getLegacyResponse(sessionId, sampleId).then(saved => {
       if (cancelled) return;
-      const loaded = saved?.response || { quality_ratings: {}, consistent_cups: n === 1 ? [1] : null };
+      const loaded = saved?.recoveryDraft || saved?.response || { quality_ratings: {}, consistent_cups: n === 1 ? [1] : null };
+      savedFingerprints.current.set(`${sessionId}:${sampleId}`, saved.savedFingerprint);
       responseRef.current = loaded;
       setResponse(loaded);
       setSavedContext(saved);
-      setResult(saved?.result || null);
+      setResult(saved?.recoveryDraft ? null : saved?.result || null);
       savedCompleteRef.current = Boolean(saved?.complete && saved?.result?.ok);
       setReadOnly(Boolean(saved?.sessionComplete) || saved?.access?.canWrite !== true);
       setErrors(saved?.errors || []);
-      setHasPendingChanges(false);
+      setHasPendingChanges(Boolean(saved?.recoveryDraft));
       setLoading(false);
     }).catch(error => { if (!cancelled) { setMessage(error?.message || 'Could not load Legacy response.'); setLoading(false); } });
     return () => { cancelled = true; operationEpoch.current += 1; };
@@ -225,7 +233,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     setResult(null);
     setErrors([]);
     setHasPendingChanges(true);
-    const operation = saveQueue.current.enqueue(next, false);
+    const operation = saveQueue.current.enqueue(next, false, { intent: 'recovery', sessionId, sampleId });
     const epoch = operationEpoch.current;
     operation.promise.then(saved => {
       if (epoch !== operationEpoch.current || operation.revision !== saveQueue.current.revision) return;
@@ -246,7 +254,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     const shouldComplete = Boolean(score?.ok);
     const wasComplete = savedCompleteRef.current;
     setIsSavingDraft(true);
-    const operation = saveQueue.current.enqueue(currentResponse, shouldComplete);
+    const operation = saveQueue.current.enqueue(currentResponse, shouldComplete, { intent: 'save', sessionId, sampleId });
     const epoch = operationEpoch.current;
     try {
       const saved = await operation.promise;

@@ -1,9 +1,11 @@
 import * as SQLite from "expo-sqlite";
+import { migrateFoundationWithDb } from './localSessionStateMigration';
 
 const DATABASE_NAME = "cup_user_test.db";
 
 let dbPromise = null;
 let isMigrated = false;
+let migrationPromise = null;
 
 function readUserVersion(row) {
   const rawValue = row?.user_version ?? Object.values(row || {})[0];
@@ -49,12 +51,7 @@ async function backfillSessionProgressStatuses(db) {
   }
 }
 
-async function runMigrations(db) {
-  if (isMigrated) {
-    return;
-  }
-
-  await db.execAsync("PRAGMA foreign_keys = ON;");
+async function prepareSchema(db) {
   const initialUserVersion = readUserVersion(await db.getFirstAsync("PRAGMA user_version;"));
 
   await db.execAsync(`
@@ -355,15 +352,11 @@ async function runMigrations(db) {
   let userVersion = initialUserVersion;
   if (userVersion < 1) {
     // Run in this order: rename old 'pending' (setup) → 'new', then old 'active' (in-progress) → 'pending'.
-    await db.execAsync("UPDATE sessions SET status = 'new' WHERE status IS NULL OR status = '';");
-    await db.execAsync("UPDATE sessions SET status = 'new' WHERE status = 'pending';");
-    await db.execAsync("UPDATE sessions SET status = 'pending' WHERE status = 'active';");
     await db.execAsync("PRAGMA user_version = 1;");
     userVersion = 1;
   }
 
   if (userVersion < 2) {
-    await backfillSessionProgressStatuses(db);
     await db.execAsync("PRAGMA user_version = 2;");
     userVersion = 2;
   }
@@ -381,22 +374,8 @@ async function runMigrations(db) {
       if (!hasSampleCuppingModeColumn) {
         await db.execAsync("ALTER TABLE samples ADD COLUMN cupping_mode TEXT NOT NULL DEFAULT 'blind';");
       }
-      await db.execAsync(`
-        UPDATE samples
-        SET cupping_mode = (
-          SELECT sessions.cupping_mode
-          FROM sessions
-          WHERE sessions.id = samples.session_id
-        )
-        WHERE EXISTS (
-          SELECT 1
-          FROM sessions
-          WHERE sessions.id = samples.session_id
-            AND sessions.cupping_mode IS NOT NULL
-            AND sessions.cupping_mode != ''
-        );
-      `);
-      await db.execAsync("ALTER TABLE sessions DROP COLUMN cupping_mode;");
+      // Retain old mode evidence; copying it into samples could reinterpret
+      // saved results. Unpinned historical contexts remain unsupported.
     }
     await db.execAsync("PRAGMA user_version = 3;");
     userVersion = 3;
@@ -419,7 +398,7 @@ async function runMigrations(db) {
       ? sampleColumnsForSampleColour.some((column) => column?.name === "sample_colour")
       : false;
     if (hasSampleColourColumn) {
-      await db.execAsync("ALTER TABLE samples DROP COLUMN sample_colour;");
+      // Retain historical colour evidence; it is not part of new writes.
     }
     await db.execAsync("PRAGMA user_version = 4;");
     userVersion = 4;
@@ -468,16 +447,26 @@ async function runMigrations(db) {
     PRIMARY KEY(session_id, local_profile_id),
     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );`);
-  // Conservative started evidence only. Never infer response author or reveal.
-  await db.runAsync(`UPDATE sessions SET local_tasting_started_at = ?
-    WHERE local_tasting_started_at IS NULL AND (status IN ('in_progress', 'complete') OR
-      EXISTS(SELECT 1 FROM cva_response_revisions WHERE session_id = sessions.id) OR
-      EXISTS(SELECT 1 FROM legacy_responses WHERE session_id = sessions.id) OR
-      EXISTS(SELECT 1 FROM sample_feedback_entries WHERE session_id = sessions.id) OR
-      EXISTS(SELECT 1 FROM sample_defect_entries WHERE session_id = sessions.id) OR
-      EXISTS(SELECT 1 FROM sample_flavour_observations WHERE session_id = sessions.id))`, [new Date().toISOString()]);
+  await migrateFoundationWithDb(db);
+}
 
-  isMigrated = true;
+async function runMigrations(db) {
+  if (isMigrated) return;
+  if (!migrationPromise) migrationPromise = (async () => {
+    await db.execAsync('PRAGMA foreign_keys = ON;');
+    await db.withExclusiveTransactionAsync(async txn => {
+      // Native Expo transactions expose execAsync. The test adapters implement
+      // prepared single statements; these are trusted static schema statements.
+      const handle = { getFirstAsync: (...args) => txn.getFirstAsync(...args),
+        getAllAsync: (...args) => txn.getAllAsync(...args), runAsync: (...args) => txn.runAsync(...args) };
+      handle.execAsync = txn.execAsync ? sql => txn.execAsync(sql) : async sql => {
+        for (const statement of sql.split(';').map(value => value.trim()).filter(Boolean)) await txn.runAsync(statement);
+      };
+      await prepareSchema(handle);
+    });
+    isMigrated = true;
+  })().catch(error => { migrationPromise = null; throw error; });
+  await migrationPromise;
 }
 
 export async function getLocalDatabase() {

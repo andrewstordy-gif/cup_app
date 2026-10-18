@@ -3,10 +3,11 @@ import { getLocalProfileIdentity, getOrCreateLocalProfileIdentity } from "./user
 import { generateDomainId } from "../utils/secureIdentifiers";
 import { fail as tastingFail, validActor, contextToken, stateWithDb as tastingStateWithDb,
   assertUnstartedWithDb, startWithDb as startTastingWithDb, hasStartedWithDb,
+  persistHistoryWithDb, historyWithDb, revisionWithDb, commitRevisionWithDb, semanticSource, hasScoreOrNote,
   streamWithDb, writeStreamWithDb, adoptionDuplicateWithDb, completeWithDb as completeTastingWithDb } from './localTastingState';
 import { formIdentity, isPinnedForm, requireFormTag, requireTagCuppingMode } from "../features/forms/sessionFormRoute";
 import { PROFILE, validateResponse, scoreResponse } from "../features/forms/contract";
-import { canonicalize } from '../features/forms/contract/canonical';
+import { canonicalize, sha256 } from '../features/forms/contract/canonical';
 import { readWithDb as readCanonicalCva, saveWithDb as saveCanonicalCva,
   statusesWithDb as canonicalCvaStatuses, closeWithDb as closeCanonicalCva } from '../features/cupping/data/cvaResponseStore';
 import { RATINGS, cvaUiMasks, cvaNoteGroups } from '../features/cupping/data/cvaResponse';
@@ -127,8 +128,15 @@ export async function saveCvaResponse(input) {
   const actor = await getOrCreateLocalProfileIdentity();
   const result = await saveCanonicalCva(db, command, generateId, cvaDescriptors, async txn => {
     await requireSameTastingActor(actor);
+    await persistHistoryWithDb(txn, command.sessionId);
+    const before = await revisionWithDb(txn, command.sessionId, actor);
+    if (!before.matches) tastingFail('tasting:stale_content');
     await writeStreamWithDb(txn, { sessionId: command.sessionId, sampleId: command.sampleId, form: 1, actor });
-    return () => requireSameTastingActor(actor);
+    return async () => {
+      await commitRevisionWithDb(txn, command.sessionId, actor, { starts: hasScoreOrNote(response, 1) });
+      await recomputeSessionProgressStatusWithDb(txn, command.sessionId);
+      await requireSameTastingActor(actor);
+    };
   });
   return { ...result, ...await getCvaResponse(command.sessionId, command.sampleId), firstComplete: result.firstComplete };
 }
@@ -289,6 +297,12 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
   );
   const sampleCount = Number(sampleCountRow?.count) || 0;
   let nextStatus = sampleCount > 0 ? "pending" : "new";
+  const foundation = await db.getFirstAsync('SELECT session_id FROM local_session_foundations WHERE session_id = ?', [normalizedSessionId]);
+  if (foundation) {
+    if ((await historyWithDb(db, normalizedSessionId)).ever_started) nextStatus = 'in_progress';
+    if (nextStatus !== currentStatus) await db.runAsync('UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, new Date().toISOString(), normalizedSessionId]);
+    return nextStatus;
+  }
 
   if (sampleCount > 0) {
     const feedbackCountRow = await db.getFirstAsync(
@@ -770,7 +784,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const projected = {
     id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
     sessionName: raw.sessionName, sessionType: raw.sessionType, sessionDate: raw.sessionDate,
-    samplesInSession: raw.samplesInSession, status: raw.status, cuppingForm: raw.cuppingForm,
+    samplesInSession: raw.samplesInSession, status: state.completed ? 'complete' : state.started && raw.status !== 'new' ? 'in_progress' : raw.status, cuppingForm: raw.cuppingForm,
     formKey: raw.formKey, formVersion: raw.formVersion, formHash: raw.formHash,
     cuppingMode: raw.cuppingMode, formLocked: raw.formLocked, createdAt: raw.createdAt, updatedAt: raw.updatedAt,
     samples: samples.map((sample, index) => ({
@@ -791,8 +805,8 @@ export async function completeLocalTasting(sessionId, { expectedContextToken } =
   let output;
   await db.withExclusiveTransactionAsync(async txn => {
     await requireSameTastingActor(actor);
-    if (!expectedContextToken || expectedContextToken !== contextToken(actor, sessionId)) tastingFail('tasting:stale_context');
     const presentation = await getLocalTastingPresentationWithDb(txn, sessionId, 'tasting', actor);
+    if (!expectedContextToken || expectedContextToken !== presentation.tasting.contextToken) tastingFail('tasting:stale_context');
     // Validate current pin/mode before returning an idempotent acknowledgement.
     const session = await getSessionByIdWithDb(txn, sessionId);
     if ((!isActiveFormPin(session, 1) && !isActiveFormPin(session, 2)) ||
@@ -845,7 +859,10 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
         expectedIdentity: prior.trusted.identity, expectedCupCount: prior.n }, generateId, cvaDescriptors, async handle => {
         await requireSameTastingActor(actor);
         await writeStreamWithDb(handle, { sessionId, sampleId, form, actor, expectedSourceToken });
-        return { preserveDraft: !prior.complete, finalize: () => requireSameTastingActor(actor) };
+        return { preserveDraft: !prior.complete, finalize: async () => {
+          await commitRevisionWithDb(handle, sessionId, actor, { starts: hasScoreOrNote(prior.response, form) });
+          await requireSameTastingActor(actor);
+        } };
       });
     } else {
       const sample = session.samples.find(row => row.id === sampleId);
@@ -857,6 +874,7 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
       // original row has been retained by writeStreamWithDb before this write.
       await txn.runAsync('UPDATE legacy_responses SET updated_at = ? WHERE session_id = ? AND sample_id = ?',
         [new Date().toISOString(), sessionId, sampleId]);
+      await commitRevisionWithDb(txn, sessionId, actor, { starts: hasScoreOrNote(prior.response, form) });
     }
     await requireSameTastingActor(actor);
   });
@@ -1186,6 +1204,15 @@ async function importSampleWithDb(db, {
   const nextCoffeeNameOrigin =
     cleanString(coffeeNameOrigin) || cleanString(existing?.coffeeNameOrigin);
   const nextProcess = cleanString(process) || cleanString(existing?.process);
+  const importingActor = await getOrCreateLocalProfileIdentity();
+  await requireSameTastingActor(importingActor);
+  const beforeImport = await revisionWithDb(db, normalizedSessionId, importingActor);
+  if (!beforeImport.matches) tastingFail('tasting:stale_content');
+  if (existing && (existing.cupNumber !== nextCupNumber || existing.cuppingMode !== nextCuppingMode ||
+      existing.sampleNumber !== nextSampleNumber || existing.coffeeNameOrigin !== nextCoffeeNameOrigin ||
+      String(existing.process) !== nextProcess)) {
+    throw new Error('Cup metadata conflicts with its stored local sample. No local record was changed.');
+  }
 
   await db.runAsync(
     `
@@ -1219,6 +1246,11 @@ async function importSampleWithDb(db, {
   );
 
   await db.runAsync('UPDATE sessions SET form_locked = 1 WHERE id = ?', [normalizedSessionId]);
+
+  if (!existing) {
+    await commitRevisionWithDb(db, normalizedSessionId, importingActor);
+    await requireSameTastingActor(importingActor);
+  }
 
   await recomputeSessionProgressStatusWithDb(db, normalizedSessionId);
 
@@ -1403,8 +1435,39 @@ export async function getLegacyResponse(sessionId, sampleId) {
   let output;
   await db.withExclusiveTransactionAsync(async txn => {
     output = await withTastingResponseAccess(txn, sessionId, sampleId, 2, await getLegacyResponseWithDb(txn, sessionId, sampleId));
+    const actor = await getLocalProfileIdentity();
+    output.savedFingerprint = await legacyFingerprintWithDb(txn, sessionId, sampleId, actor);
+    const draft = validActor(actor) ? await txn.getFirstAsync(`SELECT * FROM local_legacy_recovery_drafts
+      WHERE session_id=? AND sample_id=? AND local_profile_id=?`, [sessionId, sampleId, actor]) : null;
+    if (draft && draft.base_fingerprint === output.savedFingerprint && output.access.canWrite) {
+      let response;
+      try { response = JSON.parse(draft.response_json); canonicalize(response); } catch { tastingFail('tasting:damaged_draft'); }
+      output.recoveryDraft = response;
+    } else output.recoveryDraft = null;
+    if (actor) await requireSameTastingActor(actor);
   });
   return output;
+}
+
+async function legacyFingerprintWithDb(db, sessionId, sampleId, actor) {
+  const stream = await streamWithDb(db, sessionId, sampleId, 2, actor);
+  const c = stream.context;
+  if (!c) tastingFail('tasting:unavailable');
+  return sha256(canonicalize({ actor, context: { sessionId, sampleId,
+    form: c.cupping_form, key: c.form_key, version: c.form_version, hash: c.form_hash,
+    mode: c.cupping_mode, sampleForm: c.sample_form, sampleMode: c.sample_mode, count: c.cup_number },
+  source: semanticSource(stream.source) }));
+}
+
+export async function discardLegacyRecoveryDraft({ sessionId, sampleId, expectedFingerprint }) {
+  const db = await getLocalDatabase();
+  const actor = await getLocalProfileIdentity();
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    if (!expectedFingerprint || expectedFingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
+    await txn.runAsync('DELETE FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?', [sessionId, sampleId, actor]);
+    await requireSameTastingActor(actor);
+  });
 }
 
 async function getLegacyResponseWithDb(db, sessionId, sampleId) {
@@ -1434,9 +1497,11 @@ async function getLegacyResponseWithDb(db, sessionId, sampleId) {
     sessionComplete: session.status === 'complete' };
 }
 
-export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false }) {
+export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false, intent = 'save', expectedFingerprint = null }) {
   try { response = JSON.parse(canonicalize(response)); } catch { return { ok: false, errors: ['response:invalid_object'] }; }
   const actor = await getOrCreateLocalProfileIdentity();
+  if (!['save', 'recovery'].includes(intent)) return { ok: false, errors: ['response:invalid_intent'] };
+  const fingerprint = expectedFingerprint ?? await legacyFingerprintWithDb(await getLocalDatabase(), sessionId, sampleId, actor);
   const session = await getSessionById(sessionId);
   const trusted = trustedLegacySession(session);
   if (session.status === 'complete') {
@@ -1490,6 +1555,21 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
       return;
     }
     await requireSameTastingActor(actor);
+    if (fingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
+    const access = await streamWithDb(txn, sessionId, sampleId, 2, actor);
+    if (!access.canWrite) tastingFail(access.state === 'unattributed' ? 'tasting:review_required' : 'tasting:foreign_stream');
+    if (intent === 'recovery') {
+      await txn.runAsync(`INSERT INTO local_legacy_recovery_drafts
+        (session_id,sample_id,local_profile_id,context_json,base_fingerprint,response_json,updated_at)
+        VALUES (?,?,?,?,?,?,?) ON CONFLICT(session_id,sample_id,local_profile_id) DO UPDATE SET
+        context_json=excluded.context_json,base_fingerprint=excluded.base_fingerprint,response_json=excluded.response_json,updated_at=excluded.updated_at`,
+      [sessionId, sampleId, actor, canonicalize({ sessionId, sampleId, pin: trusted.identity, count: sample.cupNumber }), fingerprint, canonicalize(response), new Date().toISOString()]);
+      await requireSameTastingActor(actor);
+      outcome = { ok: true, recoverySaved: true }; return;
+    }
+    await persistHistoryWithDb(txn, sessionId);
+    const before = await revisionWithDb(txn, sessionId, actor);
+    if (!before.matches) tastingFail('tasting:stale_content');
     await writeStreamWithDb(txn, { sessionId, sampleId, form: 2, actor });
     await txn.runAsync(
       `INSERT INTO legacy_responses (sample_id, session_id, form_key, form_version, form_hash, cup_count, response_json, is_complete, updated_at)
@@ -1499,6 +1579,8 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
       [sampleId, sessionId, trusted.identity.form_key, trusted.identity.form_version, trusted.identity.form_hash,
         Number(sample.cupNumber), JSON.stringify(response), complete ? 1 : 0, new Date().toISOString()]
     );
+    await txn.runAsync('DELETE FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?', [sessionId, sampleId, actor]);
+    await commitRevisionWithDb(txn, sessionId, actor, { starts: hasScoreOrNote(response, 2) });
     await recomputeSessionProgressStatusWithDb(txn, sessionId);
     await requireSameTastingActor(actor);
     outcome = { ok: true, result, errors: validation.errors,
