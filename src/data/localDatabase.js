@@ -71,6 +71,8 @@ async function runMigrations(db) {
       form_key TEXT,
       form_version TEXT,
       form_hash TEXT,
+      cupping_mode TEXT,
+      form_locked INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -132,6 +134,9 @@ async function runMigrations(db) {
       non_uniform_mask TEXT NOT NULL DEFAULT '',
       defective_mask TEXT NOT NULL DEFAULT '',
       defect_type_masks TEXT NOT NULL DEFAULT '',
+      score_policy TEXT,
+      calculation_policy TEXT,
+      defect_description TEXT,
       number_of_cups INTEGER NOT NULL DEFAULT 1,
       temp_snapshot TEXT,
       time_snapshot TEXT,
@@ -154,6 +159,47 @@ async function runMigrations(db) {
       elapsed_seconds INTEGER,
       source_field TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Append-only CVA successor evidence. Prototype rows retain their original meaning.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS cva_response_revisions (
+      id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      sample_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      form_key TEXT NOT NULL,
+      form_version TEXT NOT NULL,
+      form_hash TEXT NOT NULL,
+      cup_count INTEGER NOT NULL,
+      response_json TEXT NOT NULL,
+      is_complete INTEGER NOT NULL,
+      result_json TEXT,
+      calculation_policy TEXT NOT NULL,
+      defect_policy TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(sample_id, revision),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cva_response_current ON cva_response_revisions(session_id, sample_id, revision);
+  `);
+
+  // Distinct raw Legacy response: never coerce these judgments into CVA feedback rows.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS legacy_responses (
+      sample_id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      form_key TEXT NOT NULL,
+      form_version TEXT NOT NULL,
+      form_hash TEXT NOT NULL,
+      cup_count INTEGER NOT NULL,
+      response_json TEXT NOT NULL,
+      is_complete INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
     );
@@ -267,6 +313,17 @@ async function runMigrations(db) {
       "ALTER TABLE sample_defect_entries ADD COLUMN defect_type_masks TEXT NOT NULL DEFAULT '';"
     );
   }
+  const defectColumnsAfterPolicy = await db.getAllAsync("PRAGMA table_info(sample_defect_entries);");
+  if (!defectColumnsAfterPolicy.some((column) => column?.name === "score_policy")) {
+    await db.execAsync("ALTER TABLE sample_defect_entries ADD COLUMN score_policy TEXT;");
+  }
+  if (!defectColumnsAfterPolicy.some((column) => column?.name === "calculation_policy")) {
+    await db.execAsync("ALTER TABLE sample_defect_entries ADD COLUMN calculation_policy TEXT;");
+  }
+  const defectColumnsAfterDescription = await db.getAllAsync("PRAGMA table_info(sample_defect_entries);");
+  if (!defectColumnsAfterDescription.some((column) => column?.name === "defect_description")) {
+    await db.execAsync("ALTER TABLE sample_defect_entries ADD COLUMN defect_description TEXT;");
+  }
 
   const sessionColumns = await db.getAllAsync("PRAGMA table_info(sessions);");
   const hasStatusColumn = Array.isArray(sessionColumns)
@@ -287,6 +344,7 @@ async function runMigrations(db) {
   for (const [name, type] of [
     ["cupping_form", "INTEGER"], ["form_key", "TEXT"],
     ["form_version", "TEXT"], ["form_hash", "TEXT"],
+    ["local_creator_profile_id", "TEXT"],
   ]) {
     if (!sessionColumns.some((column) => column?.name === name)) {
       await db.execAsync(`ALTER TABLE sessions ADD COLUMN ${name} ${type};`);
@@ -344,6 +402,17 @@ async function runMigrations(db) {
     userVersion = 3;
   }
 
+  // Earlier prototype migration removes the old sample-inferred Session mode.
+  // Add the new trusted mode only after that migration; old rows stay NULL.
+  const modeColumns = await db.getAllAsync('PRAGMA table_info(sessions);');
+  if (!modeColumns.some((column) => column?.name === 'cupping_mode')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN cupping_mode TEXT;');
+  }
+  if (!modeColumns.some((column) => column?.name === 'form_locked')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN form_locked INTEGER NOT NULL DEFAULT 0;');
+    await db.execAsync('UPDATE sessions SET form_locked = 1 WHERE EXISTS (SELECT 1 FROM samples WHERE samples.session_id = sessions.id);');
+  }
+
   if (userVersion < 4) {
     const sampleColumnsForSampleColour = await db.getAllAsync("PRAGMA table_info(samples);");
     const hasSampleColourColumn = Array.isArray(sampleColumnsForSampleColour)
@@ -375,6 +444,38 @@ async function runMigrations(db) {
   if (!hasSampleCuppingModeColumn) {
     await db.execAsync("ALTER TABLE samples ADD COLUMN cupping_mode TEXT NOT NULL DEFAULT 'blind';");
   }
+
+  const tastingColumns = await db.getAllAsync('PRAGMA table_info(sessions);');
+  if (!tastingColumns.some(column => column.name === 'local_tasting_started_at')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN local_tasting_started_at TEXT;');
+  }
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_response_streams (
+    session_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL UNIQUE,
+    local_profile_id TEXT NOT NULL,
+    bound_at TEXT NOT NULL,
+    recovery_source_json TEXT,
+    adoption_source_token TEXT,
+    PRIMARY KEY(session_id, sample_id),
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(sample_id) REFERENCES samples(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS local_tasting_completions (
+    session_id TEXT NOT NULL,
+    local_profile_id TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    identity_revealed_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, local_profile_id),
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );`);
+  // Conservative started evidence only. Never infer response author or reveal.
+  await db.runAsync(`UPDATE sessions SET local_tasting_started_at = ?
+    WHERE local_tasting_started_at IS NULL AND (status IN ('in_progress', 'complete') OR
+      EXISTS(SELECT 1 FROM cva_response_revisions WHERE session_id = sessions.id) OR
+      EXISTS(SELECT 1 FROM legacy_responses WHERE session_id = sessions.id) OR
+      EXISTS(SELECT 1 FROM sample_feedback_entries WHERE session_id = sessions.id) OR
+      EXISTS(SELECT 1 FROM sample_defect_entries WHERE session_id = sessions.id) OR
+      EXISTS(SELECT 1 FROM sample_flavour_observations WHERE session_id = sessions.id))`, [new Date().toISOString()]);
 
   isMigrated = true;
 }

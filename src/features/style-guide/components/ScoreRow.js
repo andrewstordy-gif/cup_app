@@ -3,6 +3,17 @@ import { StyleSheet, Text, View } from "react-native";
 import { colors } from "../../../theme/colors";
 import { typography } from "../../../theme/typography";
 
+// Repository results may carry decimal display strings. Normalize only for
+// presentation; empty or malformed values must not become a scored zero.
+export function normalizeTotalScore(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const decimal = value.trim();
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(decimal)) return null;
+  const numeric = Number(decimal);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function ScoreBox({ label, score, isFinal, scale }) {
   return (
     <View style={[styles.scoreItem, { gap: 4 * scale }]}>
@@ -28,8 +39,9 @@ function ScoreBox({ label, score, isFinal, scale }) {
 }
 
 function TotalBox({ total, scale }) {
-  const hasScore = total != null;
-  const displayValue = hasScore ? parseFloat(total.toFixed(2)).toString() : "P";
+  const numericTotal = normalizeTotalScore(total);
+  const hasScore = numericTotal != null;
+  const displayValue = hasScore ? parseFloat(numericTotal.toFixed(2)).toString() : "P";
   return (
     <View style={[styles.scoreItem, styles.totalItem, { gap: 4 * scale }]}>
       <Text style={styles.scoreLabel}>Total</Text>

@@ -23,6 +23,10 @@ for (const metadata of [null, {}, { f: '1' }, { f: 2 }, { f: 99 }, { f: 1.5 }, {
 assert.equal(rawFormValue({ f: '1' }), null);
 assert.equal(rawFormValue({ f: 2 }), 2);
 assert.equal(isPinnedCva(session), true);
+const historicalCva = { ...session, formVersion: '1.0.0',
+  formHash: '0a840b335b4af50d18db3cf210d503b870285c1706710ff803e7633103ad310d' };
+assert.equal(isPinnedCva(historicalCva), true, 'an exact historical CVA pin still opens');
+assert.doesNotThrow(() => requireCvaRoute(historicalCva, sample, { f: 1 }));
 assert.equal(isSessionFormReady('saved-1', null), false, 'existing session must remain disabled during asynchronous load');
 assert.equal(isSessionFormReady('saved-1', { ...session, loadedSessionId: 'saved-2' }), false);
 assert.equal(isSessionFormReady('saved-1', { ...session, loadedSessionId: 'saved-1' }), true);
@@ -39,5 +43,5 @@ assert.throws(() => requireCvaRoute({ ...session, formHash: null }, sample), /un
 assert.throws(() => requireCvaRoute({ ...session, cuppingForm: null }, sample), /unsupported or older prototype/);
 assert.throws(() => requireCvaRoute(session, { ...sample, cuppingForm: 2 }), /unsupported or older prototype/);
 assert.throws(() => requireCvaRoute(session, { ...sample, cuppingForm: null }), /unsupported or older prototype/);
-assert.match(UNSUPPORTED_MESSAGE, /Start a new SCA CVA session/);
+assert.match(UNSUPPORTED_MESSAGE, /Start a new supported SCA session/);
 console.log('Session-form route guards passed (CVA, Legacy, unknown, malformed, old, mismatch).');

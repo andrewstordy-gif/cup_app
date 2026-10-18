@@ -18,8 +18,15 @@ export function getSessionStatusLabel(key) {
   return SESSION_STATUS_OPTIONS.find((o) => o.key === key)?.label || String(key || "");
 }
 
-export function getSessionStatusBadgeLabel({ samples, sampleStatusById, isSessionComplete }) {
-  if (isSessionComplete) {
+// Presentation only: the repository DTO has already checked the stored actor.
+// Never feed this result into historical assessment edit-lock decisions.
+export function hasLocalSessionCompletion(sessionId, presentation) {
+  return Boolean(sessionId && presentation?.session?.id === sessionId &&
+    presentation?.tasting?.contextToken && presentation.tasting.completed === true);
+}
+
+export function getSessionStatusBadgeLabel({ samples, sampleStatusById, isSessionComplete, sessionId, tastingPresentation }) {
+  if (isSessionComplete || hasLocalSessionCompletion(sessionId, tastingPresentation)) {
     return "Complete";
   }
   if ((samples || []).some((sample) => Boolean(sampleStatusById?.[sample.id]?.hasAnyFeedback))) {
@@ -49,7 +56,8 @@ export const CUPPING_MODE_OPTIONS = [
 ];
 
 export const CUPPING_FORM_OPTIONS = [
-  { key: 1, label: "SCA CVA" },
+  { key: 1, label: "SCA CVA — Affective Assessment" },
+  { key: 2, label: "SCA Legacy (2004–2023)" },
 ];
 
 export const PENDING_CONFLICT_ERROR = "PENDING_CUP_CONFLICT";
@@ -102,6 +110,17 @@ export function getSessionTypeLabel(value) {
   const key = normalizeSessionTypeKey(value);
   const option = SESSION_TYPE_OPTIONS.find((entry) => entry.key === key);
   return option?.label || String(value || "");
+}
+
+// Presentation is deliberately stricter than the historical import/protocol
+// normalizers below. Unknown stored metadata must never become visible copy.
+export function getSessionTypeDisplayLabel(value) {
+  if (typeof value !== "string" && typeof value !== "number") return "Type unavailable";
+  const text = typeof value === "string" ? value.trim() : "";
+  const option = SESSION_TYPE_OPTIONS.find((entry) =>
+    value === entry.key || text === String(entry.key) || text.toLowerCase() === entry.label.toLowerCase()
+  );
+  return option?.label || "Type unavailable";
 }
 
 export function compactSessionTypeValue(value) {
@@ -294,12 +313,39 @@ export function getSessionDateLabel(value) {
   return date ? formatSessionDate(date) : String(value || "");
 }
 
+export function getSessionDateDisplayLabel(value) {
+  if (typeof value !== "string" && typeof value !== "number") return "Date unavailable";
+  const text = typeof value === "string" ? value.trim() : String(value);
+  let year;
+  let month;
+  let day;
+  if (/^\d{6}$/.test(text)) {
+    year = 2000 + Number(text.slice(0, 2));
+    month = Number(text.slice(2, 4));
+    day = Number(text.slice(4, 6));
+  } else {
+    const match = /^(\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sept?|Oct|Nov|Dec) (\d{4})$/.exec(text);
+    if (!match) return "Date unavailable";
+    day = Number(match[1]);
+    month = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].indexOf(match[2].slice(0, 3)) + 1;
+    year = Number(match[3]);
+  }
+  if (year < 1000 || month < 1 || month > 12 || day < 1 || day > 31) return "Date unavailable";
+  const date = new Date(0);
+  date.setFullYear(year, month - 1, day);
+  date.setHours(12, 0, 0, 0);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return "Date unavailable";
+  }
+  return formatSessionDate(date);
+}
+
 export function normalizeCupUuid(value) {
   return String(value || "").trim().toUpperCase();
 }
 
-export function createPendingConflictError(message) {
-  const error = new Error(message);
+export function createPendingConflictError() {
+  const error = new Error("This cup is already assigned to another active session. Remove it from that session before adding it here, or use a different cup.");
   error.code = PENDING_CONFLICT_ERROR;
   return error;
 }
@@ -367,7 +413,7 @@ export function doesMetadataMatchExpected(actual, expected) {
     String(compactCuppingModeValue(actual.m ?? actual.cuppingMode ?? "")) ===
       String(compactCuppingModeValue(expected.m ?? expected.cuppingMode ?? "")) &&
     (actual.f ?? actual.cuppingForm) === (expected.f ?? expected.cuppingForm) &&
-    (expected.f ?? expected.cuppingForm) === 1 &&
+    [1, 2].includes(expected.f ?? expected.cuppingForm) &&
     String(actual.e || actual.sessionName || "") === String(expected.e || "") &&
     String(compactSessionTypeValue(actual.t ?? actual.sessionType ?? "")) ===
       String(compactSessionTypeValue(expected.t ?? "")) &&

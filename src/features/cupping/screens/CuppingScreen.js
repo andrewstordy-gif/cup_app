@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Animated,
-  Easing,
+  Alert,
   Keyboard,
   KeyboardAvoidingView,
   PanResponder,
@@ -18,24 +17,31 @@ import { CupStatusStrip } from "../../../components/ui/CupStatusStrip";
 import { ScoreSelector } from "../../../components/ui/ScoreSelector";
 import { NotesInput } from "../../../components/ui/NotesInput";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
-import { AppIcon } from "../../../components/ui/AppIcon";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
 import {
-  clearSampleFeedbackFields,
-  clearSampleFinalFeedbackFields,
   getSampleDefects,
+  getSessionById,
   getSampleFeedback,
   getSampleFlavourObservations,
-  saveSampleDefectsEntry,
-  saveSampleFeedbackBatch,
-  saveSampleFlavourObservations,
-  pruneSampleFlavourObservations,
+  saveCvaAssessmentAtomically,
 } from "../../../data/sessionRepository";
+import { formIdentity } from "../../forms/sessionFormRoute";
 import { DefectsSection } from "../components/DefectsSection";
+import { AssessmentCupSelector } from "../components/AssessmentCupSelector";
+import { AssessmentHeader } from "../components/AssessmentHeader";
+import { AssessmentSampleIdentity } from "../components/AssessmentSampleIdentity";
+import { AssessmentFormIntro } from "../components/AssessmentFormIntro";
+import { AssessmentResultSection } from "../components/AssessmentResultSection";
+import { focusNotesAboveKeyboard } from "../components/focusNotesAboveKeyboard";
+import { ScoreBalloons, useScoreBalloons } from "../components/ScoreBalloons";
 import { KeywordPillRow } from "../components/KeywordPillRow";
 import { tokenizeFlavourKeywords } from "../data/flavourKeywords";
+import { CanonicalCvaScreen } from './CanonicalCvaScreen';
+import { CVA_SCORED_DEFECT_POLICY, getCvaScoredDefectSlots, resolveCvaDefectiveCupCount } from "../data/cvaDefectPolicy";
+import { CVA_EXACT_CALCULATION_POLICY, CVA_PREVIOUS_CALCULATION_MESSAGE, CVA_UNKNOWN_CALCULATION_MESSAGE,
+  calculateCvaScore, cvaCalculationLabel, getCvaScoreUpdate, isSupportedCvaCalculationPolicy } from "../data/cvaScoreCalculation";
 import { getProcessLabel, normalizeCuppingModeKey } from "../constants/sessionDetails";
 
 const FEEDBACK_FIELDS = [
@@ -62,16 +68,13 @@ const CUP_STATE_LABELS = {
   4: "LOW_BATTERY",
 };
 const SCORE_PRECISION = 2;
-const SCORE_STEP = 0.25;
 const IOS_BLUE = colors.action;
 const SAVE_GREY = colors.ink;
-const BALLOON_CONFIGS = [
-  { color: "#E15A64", left: 0.14, size: 34, drift: 20 },
-  { color: "#F2B84B", left: 0.32, size: 28, drift: -16 },
-  { color: "#61A6D8", left: 0.5, size: 38, drift: 12 },
-  { color: "#75B66A", left: 0.68, size: 30, drift: -22 },
-  { color: "#C586D9", left: 0.84, size: 35, drift: 15 },
-];
+// Original-pin prototype editing remains available without certifying it as 2.0.
+const ACTIVE_CVA_PIN = { form_key: 'sca_cva_affective_104_2024', form_version: '1.1.0',
+  form_hash: '2a9e341fb17664559875a08235a01f88571a3833682ead2a1de09558ba6bf0bb' };
+const HISTORICAL_CVA_MESSAGE = "This older CVA form is read-only. Its saved assessment has not been changed.";
+const PREVIOUS_DEFECT_RULE_MESSAGE = "This saved result uses the previous defect rule, which counted Other. Under the current CVA rule, Other is an observation only. Saving may recalculate the result; the previous defect entry remains in history.";
 
 function getLatestFeedbackEntry(rows) {
   return Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null;
@@ -118,15 +121,6 @@ function clearFeedbackFields(prev, fields) {
   return next;
 }
 
-function roundToStep(value, step = SCORE_STEP) {
-  const numericValue = Number(value);
-  const numericStep = Number(step);
-  if (!Number.isFinite(numericValue) || !Number.isFinite(numericStep) || numericStep <= 0) {
-    return 0;
-  }
-  return Math.round((numericValue + Number.EPSILON) / numericStep) * numericStep;
-}
-
 function toNumericOrZero(value) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -137,6 +131,7 @@ function calculateFinalCuppingScore({
   nonUniformCups,
   defectiveCups,
   numberOfCups,
+  calculationPolicy = CVA_EXACT_CALCULATION_POLICY,
 }) {
   const cups = Math.max(1, toNumericOrZero(numberOfCups));
   const fieldBreakdown = FEEDBACK_FIELDS.map((field) => ({
@@ -151,7 +146,9 @@ function calculateFinalCuppingScore({
   const dNormalized = (dRaw / cups) * 5;
 
   const scoreBeforeRounding = 0.65625 * sumHi + 52.75 - 2 * uNormalized - 4 * dNormalized;
-  const scoreRounded = roundToStep(scoreBeforeRounding, SCORE_STEP);
+  const scoreRounded = calculateCvaScore({ sumHi, nonUniformCups: uRaw, defectiveCups: dRaw,
+    numberOfCups: cups, calculationPolicy });
+  if (scoreRounded == null) return null;
 
   return {
     fieldBreakdown,
@@ -204,6 +201,7 @@ function buildDefectsSignature({
   defectCupSlots = {},
   nonUniformCupSlots = [],
   defectiveCupSlots = [],
+  defectDescription = '',
 } = {}) {
   return [
     normalizeSlotSignature(nonUniformCupSlots),
@@ -224,6 +222,7 @@ function buildDefectsSignature({
     defects?.baked ? "1" : "0",
     defects?.unevenRoast ? "1" : "0",
     defects?.overdeveloped ? "1" : "0",
+    String(defectDescription),
   ].join("|");
 }
 
@@ -399,15 +398,6 @@ function getNoteGroupId(group) {
   return group.fields.join("-");
 }
 
-function formatTitleTemperature(value) {
-  const raw = String(value || "").trim();
-  const numeric = Number.parseFloat(raw);
-  if (Number.isFinite(numeric)) {
-    return `${Math.round(numeric)} °C`;
-  }
-  return raw.replace(/\s*C$/i, " °C") || "-- °C";
-}
-
 function formatElapsedTime(value) {
   const numeric = Number.parseInt(value, 10);
   if (!Number.isFinite(numeric) || numeric < 0) {
@@ -417,58 +407,6 @@ function formatElapsedTime(value) {
   const minutes = Math.floor(numeric / 60);
   const seconds = numeric % 60;
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function resolveSampleNumber(sampleNumber, cupIndex) {
-  const explicitSampleNumber = Number.parseInt(sampleNumber, 10);
-  if (Number.isInteger(explicitSampleNumber) && explicitSampleNumber > 0) {
-    return explicitSampleNumber;
-  }
-
-  const index = Number.parseInt(cupIndex, 10);
-  return Number.isInteger(index) && index >= 0 ? index + 1 : 1;
-}
-
-function CuppingTitleContent({ sampleNumber, cupIndex, scale }) {
-  const displayNumber = resolveSampleNumber(sampleNumber, cupIndex);
-
-  return (
-    <View style={[styles.cuppingHeaderTitleStack, { gap: 2 * scale }]}>
-      <Text style={styles.cuppingHeaderTitleText}>{displayNumber}</Text>
-    </View>
-  );
-}
-
-function CuppingHeaderTemperature({ temp, scale }) {
-  return (
-    <View style={[styles.cuppingHeaderTemp, { gap: 7 * scale }]}>
-      <View style={[styles.cuppingHeaderThermometer, { width: 14 * scale, height: 32 * scale }]}>
-        <View
-          style={[
-            styles.cuppingHeaderThermometerStem,
-            {
-              width: 6 * scale,
-              height: 23 * scale,
-              borderRadius: 3 * scale,
-              borderWidth: 2 * scale,
-            },
-          ]}
-        />
-        <View
-          style={[
-            styles.cuppingHeaderThermometerBulb,
-            {
-              width: 14 * scale,
-              height: 14 * scale,
-              borderRadius: 7 * scale,
-              borderWidth: 2 * scale,
-            },
-          ]}
-        />
-      </View>
-      <Text style={styles.cuppingHeaderTempText}>{formatTitleTemperature(temp)}</Text>
-    </View>
-  );
 }
 
 function SamplePagerIndicator({ current, total, scale, compact = false }) {
@@ -503,18 +441,6 @@ function SamplePagerIndicator({ current, total, scale, compact = false }) {
           />
         );
       })}
-    </View>
-  );
-}
-
-function DefectsDrawerLabel({ expanded, scale = 1, textStyle }) {
-  return (
-    <View style={styles.defectsDrawerLabel}>
-      <AppIcon
-        name={expanded ? "chevron-down" : "chevron-up"}
-        role="icon_navigation"
-      />
-      <Text style={textStyle}>Defects</Text>
     </View>
   );
 }
@@ -565,84 +491,6 @@ function CuppingScoreRow({
           );
         })}
       </View>
-    </View>
-  );
-}
-
-function DefectBadgeRow({ badges = [], scale }) {
-  if (!Array.isArray(badges) || badges.length === 0) {
-    return null;
-  }
-
-  return (
-    <View
-      style={[
-        styles.defectBadgeRow,
-        {
-          paddingTop: 14 * scale,
-          gap: 6 * scale,
-        },
-      ]}
-    >
-      {badges.map((badge) => (
-        <View key={badge.id} accessibilityLabel={badge.label} style={styles.defectBadge}>
-          <Text style={styles.defectBadgeText}>{badge.label.toUpperCase()}</Text>
-        </View>
-      ))}
-    </View>
-  );
-}
-
-function BalloonLayer({ animations, width, scale }) {
-  return (
-    <View pointerEvents="none" style={styles.balloonLayer}>
-      {BALLOON_CONFIGS.map((balloon, index) => {
-        const animation = animations[index];
-        const translateY = animation.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0, -640 * scale],
-        });
-        const translateX = animation.interpolate({
-          inputRange: [0, 0.5, 1],
-          outputRange: [0, balloon.drift * scale, -balloon.drift * scale],
-        });
-        const opacity = animation.interpolate({
-          inputRange: [0, 0.1, 0.82, 1],
-          outputRange: [0, 1, 1, 0],
-        });
-
-        return (
-          <Animated.View
-            key={balloon.color}
-            style={[
-              styles.balloon,
-              {
-                left: width * balloon.left,
-                bottom: 92 * scale,
-                width: balloon.size * scale,
-                height: balloon.size * 1.28 * scale,
-                borderRadius: (balloon.size / 2) * scale,
-                backgroundColor: balloon.color,
-                opacity,
-                transform: [{ translateX }, { translateY }],
-              },
-            ]}
-          >
-            <View
-              style={[
-                styles.balloonKnot,
-                {
-                  borderLeftWidth: 5 * scale,
-                  borderRightWidth: 5 * scale,
-                  borderTopWidth: 8 * scale,
-                  bottom: -7 * scale,
-                  borderTopColor: balloon.color,
-                },
-              ]}
-            />
-          </Animated.View>
-        );
-      })}
     </View>
   );
 }
@@ -784,7 +632,27 @@ function FinalisedHistoryCard({ entry }) {
   );
 }
 
-export function CuppingScreen({
+export function CuppingScreen(props) {
+  const [loaded, setLoaded] = useState(null);
+  useEffect(() => {
+    let active = true;
+    setLoaded(null);
+    if (!props.sessionId) { setLoaded({ prototype: true }); return undefined; }
+    getSessionById(props.sessionId).then(session => {
+      if (active) setLoaded({ session });
+    }).catch(() => { if (active) setLoaded({ error: true }); });
+    return () => { active = false; };
+  }, [props.sessionId]);
+  if (!loaded) return <View><Text>Loading assessment…</Text></View>;
+  if (loaded.error) return <View><Text>Could not load assessment.</Text></View>;
+  const pin = formIdentity(1);
+  if (loaded.session?.formVersion === '2.0.0' && loaded.session.formKey === pin.form_key && loaded.session.formHash === pin.form_hash) {
+    return <CanonicalCvaScreen {...props} key={`${props.sessionId}:${props.sampleId}`} />;
+  }
+  return <PrototypeCuppingScreen {...props} />;
+}
+
+function PrototypeCuppingScreen({
   onBackPress,
   onScanPress,
   cupUUID = "CUP-8291-XJ2",
@@ -815,11 +683,20 @@ export function CuppingScreen({
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const scrollRef = useRef(null);
+  const cancelDefectNoteScroll = useRef(null);
+  const focusDefectNote = event => {
+    cancelDefectNoteScroll.current?.();
+    cancelDefectNoteScroll.current = focusNotesAboveKeyboard(scrollRef, event, spacing.md * scale);
+  };
+  const blurDefectNote = () => { cancelDefectNoteScroll.current?.(); };
+  useEffect(() => () => cancelDefectNoteScroll.current?.(), []);
   const noteLayoutYRef = useRef({});
   const noteInputOffsetYRef = useRef({});
   const fieldLayoutYRef = useRef({});
   const autoScrolledSampleRef = useRef(null);
-  const balloonAnimations = useRef(BALLOON_CONFIGS.map(() => new Animated.Value(0))).current;
+  const explicitSavePendingRef = useRef(false);
+  const editRevisionRef = useRef(0);
+  const { animations: balloonAnimations, triggerBalloons } = useScoreBalloons();
   const [feedback, setFeedback] = useState(() => buildInitialFeedbackState());
   const [savedFeedback, setSavedFeedback] = useState(() =>
     FEEDBACK_FIELDS.reduce((acc, field) => {
@@ -836,18 +713,28 @@ export function CuppingScreen({
   const [defectCupSlots, setDefectCupSlots] = useState({});
   const [nonUniformCupSlots, setNonUniformCupSlots] = useState([]);
   const [defectiveCupSlots, setDefectiveCupSlots] = useState([]);
-  const [isDefectsDrawerOpen, setIsDefectsDrawerOpen] = useState(false);
+  const [defectDescription, setDefectDescription] = useState('');
+  const [supportsDefectDescription, setSupportsDefectDescription] = useState(false);
+  const [cvaFormVersion, setCvaFormVersion] = useState(null);
+  const [isActiveCvaSession, setIsActiveCvaSession] = useState(!sessionId);
+  const [isCvaPinLoaded, setIsCvaPinLoaded] = useState(!sessionId);
+  const [showResultBreakdown, setShowResultBreakdown] = useState(false);
+  const [isSavedDefectsLoaded, setIsSavedDefectsLoaded] = useState(false);
   const [savedDefectsSignature, setSavedDefectsSignature] = useState(() => buildDefectsSignature());
+  const [savedDefectPolicy, setSavedDefectPolicy] = useState(CVA_SCORED_DEFECT_POLICY);
+  const [savedDefectiveCups, setSavedDefectiveCups] = useState(0);
+  const [savedCalculationPolicy, setSavedCalculationPolicy] = useState(CVA_EXACT_CALCULATION_POLICY);
+  const [savedNonUniformCups, setSavedNonUniformCups] = useState(0);
+  const [savedNumberOfCups, setSavedNumberOfCups] = useState(null);
+  const [hasSavedDefectEntry, setHasSavedDefectEntry] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [coffeeMetaHeight, setCoffeeMetaHeight] = useState(0);
   const [displayElapsedSeconds, setDisplayElapsedSeconds] = useState(elapsedSeconds);
   const normalizedCuppingMode = normalizeCuppingModeKey(cuppingMode);
   const isOpenCuppingMode = normalizedCuppingMode === "open";
   const coffeeNameLabel = String(coffeeNameOrigin || "").trim();
   const processLabel = getProcessLabel(process) || String(process || "").trim();
   const nonUniformCups = nonUniformCupSlots.length;
-  const defectiveCups = defectiveCupSlots.length;
   const currentDefectsSignature = useMemo(
     () =>
       buildDefectsSignature({
@@ -855,11 +742,45 @@ export function CuppingScreen({
         defectCupSlots,
         nonUniformCupSlots,
         defectiveCupSlots,
+        defectDescription,
       }),
-    [defectiveCupSlots, defectCupSlots, defects, nonUniformCupSlots]
+    [defectiveCupSlots, defectCupSlots, defectDescription, defects, nonUniformCupSlots]
   );
   const hasUnsavedDefectChanges = currentDefectsSignature !== savedDefectsSignature;
+  const hasPreviousDefectRule = hasSavedDefectEntry && savedDefectPolicy === null;
+  const sourceScoredDefectSlots = getCvaScoredDefectSlots(defectCupSlots, defectsCupTotal || cupTotal || 1);
+  const defectiveCups = resolveCvaDefectiveCupCount({
+    scoredSlots: sourceScoredDefectSlots, savedPolicy: savedDefectPolicy,
+    hasSavedEntry: hasSavedDefectEntry, savedCount: savedDefectiveCups,
+    hasUnsavedChanges: hasUnsavedChanges || hasUnsavedDefectChanges,
+  });
+  const willRecalculatePreviousDefectScore = hasPreviousDefectRule &&
+    savedDefectiveCups !== sourceScoredDefectSlots.length;
   const hasPendingChanges = hasUnsavedChanges || hasUnsavedDefectChanges;
+  const hasSavedRatings = FEEDBACK_FIELDS.some((field) => (savedFeedback[field] || []).length > 0);
+  const applicableSavedCalculationPolicy = hasSavedDefectEntry ? savedCalculationPolicy
+    : hasSavedRatings ? null : CVA_EXACT_CALCULATION_POLICY;
+  const isCalculationSupported = isSupportedCvaCalculationPolicy(applicableSavedCalculationPolicy);
+  const hasPreviousCalculation = applicableSavedCalculationPolicy === null;
+  useEffect(() => {
+    let active = true;
+    setSupportsDefectDescription(false);
+    setCvaFormVersion(null);
+    setIsActiveCvaSession(!sessionId);
+    setIsCvaPinLoaded(!sessionId);
+    if (sessionId) getSessionById(sessionId).then(session => {
+      if (active) {
+        setSupportsDefectDescription(session?.cuppingForm === 1 && session?.formVersion === '1.1.0');
+        setCvaFormVersion(session?.cuppingForm === 1 ? session?.formVersion || null : null);
+        setIsActiveCvaSession(session?.cuppingForm === 1 &&
+          session?.formKey === ACTIVE_CVA_PIN.form_key &&
+          session?.formVersion === ACTIVE_CVA_PIN.form_version &&
+          session?.formHash === ACTIVE_CVA_PIN.form_hash);
+        setIsCvaPinLoaded(true);
+      }
+    }).catch(() => { if (active) { setSupportsDefectDescription(false); setCvaFormVersion(null); setIsCvaPinLoaded(true); } });
+    return () => { active = false; };
+  }, [sessionId]);
   const samplePagerTotal = Number(cupTotal) || 0;
   const samplePagerIndex = Math.max(
     0,
@@ -893,25 +814,6 @@ export function CuppingScreen({
     [canSwipeSamplePages, hasPendingChanges, onSampleSwipe, samplePagerIndex, samplePagerTotal]
   );
 
-  const triggerBalloons = (onComplete) => {
-    balloonAnimations.forEach((animation) => animation.setValue(0));
-    Animated.stagger(
-      90,
-      balloonAnimations.map((animation) =>
-        Animated.timing(animation, {
-          toValue: 1,
-          duration: 1700,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        })
-      )
-    ).start(({ finished }) => {
-      if (finished && typeof onComplete === "function") {
-        onComplete();
-      }
-    });
-  };
-
   const statusDisplay = useMemo(
     () => ({
       state: cupStatus?.state || CUP_STATE_LABELS[cupStateNumber] || "UNKNOWN",
@@ -928,7 +830,9 @@ export function CuppingScreen({
   const isBrewing = cupStateNumber === 2;
   const isCupping = cupStateNumber === 3;
   const canCaptureFeedback = !isSessionComplete && (cupStateNumber === 1 || cupStateNumber === 3);
-  const isFeedbackLocked = isSessionComplete || (cupStateNumber === 2 && !isFinalMode);
+  const isFormWritable = isSavedDefectsLoaded && isCalculationSupported && (!sessionId || (isCvaPinLoaded && isActiveCvaSession));
+  const isHistoricalCvaReadOnly = Boolean(sessionId && isCvaPinLoaded && cvaFormVersion && !isActiveCvaSession);
+  const isFeedbackLocked = !isFormWritable || isSessionComplete || (cupStateNumber === 2 && !isFinalMode);
   const showBrewingDone = isBrewing && !isFinalMode;
   const hasSavedAromaScore = useMemo(
     () => (savedFeedback.Aroma || []).some((entry) => entry?.score != null),
@@ -996,6 +900,8 @@ export function CuppingScreen({
       nonUniformCups,
       defectiveCups,
       numberOfCups: defectsCupTotal || cupTotal || 1,
+      calculationPolicy: !isCalculationSupported ? applicableSavedCalculationPolicy
+        : hasPendingChanges ? CVA_EXACT_CALCULATION_POLICY : applicableSavedCalculationPolicy,
     });
   }, [
     feedback,
@@ -1004,87 +910,29 @@ export function CuppingScreen({
     defectiveCups,
     defectsCupTotal,
     cupTotal,
+    hasPendingChanges,
+    applicableSavedCalculationPolicy,
+    isCalculationSupported,
   ]);
   const isLiveScoreFinal = useMemo(
     () =>
       finalScoreSummary &&
       !hasPendingChanges &&
+      isSavedDefectsLoaded &&
       FEEDBACK_FIELDS.every((field) => (savedFeedback[field] || []).some((entry) => entry?.isFinal && entry?.score != null)),
-    [finalScoreSummary, hasPendingChanges, savedFeedback]
+    [finalScoreSummary, hasPendingChanges, isSavedDefectsLoaded, savedFeedback]
   );
-  const liveScoreTitle = finalScoreSummary
-    ? `Score ${finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION)}`
-    : "Score Pending";
+  const physicalCupCount = defectsCupTotal || cupTotal || 1;
+  const isStandardFiveCupScore = Number(defectsCupTotal) === 5;
   const cupIndexDisplay = `CUP ${String(cupIndex + 1).padStart(2, "0")} / ${String(cupTotal).padStart(2, "0")}`;
   const scoreDisplay =
     isLiveScoreFinal && finalScoreSummary
       ? `  |  SCORE ${finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION)}`
       : "";
   const usesMockCuppingLayout = !isBrewing && (canCaptureFeedback || isFinalMode || isSessionComplete);
-  const isFieldEnabled = (field) => (!isSessionComplete || isFinalMode) && enabledFields.includes(field);
+  const isFieldEnabled = (field) => isFormWritable && (!isSessionComplete || isFinalMode) && enabledFields.includes(field);
   const getEnabledGroupFields = (group) => group.fields.filter((field) => isFieldEnabled(field));
   const isNoteGroupEnabled = (group) => getEnabledGroupFields(group).length > 0;
-  const defectBadges = useMemo(
-    () =>
-      [
-        {
-          id: "non-uniform",
-          iconName: "defect-non-uniform",
-          label: "Non-uniform",
-          isVisible: nonUniformCupSlots.length > 0,
-        },
-        {
-          id: "moldy",
-          iconName: "defect-mouldy",
-          label: "Mouldy",
-          isVisible: Boolean(defects.moldy) || (defectCupSlots.moldy || []).length > 0,
-        },
-        {
-          id: "phenolic",
-          iconName: "defect-phenolic",
-          label: "Phenolic",
-          isVisible: Boolean(defects.phenolic) || (defectCupSlots.phenolic || []).length > 0,
-        },
-        {
-          id: "potato",
-          iconName: "defect-potato",
-          label: "Potato",
-          isVisible: Boolean(defects.potato) || (defectCupSlots.potato || []).length > 0,
-        },
-        {
-          id: "otherBean",
-          iconName: "defect-other-bean",
-          label: "Other",
-          isVisible: Boolean(defects.otherBean) || (defectCupSlots.otherBean || []).length > 0,
-        },
-        {
-          id: "underdeveloped",
-          iconName: "defect-underdeveloped",
-          label: "Underdeveloped",
-          isVisible: Boolean(defects.underdeveloped) || (defectCupSlots.underdeveloped || []).length > 0,
-        },
-        {
-          id: "baked",
-          iconName: "defect-baked",
-          label: "Baked",
-          isVisible: Boolean(defects.baked) || (defectCupSlots.baked || []).length > 0,
-        },
-        {
-          id: "unevenRoast",
-          iconName: "defect-uneven-roast",
-          label: "Uneven roast",
-          isVisible: Boolean(defects.unevenRoast) || (defectCupSlots.unevenRoast || []).length > 0,
-        },
-        {
-          id: "overdeveloped",
-          iconName: "defect-overdeveloped",
-          label: "Overdeveloped",
-          isVisible: Boolean(defects.overdeveloped) || (defectCupSlots.overdeveloped || []).length > 0,
-        },
-      ].filter((badge) => badge.isVisible),
-    [defectCupSlots, defects, nonUniformCupSlots.length]
-  );
-
   useEffect(() => {
     let isMounted = true;
     const emptyFeedbackByField = FEEDBACK_FIELDS.reduce((acc, field) => {
@@ -1144,6 +992,7 @@ export function CuppingScreen({
 
   useEffect(() => {
     let isMounted = true;
+    setIsSavedDefectsLoaded(false);
 
     const loadSavedDefects = async () => {
       if (!sampleId) {
@@ -1152,7 +1001,15 @@ export function CuppingScreen({
           setDefectCupSlots({});
           setNonUniformCupSlots([]);
           setDefectiveCupSlots([]);
+          setDefectDescription('');
           setSavedDefectsSignature(buildDefectsSignature());
+          setSavedDefectPolicy(CVA_SCORED_DEFECT_POLICY);
+          setSavedDefectiveCups(0);
+          setSavedCalculationPolicy(CVA_EXACT_CALCULATION_POLICY);
+          setSavedNonUniformCups(0);
+          setSavedNumberOfCups(null);
+          setHasSavedDefectEntry(false);
+          setIsSavedDefectsLoaded(true);
         }
         return;
       }
@@ -1163,25 +1020,22 @@ export function CuppingScreen({
           return;
         }
 
-        const preferredList = Boolean(startInFinalSaved)
-          ? rows?.final || []
-          : rows?.nonFinal || [];
-        const fallbackList = Boolean(startInFinalSaved)
-          ? rows?.nonFinal || []
-          : rows?.final || [];
-        const latest =
-          preferredList.length > 0
-            ? preferredList[preferredList.length - 1]
-            : fallbackList.length > 0
-              ? fallbackList[fallbackList.length - 1]
-              : null;
+        const latest = rows?.latest || null;
 
         if (!latest) {
           setDefects(buildDefaultDefectsState());
           setDefectCupSlots({});
           setNonUniformCupSlots([]);
           setDefectiveCupSlots([]);
+          setDefectDescription('');
           setSavedDefectsSignature(buildDefectsSignature());
+          setSavedDefectPolicy(CVA_SCORED_DEFECT_POLICY);
+          setSavedDefectiveCups(0);
+          setSavedCalculationPolicy(CVA_EXACT_CALCULATION_POLICY);
+          setSavedNonUniformCups(0);
+          setSavedNumberOfCups(null);
+          setHasSavedDefectEntry(false);
+          setIsSavedDefectsLoaded(true);
           return;
         }
 
@@ -1210,22 +1064,33 @@ export function CuppingScreen({
               };
         const nextNonUniformCupSlots = Array.isArray(latest.nonUniformCupSlots) ? latest.nonUniformCupSlots : [];
         const nextDefectiveCupSlots = Array.isArray(latest.defectiveCupSlots) ? latest.defectiveCupSlots : [];
+        const nextDefectDescription = latest.defectDescription || '';
 
         setDefects(nextDefects);
         setDefectCupSlots(nextDefectCupSlots);
         setNonUniformCupSlots(nextNonUniformCupSlots);
         setDefectiveCupSlots(nextDefectiveCupSlots);
+        setDefectDescription(nextDefectDescription);
+        setSavedDefectPolicy(latest.scorePolicy);
+        setSavedDefectiveCups(latest.defectiveCups);
+        setSavedCalculationPolicy(latest.calculationPolicy);
+        setSavedNonUniformCups(latest.nonUniformCups);
+        setSavedNumberOfCups(latest.numberOfCups);
+        setHasSavedDefectEntry(true);
         setSavedDefectsSignature(
           buildDefectsSignature({
             defects: nextDefects,
             defectCupSlots: nextDefectCupSlots,
             nonUniformCupSlots: nextNonUniformCupSlots,
             defectiveCupSlots: nextDefectiveCupSlots,
+            defectDescription: nextDefectDescription,
           })
         );
+        setIsSavedDefectsLoaded(true);
       } catch (error) {
         if (isMounted) {
           setStatusMessage(error?.message || "Could not load saved defect history.");
+          setIsSavedDefectsLoaded(false);
         }
       }
     };
@@ -1241,6 +1106,7 @@ export function CuppingScreen({
     setIsFinalMode(Boolean(startInFinalMode));
     setIsFinalSaved(Boolean(startInFinalSaved));
     setHasUnsavedChanges(false);
+    setShowResultBreakdown(false);
   }, [sampleId, startInFinalMode, startInFinalSaved]);
 
   useEffect(() => {
@@ -1318,12 +1184,17 @@ export function CuppingScreen({
     };
   }, []);
 
+  const markUnsavedChange = () => {
+    editRevisionRef.current += 1;
+    setHasUnsavedChanges(true);
+  };
+
   const handleScoreSelect = (field, score) => {
     if (!isFieldEnabled(field)) {
       return;
     }
 
-    setHasUnsavedChanges(true);
+    markUnsavedChange();
     setFeedback((prev) => ({
       ...prev,
       [field]: {
@@ -1344,7 +1215,7 @@ export function CuppingScreen({
       return;
     }
 
-    setHasUnsavedChanges(true);
+    markUnsavedChange();
     setFeedback((prev) => {
       const next = { ...prev };
       enabledGroupFields.forEach((field) => {
@@ -1362,7 +1233,7 @@ export function CuppingScreen({
       return;
     }
 
-    setHasUnsavedChanges(true);
+    markUnsavedChange();
     setFeedback((prev) => ({
       ...prev,
       [field]: {
@@ -1373,7 +1244,8 @@ export function CuppingScreen({
   };
 
   const handleToggleDefect = (key) => {
-    setHasUnsavedChanges(true);
+    if (!isFormWritable) return;
+    markUnsavedChange();
     setDefects((prev) => ({
       ...prev,
       [key]: !prev?.[key],
@@ -1381,8 +1253,9 @@ export function CuppingScreen({
   };
 
   const handleChangeDefectCupSlots = (key, slots) => {
+    if (!isFormWritable) return;
     const normalizedSlots = Array.isArray(slots) ? slots : [];
-    setHasUnsavedChanges(true);
+    markUnsavedChange();
     setDefectCupSlots((prev) => ({
       ...prev,
       [key]: normalizedSlots,
@@ -1394,13 +1267,21 @@ export function CuppingScreen({
   };
 
   const handleChangeNonUniformCupSlots = (slots) => {
-    setHasUnsavedChanges(true);
+    if (!isFormWritable) return;
+    markUnsavedChange();
     setNonUniformCupSlots(Array.isArray(slots) ? slots : []);
   };
 
   const handleChangeDefectiveCupSlots = (slots) => {
-    setHasUnsavedChanges(true);
+    if (!isFormWritable) return;
+    markUnsavedChange();
     setDefectiveCupSlots(Array.isArray(slots) ? slots : []);
+  };
+
+  const handleDefectDescriptionChange = (description) => {
+    if (!isFormWritable) return;
+    markUnsavedChange();
+    setDefectDescription(description);
   };
 
   const focusNoteGroup = (group) => {
@@ -1446,48 +1327,27 @@ export function CuppingScreen({
     setTimeout(() => scrollToTarget(true), 420);
   };
 
-  const renderScoreSummary = ({ placement = "bottom" } = {}) => {
-    const hasDefectBadges = defectBadges.length > 0;
-    const isDrawerPlacement = placement === "drawer";
-
-    return (
-      <View
-        style={[
-          styles.cuppingScoreSummary,
-          {
-            marginTop: isDrawerPlacement ? spacing.lg : spacing.md,
-            marginBottom: isDrawerPlacement
-              ? spacing.lg
-              : hasDefectBadges
-                ? spacing.xs
-                : spacing.lg,
-          },
-        ]}
-      >
-        <View style={[styles.cuppingFormTitleRow, { gap: 8 * scale }]}>
-          <Text style={styles.cuppingFormTitle}>{liveScoreTitle}</Text>
-          <View
-            style={[
-              styles.infoBadge,
-              {
-                width: 22 * scale,
-                height: 22 * scale,
-                borderRadius: 11 * scale,
-                borderWidth: 2 * scale,
-              },
-            ]}
-          >
-            <AppIcon
-              name="info"
-              role="icon_status"
-              size={14 * scale}
-              style={styles.infoBadgeText}
-            />
-          </View>
-        </View>
-        <DefectBadgeRow badges={defectBadges} scale={scale} />
-      </View>
-    );
+  const renderResultSection = () => {
+    if (!isLiveScoreFinal || !finalScoreSummary) return null;
+    const baseScore = 0.65625 * finalScoreSummary.sumHi + 52.75;
+    const uniformityImpact = 2 * finalScoreSummary.uNormalized;
+    const beanDefectImpact = 4 * finalScoreSummary.dNormalized;
+    const rows = [
+      ...finalScoreSummary.fieldBreakdown.map(({ field, score }) => ({ key: field, label: field, value: score.toFixed(2) })),
+      { key: 'base', label: 'Base CVA score', value: baseScore.toFixed(2) },
+      { key: 'uniformity', label: 'Uniformity deduction', value: uniformityImpact ? `−${uniformityImpact.toFixed(2)}` : '0.00' },
+      { key: 'bean', label: 'Bean-defect deduction', value: beanDefectImpact ? `−${beanDefectImpact.toFixed(2)}` : '0.00' },
+      { key: 'total', label: 'Total score', value: finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION), total: true },
+    ];
+    return <AssessmentResultSection
+      formLabel={`SCA CVA · Affective${cvaFormVersion ? ` · version ${cvaFormVersion}` : ''} · saved prototype result`}
+      provenance={[
+        isStandardFiveCupScore ? 'SCA-104 Affective score' : 'Adapted — five-cup-equivalent Cup App score',
+        hasPreviousDefectRule ? 'Saved under previous Cup App defect rule' : null,
+        cvaCalculationLabel(applicableSavedCalculationPolicy),
+      ].filter(Boolean).join(' · ')}
+      rows={rows} expanded={showResultBreakdown}
+      onToggle={() => setShowResultBreakdown(value => !value)} scale={scale} />;
   };
 
   const renderCuppingForm = () => {
@@ -1519,6 +1379,9 @@ export function CuppingScreen({
 
     return (
       <View style={styles.cuppingForm}>
+        <View style={{ marginBottom: spacing.lg * scale }}>
+          <AssessmentFormIntro form={1} cuppingMode={cuppingMode} cupCount={defectsCupTotal} />
+        </View>
         {visibleFields.map((field) => {
           const noteGroup = getNoteGroupForField(field);
           const fieldEnabled = isFieldEnabled(field);
@@ -1527,7 +1390,7 @@ export function CuppingScreen({
           return (
             <View
               key={field}
-              style={styles.cuppingFieldBlock}
+              style={[styles.cuppingFieldBlock, { paddingVertical: spacing.md * scale }]}
               onLayout={(event) => {
                 fieldLayoutYRef.current[field] = event.nativeEvent.layout.y;
                 if (noteGroup) {
@@ -1608,15 +1471,72 @@ export function CuppingScreen({
             </View>
           );
         })}
-        {renderScoreSummary({ placement: "bottom" })}
+        <View style={{ paddingVertical: spacing.md * scale, gap: spacing.sm * scale }}>
+          <View style={[styles.cvaImpactTitleRow, { gap: spacing.sm * scale }]}><Text style={styles.cuppingScoreTitle}>Uniformity</Text>
+            <Text style={styles.cvaImpactValue} accessibilityLiveRegion="polite">{nonUniformCupSlots.length ? '−' : ''}{(10 * nonUniformCupSlots.length / physicalCupCount).toFixed(2)}</Text></View>
+          <Text style={styles.cvaUniformityHint}>Select cups that are not uniform.</Text>
+          <View style={styles.cvaUniformityCups}>
+            <AssessmentCupSelector label="Non-uniform" selectedSlots={nonUniformCupSlots}
+              maxCount={physicalCupCount} onChange={handleChangeNonUniformCupSlots}
+              disabled={!isFormWritable || (isFinalMode && isFinalSaved)} scale={scale} />
+          </View>
+        </View>
+        <DefectsSection variant="designC" inline scale={scale} cupTotal={physicalCupCount}
+          defects={defects} defectCupSlots={defectCupSlots} defectDescription={defectDescription}
+          showDefectDescription={supportsDefectDescription} onChangeDefectDescription={handleDefectDescriptionChange}
+          onFocusDefectDescription={focusDefectNote} onBlurDefectDescription={blurDefectNote}
+          nonUniformCupSlots={nonUniformCupSlots} defectiveCupSlots={defectiveCupSlots}
+          scoredDefectCount={defectiveCups}
+          disabled={!isFormWritable || (isFinalMode && isFinalSaved)} onToggleDefect={handleToggleDefect}
+          onChangeDefectCupSlots={handleChangeDefectCupSlots}
+          onChangeNonUniformCupSlots={handleChangeNonUniformCupSlots}
+          onChangeDefectiveCupSlots={handleChangeDefectiveCupSlots} />
+        {renderResultSection()}
       </View>
     );
   };
 
-  const handleSave = async ({ stayOnScreen = false } = {}) => {
-    if (!canCaptureFeedback) {
+  const savedScoresByField = Object.fromEntries(FEEDBACK_FIELDS.map((field) =>
+    [field, getLatestFeedbackEntry((savedFeedback[field] || []).filter((entry) => entry?.score != null))?.score ?? null]));
+  const savedScoreInput = countScores(savedScoresByField) === FEEDBACK_FIELDS.length ? {
+    sumHi: FEEDBACK_FIELDS.reduce((sum, field) => sum + Number(savedScoresByField[field]), 0),
+    nonUniformCups: savedNonUniformCups, defectiveCups: savedDefectiveCups,
+    numberOfCups: savedNumberOfCups || physicalCupCount,
+  } : null;
+  const draftScoreInput = finalScoreSummary ? { sumHi: finalScoreSummary.sumHi,
+    nonUniformCups, defectiveCups: sourceScoredDefectSlots.length, numberOfCups: physicalCupCount } : null;
+  const scoreUpdate = getCvaScoreUpdate({ savedInput: savedScoreInput, draftInput: draftScoreInput,
+    savedPolicy: applicableSavedCalculationPolicy, defectPolicyWillChange: willRecalculatePreviousDefectScore });
+  const previousRuleConfirmationMessage = () => {
+    const cups = Math.max(1, Number(physicalCupCount) || 1);
+    const oldDeduction = (20 * savedDefectiveCups / (savedNumberOfCups || cups)).toFixed(2);
+    const newDeduction = (20 * sourceScoredDefectSlots.length / cups).toFixed(2);
+    let scoreChange = '';
+    if (scoreUpdate.oldScore != null && scoreUpdate.newScore != null) {
+      const oldScore = scoreUpdate.oldScore.toFixed(SCORE_PRECISION);
+      const newScore = scoreUpdate.newScore.toFixed(SCORE_PRECISION);
+      scoreChange = `\nSaved total score: ${oldScore} → ${newScore} with your current entries.`;
+    }
+    const changes = [willRecalculatePreviousDefectScore ? PREVIOUS_DEFECT_RULE_MESSAGE : null,
+      hasPreviousCalculation ? CVA_PREVIOUS_CALCULATION_MESSAGE : null].filter(Boolean).join('\n\n');
+    const deductionChange = willRecalculatePreviousDefectScore
+      ? `\n\nBean-defect deduction: −${oldDeduction} → ${newDeduction === '0.00' ? '0.00' : `−${newDeduction}`}.` : '';
+    return `${changes}${deductionChange}${scoreChange}\n\nSave with the current rules? The earlier defect and calculation entries remain in history.`;
+  };
+
+  const handleSave = async ({ stayOnScreen = false, confirmedPreviousRule = false } = {}) => {
+    if (!canCaptureFeedback || !isFormWritable || explicitSavePendingRef.current) {
       return;
     }
+    if (scoreUpdate.requiresConfirmation && !confirmedPreviousRule) {
+      Alert.alert('Update score calculation?', previousRuleConfirmationMessage(), [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Save with current rule', onPress: () => handleSave({ stayOnScreen, confirmedPreviousRule: true }) },
+      ]);
+      return;
+    }
+    explicitSavePendingRef.current = true;
+    const savedEditRevision = editRevisionRef.current;
 
     const fieldsToPersist = visibleFields.filter((field) => isFieldEnabled(field));
 
@@ -1701,52 +1621,6 @@ export function CuppingScreen({
       })();
       const willBeCompleteAfterSave = hasCompleteFinalScoreSet(nextSavedFeedback);
 
-      if (!sessionId || !sampleId) {
-        setSavedFeedback(nextSavedFeedback);
-        setStatusMessage("Session linkage missing. Feedback is shown locally only.");
-        setHasUnsavedChanges(false);
-        if (!wasCompleteBeforeSave && willBeCompleteAfterSave) {
-          triggerBalloons();
-        }
-        return;
-      }
-
-      if (emptyFieldsToClear.length > 0) {
-        await clearSampleFeedbackFields({
-          sampleId,
-          fields: emptyFieldsToClear,
-        });
-      }
-      if (finalFieldsToReplace.length > 0) {
-        await clearSampleFinalFeedbackFields({
-          sampleId,
-          fields: finalFieldsToReplace,
-        });
-      }
-      await saveSampleFeedbackBatch({
-        sessionId,
-        sampleId,
-        feedback: fieldsToSave,
-        tempSnapshot: statusDisplay.temp,
-        timeSnapshot: statusDisplay.time,
-        isFinal: false,
-      });
-      if (Object.keys(finalFieldsToSave).length > 0) {
-        await saveSampleFeedbackBatch({
-          sessionId,
-          sampleId,
-          feedback: finalFieldsToSave,
-          tempSnapshot: statusDisplay.temp,
-          timeSnapshot: statusDisplay.time,
-          isFinal: true,
-        });
-      }
-      if (finalFieldsToClear.length > 0) {
-        await clearSampleFinalFeedbackFields({
-          sampleId,
-          fields: finalFieldsToClear,
-        });
-      }
       const pruneGroups = NOTE_GROUPS.map((noteGroup) => {
         const keepKeywords = new Set();
         buildFlavourObservationCommentGroups(feedback, noteGroup.fields).forEach(({ comments }) => {
@@ -1758,31 +1632,45 @@ export function CuppingScreen({
         });
         return { includeSourceFields: noteGroup.fields, keepKeywords: Array.from(keepKeywords) };
       });
-      await pruneSampleFlavourObservations({ sampleId, pruneGroups });
-      await saveSampleFlavourObservations({
+      await saveCvaAssessmentAtomically({
         sessionId,
         sampleId,
+        emptyFieldsToClear,
+        finalFieldsToReplace,
+        feedback: fieldsToSave,
+        finalFeedback: finalFieldsToSave,
+        finalFieldsToClear,
+        pruneGroups,
         observations: flavourObservations,
+        defectsEntry: {
+          defects,
+          nonUniformCups,
+          defectiveCups,
+          nonUniformCupSlots,
+          defectiveCupSlots,
+          defectCupSlots,
+          defectDescription: supportsDefectDescription ? defectDescription : '',
+          numberOfCups: defectsCupTotal || cupTotal || 1,
+        },
+        tempSnapshot: statusDisplay.temp,
+        timeSnapshot: statusDisplay.time,
       });
       if (flavourObservations.length > 0) {
         setSavedFlavourObservations((prev) => [...prev, ...flavourObservations]);
       }
-      await saveSampleDefectsEntry({
-        sessionId,
-        sampleId,
-        defects,
-        nonUniformCups,
-        defectiveCups,
-        nonUniformCupSlots,
-        defectiveCupSlots,
-        defectCupSlots,
-        numberOfCups: defectsCupTotal || cupTotal || 1,
-        tempSnapshot: statusDisplay.temp,
-        timeSnapshot: statusDisplay.time,
-        isFinal: true,
-      });
       setStatusMessage("");
       setSavedFeedback(nextSavedFeedback);
+      setSavedDefectsSignature(currentDefectsSignature);
+      setSavedDefectPolicy(CVA_SCORED_DEFECT_POLICY);
+      setSavedDefectiveCups(sourceScoredDefectSlots.length);
+      setSavedCalculationPolicy(CVA_EXACT_CALCULATION_POLICY);
+      setSavedNonUniformCups(nonUniformCups);
+      setSavedNumberOfCups(physicalCupCount);
+      setHasSavedDefectEntry(true);
+      if (editRevisionRef.current !== savedEditRevision) {
+        setStatusMessage('Earlier changes saved. Save again to include your latest edits.');
+        return;
+      }
       const shouldNavigateAfterBalloons =
         !stayOnScreen &&
         typeof onBackPress === "function" &&
@@ -1791,8 +1679,6 @@ export function CuppingScreen({
       if (!stayOnScreen && !shouldNavigateAfterBalloons) {
         setFeedback((prev) => clearFeedbackFields(prev, fieldsToPersist));
       }
-      setIsDefectsDrawerOpen(false);
-      setSavedDefectsSignature(currentDefectsSignature);
       setHasUnsavedChanges(false);
       if (stayOnScreen && !wasCompleteBeforeSave && willBeCompleteAfterSave) {
         triggerBalloons();
@@ -1808,20 +1694,33 @@ export function CuppingScreen({
       }
     } catch (error) {
       setStatusMessage(error?.message || "Could not save feedback.");
+    } finally {
+      explicitSavePendingRef.current = false;
     }
   };
 
   const handleFinalScore = () => {
+    if (!isFormWritable) return;
     setIsFinalMode(true);
     setIsFinalSaved(false);
     setStatusMessage("Final scoring mode enabled.");
   };
 
-  const handleSaveFinalScore = async () => {
+  const handleSaveFinalScore = async (confirmedPreviousRule = false) => {
+    if (!isFormWritable || explicitSavePendingRef.current) return;
+    if (scoreUpdate.requiresConfirmation && !confirmedPreviousRule) {
+      Alert.alert('Update score calculation?', previousRuleConfirmationMessage(), [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Save with current rule', onPress: () => handleSaveFinalScore(true) },
+      ]);
+      return;
+    }
     if (!sessionId || !sampleId) {
       setStatusMessage("Session linkage missing. Could not save final score.");
       return;
     }
+    explicitSavePendingRef.current = true;
+    const savedEditRevision = editRevisionRef.current;
 
     try {
       const fieldsToSave = FEEDBACK_FIELDS.reduce((acc, field) => {
@@ -1829,27 +1728,22 @@ export function CuppingScreen({
         return acc;
       }, {});
 
-      await saveSampleFeedbackBatch({
+      await saveCvaAssessmentAtomically({
         sessionId,
         sampleId,
-        feedback: fieldsToSave,
+        finalFeedback: fieldsToSave,
+        defectsEntry: {
+          defects,
+          nonUniformCups,
+          defectiveCups,
+          nonUniformCupSlots,
+          defectiveCupSlots,
+          defectCupSlots,
+          defectDescription: supportsDefectDescription ? defectDescription : '',
+          numberOfCups: defectsCupTotal || cupTotal || 1,
+        },
         tempSnapshot: statusDisplay.temp,
         timeSnapshot: statusDisplay.time,
-        isFinal: true,
-      });
-      await saveSampleDefectsEntry({
-        sessionId,
-        sampleId,
-        defects,
-        nonUniformCups,
-        defectiveCups,
-        nonUniformCupSlots,
-        defectiveCupSlots,
-        defectCupSlots,
-        numberOfCups: defectsCupTotal || cupTotal || 1,
-        tempSnapshot: statusDisplay.temp,
-        timeSnapshot: statusDisplay.time,
-        isFinal: true,
       });
       const nowIso = new Date().toISOString();
       setSavedFeedback((prev) => {
@@ -1877,16 +1771,30 @@ export function CuppingScreen({
         return next;
       });
 
+      setSavedDefectPolicy(CVA_SCORED_DEFECT_POLICY);
+      setSavedDefectiveCups(sourceScoredDefectSlots.length);
+      setSavedCalculationPolicy(CVA_EXACT_CALCULATION_POLICY);
+      setSavedNonUniformCups(nonUniformCups);
+      setSavedNumberOfCups(physicalCupCount);
+      setHasSavedDefectEntry(true);
+      setSavedDefectsSignature(currentDefectsSignature);
+      if (editRevisionRef.current !== savedEditRevision) {
+        setStatusMessage('Earlier changes saved. Save again to include your latest edits.');
+        return;
+      }
       setFeedback((prev) => clearFeedbackFields(prev, FEEDBACK_FIELDS));
       setIsFinalSaved(true);
       setStatusMessage("Final score saved.");
       handleReturnHome();
     } catch (error) {
       setStatusMessage(error?.message || "Could not save final score.");
+    } finally {
+      explicitSavePendingRef.current = false;
     }
   };
 
   const handleEditFinalScore = () => {
+    if (!isFormWritable) return;
     setFeedback((prev) => {
       const next = { ...prev };
       FEEDBACK_FIELDS.forEach((field) => {
@@ -1913,22 +1821,12 @@ export function CuppingScreen({
     <View style={styles.screen} {...panResponder.panHandlers}>
       {usesMockCuppingLayout ? (
         <View style={styles.cuppingHeaderLayer}>
-          <Header
-            variant="back"
+          <AssessmentHeader
             onBackPress={onBackPress}
-            backAccessibilityLabel="Back"
-            hideBack={isDefectsDrawerOpen}
-            sideWidth={112}
-            titleContent={
-              <CuppingTitleContent
-                sampleNumber={sampleNumber}
-                samplesInSession={cupTotal}
-                cupIndex={cupIndex}
-                scale={scale}
-              />
-            }
-            rightContent={<CuppingHeaderTemperature temp={statusDisplay.temp} scale={scale} />}
-            debugTag="CuppingScreen"
+            sampleNumber={sampleNumber}
+            cupIndex={cupIndex}
+            temperature={cupStatus?.temp}
+            scale={scale}
           />
         </View>
       ) : (
@@ -1938,10 +1836,9 @@ export function CuppingScreen({
             variant="back"
             onBackPress={onBackPress}
             backAccessibilityLabel="Back"
-            onRightPress={isFinalMode && isFinalSaved ? handleEditFinalScore : undefined}
+            onRightPress={isFormWritable && isFinalMode && isFinalSaved ? handleEditFinalScore : undefined}
             rightIconName="edit"
             rightAccessibilityLabel="Edit final score"
-            debugTag="CuppingScreen"
           />
 
           <View style={styles.hero}>
@@ -1957,18 +1854,31 @@ export function CuppingScreen({
       )}
 
       {usesMockCuppingLayout && isOpenCuppingMode ? (
-        <View
-          style={[styles.coffeeMetaBlock, { paddingHorizontal: 26 * scale }]}
-          onLayout={(event) => setCoffeeMetaHeight(event.nativeEvent.layout.height)}
-        >
-          <Text style={styles.coffeeName}>{coffeeNameLabel}</Text>
-          <Text style={styles.coffeeProcess}>{processLabel}</Text>
-        </View>
+        <AssessmentSampleIdentity
+          name={coffeeNameLabel}
+          process={processLabel}
+          scale={scale}
+        />
       ) : null}
 
       {statusMessage ? (
         <View style={styles.statusMessageWrap}>
           <Text style={styles.statusMessageText}>{statusMessage}</Text>
+        </View>
+      ) : null}
+      {isHistoricalCvaReadOnly ? (
+        <View style={styles.statusMessageWrap}>
+          <Text style={styles.statusMessageText}>{HISTORICAL_CVA_MESSAGE}</Text>
+        </View>
+      ) : null}
+      {hasPreviousDefectRule ? (
+        <View style={styles.statusMessageWrap}>
+          <Text style={styles.statusMessageText}>{PREVIOUS_DEFECT_RULE_MESSAGE}</Text>
+        </View>
+      ) : null}
+      {hasPreviousCalculation || !isCalculationSupported ? (
+        <View style={styles.statusMessageWrap}>
+          <Text style={styles.statusMessageText}>{isCalculationSupported ? CVA_PREVIOUS_CALCULATION_MESSAGE : CVA_UNKNOWN_CALCULATION_MESSAGE}</Text>
         </View>
       ) : null}
 
@@ -1997,133 +1907,42 @@ export function CuppingScreen({
           onScrollBeginDrag={Keyboard.dismiss}
         >
           {renderCuppingForm()}
-
           {!isBrewing && !usesMockCuppingLayout ? (
-            <View style={styles.defectsDrawer}>
-              <Pressable
-                style={styles.defectsDrawerHeader}
-                onPress={() => setIsDefectsDrawerOpen((prev) => !prev)}
-                accessibilityRole="button"
-                accessibilityLabel={`${isDefectsDrawerOpen ? "Close" : "Open"} defects`}
-              >
-                <DefectsDrawerLabel expanded={isDefectsDrawerOpen} textStyle={styles.defectsDrawerTitle} />
-              </Pressable>
-              {isDefectsDrawerOpen ? (
-                <View style={styles.defectsDrawerContent}>
-                  <DefectsSection
-                    cupTotal={defectsCupTotal || 1}
-                    defects={defects}
-                    nonUniformCupSlots={nonUniformCupSlots}
-                    defectiveCupSlots={defectiveCupSlots}
-                    disabled={isFinalMode && isFinalSaved}
-                    onToggleDefect={handleToggleDefect}
-                    onChangeNonUniformCupSlots={handleChangeNonUniformCupSlots}
-                    onChangeDefectiveCupSlots={handleChangeDefectiveCupSlots}
-                  />
-                  {renderScoreSummary({ placement: "drawer" })}
-                </View>
-              ) : null}
-            </View>
+            <DefectsSection
+              cupTotal={physicalCupCount}
+              defects={defects}
+              nonUniformCupSlots={nonUniformCupSlots}
+              defectiveCupSlots={defectiveCupSlots}
+              disabled={!isFormWritable || (isFinalMode && isFinalSaved)}
+              onToggleDefect={handleToggleDefect}
+              onChangeNonUniformCupSlots={handleChangeNonUniformCupSlots}
+              onChangeDefectiveCupSlots={handleChangeDefectiveCupSlots}
+            />
           ) : null}
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {usesMockCuppingLayout && isDefectsDrawerOpen ? (
-        <View
-          style={[
-            styles.designCDefectDrawerOverlay,
-            { top: 56 + (isOpenCuppingMode ? coffeeMetaHeight : 0), bottom: 152 * scale },
-          ]}
-        >
-          <Pressable
-            style={[
-              styles.designCDefectSection,
-              {
-                minHeight: 58 * scale,
-                paddingHorizontal: 26 * scale,
-              },
-            ]}
-            onPress={() => setIsDefectsDrawerOpen(false)}
-            accessibilityRole="button"
-            accessibilityLabel="Close defects"
-          >
-            <DefectsDrawerLabel
-              expanded
-              scale={scale}
-              textStyle={styles.designCDefectSectionText}
-            />
-          </Pressable>
-          <ScrollView
-            style={styles.designCDefectDrawerScroll}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator
-            contentContainerStyle={{
-              paddingTop: 34 * scale,
-              paddingHorizontal: 26 * scale,
-              paddingBottom: spacing.lg * 4 * scale,
-            }}
-          >
-            <DefectsSection
-              variant="designC"
-              scale={scale}
-              cupTotal={defectsCupTotal || 1}
-              defects={defects}
-              defectCupSlots={defectCupSlots}
-              nonUniformCupSlots={nonUniformCupSlots}
-              defectiveCupSlots={defectiveCupSlots}
-              disabled={isFinalMode && isFinalSaved}
-              onToggleDefect={handleToggleDefect}
-              onChangeDefectCupSlots={handleChangeDefectCupSlots}
-              onChangeNonUniformCupSlots={handleChangeNonUniformCupSlots}
-              onChangeDefectiveCupSlots={handleChangeDefectiveCupSlots}
-            />
-            {renderScoreSummary({ placement: "drawer" })}
-          </ScrollView>
-        </View>
-      ) : null}
-
       {!isBrewing && usesMockCuppingLayout ? (
         <View style={styles.mockBottomDock}>
-          {!isDefectsDrawerOpen ? (
-            <View style={styles.mockBottomDrawer}>
-              <Pressable
-                style={[styles.defectsDrawerHeader, { minHeight: 58 * scale, paddingHorizontal: 26 * scale }]}
-                onPress={() => setIsDefectsDrawerOpen(true)}
-                accessibilityRole="button"
-                accessibilityLabel="Open defects"
-              >
-                <DefectsDrawerLabel
-                  expanded={false}
-                  scale={scale}
-                  textStyle={styles.designCDefectSectionText}
-                />
-              </Pressable>
-            </View>
-          ) : (
-            <View style={[styles.mockBottomDrawerSpacer, { minHeight: 58 * scale }]} />
-          )}
           {(canCaptureFeedback || isSessionComplete) && !isFinalMode ? (
-            <View style={[styles.mockFooter, { paddingHorizontal: 26 * scale }]}>
+            <View style={[styles.mockFooter, { paddingHorizontal: 26 * scale, paddingTop: 14 * scale, paddingBottom: 24 * scale }]}>
+              <View style={[styles.cvaFooterTotal, { gap: spacing.sm * scale, marginBottom: spacing.md * scale }]} accessibilityLiveRegion="polite">
+                <Text style={styles.cvaFooterLabel}>{isLiveScoreFinal && !isStandardFiveCupScore ? 'Total score · adapted' : 'Total score'}</Text>
+                <Text style={styles.cvaFooterValue}>{isLiveScoreFinal && finalScoreSummary ? finalScoreSummary.scoreRounded.toFixed(SCORE_PRECISION) : '—'}</Text>
+              </View>
               <FullPageButton
-                label={isDefectsDrawerOpen || hasPendingChanges ? "Save" : "SCAN CUP"}
-                onPress={
-                  isDefectsDrawerOpen
-                    ? () => setIsDefectsDrawerOpen(false)
-                    : hasPendingChanges
-                      ? () => handleSave({ stayOnScreen: true })
-                      : onScanPress
-                }
+                label={hasPendingChanges ? "Save" : "SCAN CUP"}
+                onPress={hasPendingChanges ? () => handleSave({ stayOnScreen: true }) : onScanPress}
                 loading={isScanInProgress}
                 disabled={
+                  !isFormWritable ||
                   isScanInProgress ||
-                  (!isDefectsDrawerOpen && !hasPendingChanges && typeof onScanPress !== "function")
+                  (!hasPendingChanges && typeof onScanPress !== "function")
                 }
-                accessibilityLabel={
-                  isDefectsDrawerOpen || hasPendingChanges ? "Save cupping feedback" : "Scan cup"
-                }
+                accessibilityLabel={hasPendingChanges ? "Save cupping feedback" : "Scan cup"}
                 style={[
                   styles.scanButton,
-                  { backgroundColor: isDefectsDrawerOpen || hasPendingChanges ? SAVE_GREY : IOS_BLUE },
+                  { backgroundColor: hasPendingChanges ? SAVE_GREY : IOS_BLUE },
                 ]}
               />
             </View>
@@ -2137,7 +1956,7 @@ export function CuppingScreen({
             label="Save"
             onPress={handleSave}
             loading={isScanInProgress}
-            disabled={isScanInProgress}
+            disabled={!isFormWritable || isScanInProgress}
             accessibilityLabel="Save"
           />
           {isCupping && !usesMockCuppingLayout ? (
@@ -2145,7 +1964,7 @@ export function CuppingScreen({
               label="Final Score"
               onPress={handleFinalScore}
               loading={false}
-              disabled={isScanInProgress}
+              disabled={!isFormWritable || isScanInProgress}
               accessibilityLabel="Open final score"
               style={styles.finalScoreButton}
             />
@@ -2169,9 +1988,9 @@ export function CuppingScreen({
         <View style={styles.footer}>
           <FullPageButton
             label="Save"
-            onPress={handleSaveFinalScore}
+            onPress={() => handleSaveFinalScore()}
             loading={false}
-            disabled={false}
+            disabled={!isFormWritable}
             accessibilityLabel="Save final score"
           />
         </View>
@@ -2188,7 +2007,7 @@ export function CuppingScreen({
           />
         </View>
       ) : null}
-      <BalloonLayer animations={balloonAnimations} width={width} scale={scale} />
+      <ScoreBalloons animations={balloonAnimations} width={width} scale={scale} />
     </View>
   );
 }
@@ -2203,53 +2022,6 @@ const styles = StyleSheet.create({
     zIndex: 40,
     elevation: 40,
     backgroundColor: colors.surface,
-  },
-  cuppingHeaderTitleStack: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cuppingHeaderTitleText: {
-    ...typography.text_screen_title,
-    lineHeight: 28,
-  },
-  cuppingHeaderTemp: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  cuppingHeaderThermometer: {
-    alignItems: "center",
-    justifyContent: "flex-end",
-  },
-  cuppingHeaderThermometerStem: {
-    position: "absolute",
-    top: 1,
-    borderColor: colors.ink,
-    backgroundColor: colors.surface,
-  },
-  cuppingHeaderThermometerBulb: {
-    backgroundColor: colors.ink,
-    borderColor: colors.ink,
-  },
-  cuppingHeaderTempText: {
-    ...typography.text_screen_title,
-  },
-  coffeeMetaBlock: {
-    backgroundColor: colors.surface,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 1,
-    borderColor: colors.quietBorder,
-    zIndex: 1,
-  },
-  coffeeName: {
-    ...typography.text_section_title,
-    letterSpacing: 0,
-  },
-  coffeeProcess: {
-    ...typography.text_secondary_body,
-    color: colors.inkSoft,
-    marginTop: 2,
   },
   samplePager: {
     flexDirection: "row",
@@ -2292,27 +2064,25 @@ const styles = StyleSheet.create({
   cuppingForm: {
     gap: 0,
   },
-  cuppingScoreSummary: {},
-  cuppingFormTitleRow: {
+  cuppingFieldBlock: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.quietBorder,
+  },
+  cvaImpactTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "space-between",
   },
-  cuppingFormTitle: {
-    ...typography.text_secondary_metric,
-    textAlign: "center",
+  cvaImpactValue: {
+    ...typography.text_body,
+    color: colors.action,
   },
-  infoBadge: {
-    borderColor: colors.ink,
-    alignItems: "center",
-    justifyContent: "center",
+  cvaUniformityHint: {
+    ...typography.text_secondary_body,
+    color: colors.inkSoft,
   },
-  infoBadgeText: {
-    fontWeight: "800",
-    color: colors.ink,
-  },
-  cuppingFieldBlock: {
-    marginBottom: spacing.sm,
+  cvaUniformityCups: {
+    alignItems: 'center',
   },
   cuppingScoreRow: {
     paddingBottom: spacing.sm,
@@ -2358,28 +2128,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.panel,
     borderColor: colors.border,
     opacity: 0.55,
-  },
-  defectBadgeRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  defectBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.panel,
-    borderWidth: 1,
-    borderColor: colors.quietBorder,
-    borderRadius: 15,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  defectBadgeText: {
-    ...typography.text_caption,
-    fontSize: 11,
-    letterSpacing: 0.3,
-    color: colors.ink,
   },
   feedbackSection: {
     gap: spacing.xs,
@@ -2470,72 +2218,10 @@ const styles = StyleSheet.create({
     ...typography.text_secondary_body,
     fontSize: 13,
   },
-  defectsDrawer: {
-    marginTop: spacing.sm,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.panel,
-    marginHorizontal: -spacing.md,
-  },
-  defectsDrawerHeader: {
-    minHeight: 56,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: spacing.md,
-  },
-  defectsDrawerTitle: {
-    ...typography.text_section_title,
-  },
-  defectsDrawerLabel: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: spacing.xs,
-  },
-  mockBottomDrawer: {
-    borderTopWidth: 1,
-    borderColor: colors.quietBorder,
-    backgroundColor: colors.surface,
-  },
-  mockBottomDrawerSpacer: {
-    backgroundColor: colors.surface,
-  },
   mockBottomDock: {
     backgroundColor: colors.surface,
     zIndex: 30,
     elevation: 30,
-  },
-  designCDefectDrawerOverlay: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    backgroundColor: colors.surface,
-    zIndex: 15,
-    elevation: 15,
-  },
-  designCDefectDrawerScroll: {
-    flex: 1,
-  },
-  designCDefectSection: {
-    width: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderColor: colors.quietBorder,
-  },
-  designCDefectSectionText: {
-    ...typography.text_section_title,
-    letterSpacing: 0,
-  },
-  mockDefectsDrawerTitle: {
-    ...typography.text_section_title,
-  },
-  defectsDrawerContent: {
-    backgroundColor: colors.surface,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
   },
   footer: {
     borderTopWidth: 1,
@@ -2548,30 +2234,27 @@ const styles = StyleSheet.create({
   },
   mockFooter: {
     backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.quietBorder,
     paddingTop: 14,
     paddingBottom: 24,
+  },
+  cvaFooterTotal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cvaFooterLabel: {
+    ...typography.text_body,
+  },
+  cvaFooterValue: {
+    ...typography.text_secondary_metric,
   },
   scanButton: {
     minHeight: 56,
     height: 56,
     borderRadius: 28,
     backgroundColor: IOS_BLUE,
-  },
-  balloonLayer: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 80,
-    elevation: 80,
-  },
-  balloon: {
-    position: "absolute",
-    alignItems: "center",
-  },
-  balloonKnot: {
-    position: "absolute",
-    width: 0,
-    height: 0,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
   },
   finalScoreButton: {
     backgroundColor: "#374151",

@@ -1,33 +1,43 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, ScrollView, Share, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Alert, Pressable, ScrollView, Share, StyleSheet, useWindowDimensions, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { AppIcon } from "../../../components/ui/AppIcon";
-import { isPinnedCva } from "../../forms/sessionFormRoute";
+import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
+import { isPinnedCva, isPinnedForm } from "../../forms/sessionFormRoute";
 import {
   deleteSampleFromSession,
-  getSessionCompletionSummary,
+  getSessionSetupAccess,
+  getLocalTastingPresentation,
   getSampleDefects,
   getSampleFeedback,
   getSampleFlavourObservations,
   getSessionById,
   getSessionSampleFinalStatus,
   listSessions,
-  manuallyMarkSessionComplete,
 } from "../../../data/sessionRepository";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
+import { LocalTastingActions } from '../components/LocalTastingActions';
 import {
   getProcessLabel,
-  getSessionTypeLabel,
+  getSessionDateDisplayLabel,
+  getSessionTypeDisplayLabel,
+  hasLocalSessionCompletion,
 } from "../constants/sessionDetails";
 import { KeywordPillRow } from "../components/KeywordPillRow";
+import { CVA_EXACT_CALCULATION_POLICY, calculateCvaScore, cvaResultLabel } from "../data/cvaScoreCalculation";
 import { colors } from "../../../theme/colors";
 import { typography } from "../../../theme/typography";
+import { savedSessionName } from "./savedSessionIdentity";
+import {
+  buildActiveSessionCompletionWarning,
+  buildActiveSessionShareMessage,
+  projectActiveSessionIdentity,
+} from "./activeSessionIdentity";
 
 const SCORE_FIELDS = ["Fragrance", "Aroma", "Flavour", "Aftertaste", "Acidity", "Sweetness", "Mouthfeel", "Overall"];
 const SCORE_LABELS = ["Fr", "Ar", "Fl", "Af", "Ac", "Sw", "Mf", "Ov"];
-const SCORE_STEP = 0.25;
 
 const BEAN_DEFECT_OPTIONS = [
   { key: "moldy",     iconName: "defect-mouldy",        title: "Mouldy" },
@@ -51,20 +61,12 @@ function formatStatus(value) {
   const text = String(value || "new").trim().toLowerCase();
   if (text === "complete") return "Complete";
   if (text === "pending") return "Pending";
+  if (text === "in_progress") return "In Progress";
   return "New";
 }
 
 function getLatestEntry(entries = []) {
   return Array.isArray(entries) && entries.length > 0 ? entries[entries.length - 1] : null;
-}
-
-function roundToStep(value, step = SCORE_STEP) {
-  const numericValue = Number(value);
-  const numericStep = Number(step);
-  if (!Number.isFinite(numericValue) || !Number.isFinite(numericStep) || numericStep <= 0) {
-    return 0;
-  }
-  return Math.round((numericValue + Number.EPSILON) / numericStep) * numericStep;
 }
 
 function toNumericOrZero(value) {
@@ -78,30 +80,29 @@ function calculateCurrentScore({ scores, defects, numberOfCups }) {
     return null;
   }
 
-  const cups = Math.max(1, toNumericOrZero(numberOfCups));
+  const cups = Math.max(1, toNumericOrZero(defects?.numberOfCups ?? numberOfCups));
   const sumHi = SCORE_FIELDS.reduce((sum, field) => {
     const scoreItem = (scores || []).find((item) => item.key === field);
     return sum + toNumericOrZero(scoreItem?.score);
   }, 0);
   const nonUniformCups = toNumericOrZero(defects?.nonUniformCups);
   const defectiveCups = toNumericOrZero(defects?.defectiveCups);
-  const uNormalized = (nonUniformCups / cups) * 5;
-  const dNormalized = (defectiveCups / cups) * 5;
-  return roundToStep(0.65625 * sumHi + 52.75 - 2 * uNormalized - 4 * dNormalized);
+  return calculateCvaScore({ sumHi, nonUniformCups, defectiveCups, numberOfCups: cups,
+    calculationPolicy: defects?.calculationPolicy ?? null });
 }
 
-function buildScoreItems(feedbackByField = {}) {
+function buildScoreItems(feedbackByField = {}, calculationPolicy = null) {
   return SCORE_FIELDS.map((field, index) => {
     const rows = Array.isArray(feedbackByField[field]) ? feedbackByField[field] : [];
-    const finalRows = rows.filter((entry) => entry?.isFinal);
-    const latestFinal = getLatestEntry(finalRows);
-    const latest = latestFinal || getLatestEntry(rows);
+    const latestFinal = getLatestEntry(rows.filter((entry) => entry?.isFinal));
+    const latest = calculationPolicy === CVA_EXACT_CALCULATION_POLICY
+      ? getLatestEntry(rows) : latestFinal || getLatestEntry(rows);
 
     return {
       key: field,
       label: SCORE_LABELS[index],
       score: latest?.score ?? null,
-      isFinal: Boolean(latestFinal),
+      isFinal: Boolean(latest?.isFinal),
     };
   });
 }
@@ -126,6 +127,7 @@ function buildDefectIcons(defectRows) {
 }
 
 function getLatestDefects(defectRows) {
+  if (defectRows?.latest) return defectRows.latest;
   const rows = [
     ...(Array.isArray(defectRows?.nonFinal) ? defectRows.nonFinal : []),
     ...(Array.isArray(defectRows?.final) ? defectRows.final : []),
@@ -434,6 +436,7 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, canDelete, on
             ? `${isFinalScoreAvailable ? "Final score" : "Current score"} ${Number(currentScore).toFixed(2)}`
             : "Score pending"}
         </Text>
+        {cup.resultLabel ? <Text style={styles.cupDrawerLabel}>{cup.resultLabel}</Text> : null}
 
         {/* Defect icons — only shown when defects are present */}
         {cup.defects.length > 0 ? (
@@ -468,8 +471,8 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, canDelete, on
           {/* Coffee details — white surface */}
           <View style={[styles.cupDrawerSection, { paddingHorizontal: 24 * scale, paddingTop: 16 * scale, paddingBottom: 16 * scale, gap: 12 * scale }]}>
             {[
-              { label: "Coffee", value: cup.coffeeNameOrigin },
-              { label: "Process", value: getProcessLabel(cup.process) || cup.process },
+              { label: cup.identityHidden ? "Sample" : "Coffee", value: cup.coffeeNameOrigin },
+              ...(!cup.identityHidden ? [{ label: "Process", value: getProcessLabel(cup.process) || cup.process }] : []),
             ].map((item) => (
               <View key={`${cup.id}-${item.label}`}>
                 <Text style={styles.cupDrawerLabel}>{item.label}</Text>
@@ -483,10 +486,10 @@ function ActiveSessionCupRow({ cup, index, total, scale, expanded, canDelete, on
 
           {/* Notes sections — grey input boxes */}
           <View style={[styles.cupDrawerSection, { paddingHorizontal: 24 * scale, paddingTop: 16 * scale, paddingBottom: 24 * scale, gap: 16 * scale }]}>
-            {[
+            {(cup.noteGroups || [
               { label: "Fragrance / Aroma Notes", notes: cup.fragranceAromaNotes, obs: cup.fragranceAromaObs },
               { label: "Flavour Notes", notes: cup.flavourNotes, obs: cup.flavourObs },
-            ].map((section) => {
+            ]).map((section) => {
               const pills = buildObservationPills(section.obs);
               return (
                 <View key={section.label}>
@@ -539,6 +542,8 @@ export function ActiveSessionScreen({
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [session, setSession] = useState(null);
+  const [setupAccess, setSetupAccess] = useState(null);
+  const [tastingPresentation, setTastingPresentation] = useState(null);
   const [cups, setCups] = useState([]);
   const [expandedCupId, setExpandedCupId] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -556,14 +561,25 @@ export function ActiveSessionScreen({
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
+    completionBusyRef.current = null;
+    setIsMarkingComplete(false);
+    return () => { sessionIdRef.current = null; completionBusyRef.current = null; };
   }, [sessionId]);
 
   useEffect(() => {
     let isCancelled = false;
 
     const loadActiveSession = async () => {
+      completionBusyRef.current = null;
+      setIsMarkingComplete(false);
+      setSetupAccess(null);
+      setTastingPresentation(null);
+      setSession(null);
+      setCups([]);
       setIsLoading(true);
       setLoadError("");
+      setMarkCompleteDialogVisible(false);
+      setMarkCompleteDialogMessage("");
       try {
         // If a sessionId is provided, load that session directly.
         // Otherwise fall back to finding the first non-complete session.
@@ -573,7 +589,7 @@ export function ActiveSessionScreen({
           const pending = (sessions || []).filter(
             (item) => String(item.status || "").toLowerCase() !== "complete"
           );
-          const active = pending.find(isPinnedCva) || pending[0];
+          const active = pending.find(item => isPinnedForm(item, item.cuppingForm)) || pending[0];
           targetId = active?.id || null;
         }
 
@@ -585,27 +601,40 @@ export function ActiveSessionScreen({
           return;
         }
 
-        const fullSession = await getSessionById(targetId);
+        const presentation = await getLocalTastingPresentation(targetId, { purpose: 'tasting' });
+        const fullSession = presentation.session;
+        const access = presentation.tasting;
         const finalStatus = await getSessionSampleFinalStatus(targetId);
-        const rows = !isPinnedCva(fullSession) ? (fullSession?.samples || []).map((sample) => ({ ...sample })) : await Promise.all(
+        const rows = isPinnedForm(fullSession, 2) ? (fullSession?.samples || []).map((sample, index) => ({
+          ...sample, sessionId: fullSession.id, sampleNumber: Number(sample.sampleNumber) || index + 1,
+          finalScore: finalStatus?.[sample.id]?.finalScore ?? null,
+          resultLabel: finalStatus?.[sample.id]?.resultLabel ?? null,
+          hasAnyFeedback: Boolean(finalStatus?.[sample.id]?.hasAnyFeedback),
+        })) : !isPinnedCva(fullSession) ? (fullSession?.samples || []).map((sample) => ({ ...sample })) : await Promise.all(
           (fullSession?.samples || []).map(async (sample, index) => {
             const feedback = await getSampleFeedback(sample.id);
             const defects = await getSampleDefects(sample.id);
             const flavourObservations = await getSampleFlavourObservations(sample.id);
-            const scores = buildScoreItems(feedback);
             const latestDefects = getLatestDefects(defects);
+            const scores = buildScoreItems(feedback, latestDefects?.calculationPolicy ?? null);
             return {
               ...sample,
               sessionId: fullSession?.id || sample.sessionId,
               scores,
               defects: buildDefectIcons(defects),
               latestDefects,
+              noteGroups: finalStatus?.[sample.id]?.canonicalCva
+                ? (finalStatus[sample.id].noteGroups || []).map(group => ({ label: group.label, notes: group.notes,
+                  obs: flavourObservations.filter(observation => observation.sourceField === group.key) })) : null,
               fragranceAromaNotes: extractNotesForFields(feedback, FRAGRANCE_AROMA_FIELDS),
               flavourNotes: extractNotesForFields(feedback, null, FRAGRANCE_AROMA_FIELDS),
               fragranceAromaObs: flavourObservations.filter((o) => isFragranceAromaSource(o.sourceField)),
               flavourObs: flavourObservations.filter((o) => !isFragranceAromaSource(o.sourceField)),
               finalScore: finalStatus?.[sample.id]?.finalScore ?? null,
-              currentScore: calculateCurrentScore({
+              resultLabel: finalStatus?.[sample.id]?.resultLabel ??
+                (latestDefects || scores.some((item) => item.score != null)
+                  ? cvaResultLabel(latestDefects?.calculationPolicy ?? null, latestDefects?.numberOfCups ?? sample.cupNumber, latestDefects?.scorePolicy) : null),
+              currentScore: finalStatus?.[sample.id]?.canonicalCva ? finalStatus[sample.id].finalScore : calculateCurrentScore({
                 scores,
                 defects: latestDefects,
                 numberOfCups: sample.cupNumber,
@@ -618,11 +647,14 @@ export function ActiveSessionScreen({
         if (!isCancelled) {
           setExpandedCupId(null);
           setSession(fullSession);
+          setSetupAccess({ sessionId: targetId, ...access });
+          setTastingPresentation(presentation);
           setCups(rows);
         }
       } catch (error) {
         if (!isCancelled) {
-          setLoadError(error?.message || "Could not load active session.");
+          // Repository errors are not a safe participant-facing identity projection.
+          setLoadError("Could not load active session.");
         }
       } finally {
         if (!isCancelled) {
@@ -638,59 +670,37 @@ export function ActiveSessionScreen({
     };
   }, [sessionId, reloadCount]);
 
+  const loadedSession = sessionId && session?.id !== sessionId ? null : session;
+  const loadedCups = loadedSession ? cups : [];
+  const canManageSetup = setupAccess?.sessionId === loadedSession?.id && setupAccess?.canManageSetup === true;
   const status = useMemo(() => {
-    if (!session) {
+    if (!loadedSession) {
       return "Pending";
     }
-    return formatStatus(session.status);
-  }, [session]);
-  const isSupportedForm = isPinnedCva(session);
+    return hasLocalSessionCompletion(loadedSession.id, tastingPresentation)
+      ? "Complete" : formatStatus(loadedSession.status);
+  }, [loadedSession, tastingPresentation]);
+  const isLegacy = isPinnedForm(loadedSession, 2) && loadedSession?.cuppingMode === 'open';
+  const isSupportedForm = isPinnedCva(loadedSession) || isLegacy;
+  const activeView = useMemo(() => tastingPresentation?.session?.id === loadedSession?.id
+    ? { identityHidden: tastingPresentation.identityHidden, session: loadedSession, cups: loadedCups }
+    : projectActiveSessionIdentity(loadedSession, loadedCups, { allowOpen: isPinnedCva(loadedSession) }),
+  [loadedSession, cups, tastingPresentation]);
+  const visibleSession = activeView.session;
+  const visibleCups = activeView.cups;
 
-  const handleMarkComplete = async () => {
-    const sid = sessionIdRef.current || session?.id;
-    if (!sid || !isSupportedForm) return;
-    setIsMarkingComplete(true);
-    try {
-      const summary = await getSessionCompletionSummary(sid);
-      if (!summary.allComplete) {
-        const names = summary.incompleteSamples.map((s) => `• ${s.name}`).join("\n");
-        setMarkCompleteDialogMessage(
-          `The following samples have incomplete cupping scores:\n\n${names}\n\nComplete the scores for each sample, or remove it from the session before marking complete.`
-        );
-        setMarkCompleteDialogVisible(true);
-      } else {
-        await manuallyMarkSessionComplete(sid);
-        onSessionComplete?.(sid);
-      }
-    } finally {
-      setIsMarkingComplete(false);
-    }
-  };
-
+  const completionBusyRef = useRef(null);
   const handleShare = async () => {
     if (!session || !isSupportedForm) return;
-    const lines = [];
-    lines.push(`CUP Session: ${session.sessionName || "Untitled"}`);
-    if (session.sessionDate) lines.push(`Date: ${session.sessionDate}`);
-    if (session.sessionType) lines.push(`Type: ${session.sessionType}`);
-    lines.push("");
-    cups.forEach((cup, i) => {
-      const name = cup.coffeeNameOrigin || `Sample ${cup.sampleNumber || i + 1}`;
-      const score = cup.finalScore != null
-        ? Number(cup.finalScore).toFixed(2)
-        : cup.currentScore != null
-          ? Number(cup.currentScore).toFixed(2)
-          : "—";
-      lines.push(`${cup.sampleNumber || i + 1}. ${name}  ${score}`);
-    });
     try {
-      await Share.share({ message: lines.join("\n") });
+      await Share.share({ message: buildActiveSessionShareMessage(visibleSession, visibleCups) });
     } catch {
       // user cancelled or share sheet unavailable
     }
   };
 
   const handleDeleteSample = async (sampleId) => {
+    if (!canManageSetup) return;
     if (!isSupportedForm) return;
     try {
       await deleteSampleFromSession(sampleId);
@@ -723,16 +733,16 @@ export function ActiveSessionScreen({
           },
         ]}
       >
-        {session ? (
+        {visibleSession ? (
           <>
             {/* Session meta */}
             <View style={[styles.metaList, { gap: 14 * scale }]}>
-              <MetaRow label="Date" value={session.sessionDate} scale={scale} />
-              <MetaRow label="Session Name" value={session.sessionName} scale={scale} />
-              <MetaRow label="Session Type" value={getSessionTypeLabel(session.sessionType)} scale={scale} />
+              <MetaRow label="Date" value={getSessionDateDisplayLabel(visibleSession.sessionDate)} scale={scale} />
+              <MetaRow label="Session Name" value={savedSessionName(visibleSession)} scale={scale} />
+              <MetaRow label="Session Type" value={getSessionTypeDisplayLabel(visibleSession.sessionType)} scale={scale} />
               <MetaRow label="Status" value={status} scale={scale} />
-              <MetaRow label="Form" value={isSupportedForm ? "SCA CVA — Affective Assessment" : "Older prototype — read-only"} scale={scale} />
-              {!isSupportedForm ? <Text style={styles.emptyBody}>Scoring and session actions are unavailable for this older prototype record. Start a new SCA CVA session to taste.</Text> : null}
+              <MetaRow label="Form" value={isLegacy ? "SCA Legacy (2004–2023) · Open Cupping" : isSupportedForm ? "SCA CVA — Affective Assessment" : "Older prototype — read-only"} scale={scale} />
+              {!isSupportedForm ? <Text style={styles.emptyBody}>Scoring and session actions are unavailable for this older prototype record. Start a new supported session to taste.</Text> : null}
             </View>
 
             {/* Cups section header */}
@@ -745,15 +755,18 @@ export function ActiveSessionScreen({
               style={styles.cupList}
               onLayout={(e) => { cupListY.current = e.nativeEvent.layout.y; }}
             >
-              {cups.map((cup, index) => isSupportedForm ? (
+              {visibleCups.map((cup, index) => isLegacy ? (
+                <LegacySampleCard key={cup.id} sample={cup} index={index} scale={scale} status={cup}
+                  onPress={typeof onSamplePress === 'function' ? () => onSamplePress(cup, index, cups.length) : undefined} />
+              ) : isSupportedForm ? (
                 <ActiveSessionCupRow
                   key={cup.id}
                   cup={cup}
                   index={index}
-                  total={Number(session.samplesInSession) || cups.length || 1}
+                  total={Number(visibleSession.samplesInSession) || visibleCups.length || 1}
                   scale={scale}
                   expanded={expandedCupId === cup.id}
-                  canDelete={mode === "new" || mode === "pending"}
+                  canDelete={canManageSetup && (mode === "new" || mode === "pending")}
                   onDeleteSample={() => handleDeleteSample(cup.id)}
                   onLayout={(e) => { cupYPositions.current[cup.id] = e.nativeEvent.layout.y; }}
                   onToggle={() => {
@@ -773,7 +786,7 @@ export function ActiveSessionScreen({
                   }}
                   onOpenSample={
                     mode !== "new" && typeof onSamplePress === "function"
-                      ? () => onSamplePress(cup, index, Number(session.samplesInSession) || cups.length || 1)
+                      ? () => onSamplePress(cups[index], index, Number(visibleSession.samplesInSession) || visibleCups.length || 1)
                       : undefined
                   }
                 />
@@ -792,9 +805,20 @@ export function ActiveSessionScreen({
             </Text>
           </View>
         )}
+        {visibleSession && isSupportedForm && tastingPresentation?.session?.id === visibleSession.id ?
+          <LocalTastingActions sessionId={visibleSession.id} tasting={tastingPresentation.tasting}
+            disabled={isScanInProgress} onCompleted={reload} /> : null}
       </ScrollView>
 
-      {mode === "new" && isSupportedForm ? (
+      {!canManageSetup && visibleSession ? (
+        <View style={[styles.footer, { paddingHorizontal: 26 * scale }]}>
+          <Text style={styles.emptyBody}>{setupAccess?.isLocalCreator && setupAccess?.started
+            ? 'Tasting has already begun, so session setup is read-only.'
+            : 'Session setup is read-only on this profile.'}</Text>
+          {typeof onScanPress === 'function' ? <FullPageButton label="SCAN CUP" onPress={onScanPress}
+            disabled={isScanInProgress} accessibilityLabel="Scan cup" style={styles.scanButton} /> : null}
+        </View>
+      ) : mode === "new" && isSupportedForm ? (
         <View style={[styles.footer, { paddingHorizontal: 26 * scale }]}>
           <FullPageButton
             label="EDIT SESSION"
@@ -803,15 +827,8 @@ export function ActiveSessionScreen({
             accessibilityLabel="Edit session"
           />
         </View>
-      ) : mode === "pending" && isSupportedForm ? (
+      ) : isSupportedForm ? (
         <View style={[styles.footer, { paddingHorizontal: 26 * scale, gap: 10 * scale }]}>
-          <FullPageButton
-            label="MARK COMPLETE"
-            onPress={handleMarkComplete}
-            loading={isMarkingComplete}
-            disabled={isMarkingComplete || !session}
-            accessibilityLabel="Mark session complete"
-          />
           <FullPageButton
             label="SCAN CUP"
             onPress={onScanPress}
@@ -821,26 +838,10 @@ export function ActiveSessionScreen({
             style={styles.scanButton}
           />
         </View>
-      ) : mode === "complete" && isSupportedForm ? (
-        <View style={[styles.footer, { paddingHorizontal: 26 * scale, gap: 10 * scale }]}>
-          <FullPageButton
-            label="UPLOAD RESULTS"
-            onPress={handleShare}
-            disabled={!session}
-            accessibilityLabel="Upload session results"
-          />
-          <FullPageButton
-            label="RESET TO PENDING"
-            onPress={() => onResetToPending?.(session?.id)}
-            disabled={!session || typeof onResetToPending !== "function"}
-            accessibilityLabel="Reset session to pending"
-            style={styles.scanButton}
-          />
-        </View>
       ) : null}
 
       <WarningDialog
-        visible={markCompleteDialogVisible}
+        visible={markCompleteDialogVisible && Boolean(visibleSession)}
         title="Incomplete Scores"
         message={markCompleteDialogMessage}
         okLabel="Got it"

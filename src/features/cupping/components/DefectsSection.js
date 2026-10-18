@@ -1,11 +1,13 @@
 import React, { useState } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { AppIcon } from "../../../components/ui/AppIcon";
 import { CloseButton } from "../../../components/ui/IconButton";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
+import { AssessmentCupSelector } from "./AssessmentCupSelector";
+import { NotesInput } from "../../../components/ui/NotesInput";
 
 export const BEAN_DEFECT_OPTIONS = [
   {
@@ -29,6 +31,11 @@ export const BEAN_DEFECT_OPTIONS = [
     description: "Other bean-related defect.",
   },
 ];
+
+const CVA_BEAN_DEFECT_OPTIONS = BEAN_DEFECT_OPTIONS.map((option) => option.key === "otherBean"
+  ? { ...option, description: "Other observation; no CVA score deduction.",
+      accessibilityLabelSuffix: " observation, no CVA score deduction" }
+  : option);
 
 export const ROAST_DEFECT_OPTIONS = [
   {
@@ -155,85 +162,7 @@ function CountRow({ label, selectedSlots, maxCount, onChange, disabled = false }
   );
 }
 
-function CupSlotBoxes({
-  label,
-  selectedSlots,
-  maxCount,
-  onChange,
-  onSlotPress,
-  disabled = false,
-  scale = 1,
-}) {
-  const totalBoxes = Math.max(1, Number(maxCount) || 1);
-  const normalizedSlots = normalizeSelectedSlots(selectedSlots, totalBoxes);
-
-  const handlePress = (index) => {
-    const selectedValue = index + 1;
-    const next = normalizedSlots.includes(selectedValue)
-      ? normalizedSlots.filter((slot) => slot !== selectedValue)
-      : [...normalizedSlots, selectedValue].sort((a, b) => a - b);
-    if (typeof onSlotPress === "function") {
-      onSlotPress(selectedValue, normalizedSlots.includes(selectedValue));
-      return;
-    }
-    onChange?.(next);
-  };
-
-  return (
-    <View style={styles.designCupBoxRow}>
-      {Array.from({ length: totalBoxes }).map((_, index) => {
-        const selected = normalizedSlots.includes(index + 1);
-        return (
-          <Pressable
-            key={`${label}-${index}`}
-            style={[
-              styles.designCupBoxTouchTarget,
-              {
-                width: 46 * scale,
-                height: 46 * scale,
-              },
-            ]}
-            onPress={() => handlePress(index)}
-            disabled={disabled}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: selected, disabled }}
-            accessibilityLabel={`${label} cup ${index + 1}`}
-          >
-            <View
-              style={[
-                styles.designCupBox,
-                {
-                  width: 46 * scale,
-                  height: 46 * scale,
-                  borderRadius: 23 * scale,
-                  borderWidth: 2.3 * scale,
-                },
-                selected && styles.designCupBoxSelected,
-                disabled && styles.designCupBoxDisabled,
-              ]}
-            >
-              <View
-                style={[
-                  styles.designCupBoxInnerRim,
-                  {
-                    width: 39 * scale,
-                    height: 39 * scale,
-                    borderRadius: 19.5 * scale,
-                    borderWidth: 1 * scale,
-                  },
-                  selected && styles.designCupBoxInnerRimSelected,
-                  disabled && styles.designCupBoxInnerRimDisabled,
-                ]}
-              />
-            </View>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
-function SelectedDefectIconRow({ options, defectCupSlots, scale = 1 }) {
+export function SelectedDefectIconRow({ options, defectCupSlots, scale = 1 }) {
   const visibleOptions = options.filter((option) => normalizeSelectedSlots(defectCupSlots?.[option.key], 99).length > 0);
   if (visibleOptions.length === 0) {
     return null;
@@ -243,6 +172,7 @@ function SelectedDefectIconRow({ options, defectCupSlots, scale = 1 }) {
     <View style={[styles.selectedDefectIconRow, { marginTop: spacing.sm * scale }]}>
       {visibleOptions.map((option) => (
         <View key={`selected-${option.key}`} style={styles.selectedDefectIcon}>
+          <AppIcon name={DEFECT_ICON_NAMES[option.key]} role="icon_compact" size={14 * scale} />
           <Text style={styles.selectedDefectIconText}>{formatOptionTitle(option.title).toUpperCase()}</Text>
         </View>
       ))}
@@ -250,7 +180,7 @@ function SelectedDefectIconRow({ options, defectCupSlots, scale = 1 }) {
   );
 }
 
-function DefectTypeDialog({
+export function DefectTypeDialog({
   visible,
   title,
   options,
@@ -260,7 +190,6 @@ function DefectTypeDialog({
   scale = 1,
 }) {
   const selectedKeySet = new Set(selectedKeys);
-  const canAdd = selectedKeySet.size > 0;
 
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
@@ -274,7 +203,11 @@ function DefectTypeDialog({
               accessibilityLabel="Close defect selector"
             />
           </View>
-          <View style={styles.dialogOptionList}>
+          <ScrollView
+            style={styles.dialogOptionScroll}
+            contentContainerStyle={styles.dialogOptionList}
+            showsVerticalScrollIndicator
+          >
             {options.map((option) => {
               const isSelected = selectedKeySet.has(option.key);
               return (
@@ -284,7 +217,7 @@ function DefectTypeDialog({
                   onPress={() => onSelect(option.key)}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: isSelected }}
-                  accessibilityLabel={`${isSelected ? "Remove" : "Select"} ${formatOptionTitle(option.title)} defect`}
+                  accessibilityLabel={`${isSelected ? "Remove" : "Select"} ${formatOptionTitle(option.title)}${option.accessibilityLabelSuffix || " defect"}`}
                 >
                   <View style={[styles.dialogOptionIcon, isSelected && styles.dialogOptionIconSelected]}>
                     <AppIcon
@@ -301,16 +234,14 @@ function DefectTypeDialog({
                 </Pressable>
               );
             })}
-          </View>
+          </ScrollView>
           <Pressable
-            style={[styles.dialogAddButton, !canAdd && styles.dialogAddButtonDisabled]}
+            style={styles.dialogAddButton}
             onPress={onClose}
-            disabled={!canAdd}
             accessibilityRole="button"
-            accessibilityState={{ disabled: !canAdd }}
-            accessibilityLabel="Add selected defects"
+            accessibilityLabel="Done choosing defect types"
           >
-            <Text style={styles.dialogAddButtonText}>ADD</Text>
+            <Text style={styles.dialogAddButtonText}>DONE</Text>
           </Pressable>
         </View>
       </View>
@@ -350,7 +281,7 @@ function DesignCDefectItem({
         </Text>
       ) : null}
       <View style={[styles.designInputRow, { marginTop: spacing.sm * scale }]}>
-        <CupSlotBoxes
+        <AssessmentCupSelector
           label={title}
           selectedSlots={selectedSlots}
           maxCount={maxCount}
@@ -363,7 +294,7 @@ function DesignCDefectItem({
   );
 }
 
-function DesignCDefectTypeItem({
+export function DesignCDefectTypeItem({
   title,
   description,
   selectedSlots,
@@ -374,21 +305,35 @@ function DesignCDefectTypeItem({
   disabled = false,
   scale = 1,
   isLastInGroup = false,
+  paddingVertical = spacing.sm * scale,
+  scoreImpact = null,
+  scoreImpactControl = null,
+  descriptionGap,
+  titleLineHeight,
+  titleRowGap,
+  disabledSlots = [],
+  disabledReason = '',
 }) {
   return (
     <View
       style={[
         styles.designDefectItem,
-        { paddingVertical: spacing.sm * scale },
+        { paddingVertical },
         isLastInGroup && styles.designDefectItemLast,
       ]}
     >
-      <Text style={styles.designDefectLabel}>{title}</Text>
+      {scoreImpact == null ? <Text style={[styles.designDefectLabel, titleLineHeight && { lineHeight: titleLineHeight }]}>{title}</Text> : <View style={[styles.designDefectTitleRow, titleRowGap != null && { gap: titleRowGap }]}>
+        <Text style={[styles.designDefectLabel, styles.designDefectTitle, titleLineHeight && { lineHeight: titleLineHeight }]}>{title}</Text>
+        {scoreImpactControl || <Text style={styles.designDefectImpact} accessibilityLiveRegion="polite"
+          accessibilityLabel={`${title} score impact ${scoreImpact === '—' ? 'not yet available' : `${scoreImpact} points`}`}>
+          {scoreImpact}
+        </Text>}
+      </View>}
       {description ? (
         <Text
           style={[
             styles.designDefectDescription,
-            { marginTop: spacing.xs * scale },
+            { marginTop: descriptionGap ?? spacing.xs * scale },
             disabled && styles.disabledTextBody,
           ]}
         >
@@ -396,12 +341,14 @@ function DesignCDefectTypeItem({
         </Text>
       ) : null}
       <View style={[styles.designInputRow, { marginTop: spacing.sm * scale }]}>
-        <CupSlotBoxes
+        <AssessmentCupSelector
           label={title}
           selectedSlots={selectedSlots}
           maxCount={maxCount}
           onSlotPress={onSlotPress}
           disabled={disabled}
+          disabledSlots={disabledSlots}
+          disabledReason={disabledReason}
           scale={scale}
         />
       </View>
@@ -471,18 +418,29 @@ export function DefectsSection({
   defectCupSlots = {},
   nonUniformCupSlots = [],
   defectiveCupSlots = [],
+  scoredDefectCount = null,
+  defectDescription = '',
+  showDefectDescription = false,
   disabled = false,
   variant = "default",
+  inline = false,
   scale = 1,
   onToggleDefect,
   onChangeDefectCupSlots,
   onChangeNonUniformCupSlots,
   onChangeDefectiveCupSlots,
+  onChangeDefectDescription,
+  onFocusDefectDescription,
+  onBlurDefectDescription,
+  beanAssessment = null,
 }) {
   const [pendingDefectChoice, setPendingDefectChoice] = useState(null);
 
   if (variant === "designC") {
     const totalBoxes = Math.max(1, Number(cupTotal) || 1);
+    const scoredCount = scoredDefectCount == null ? defectiveCupSlots.length : scoredDefectCount;
+    const scoreImpact = scoredCount
+      ? `−${(20 * scoredCount / totalBoxes).toFixed(2)}` : '0.00';
 
     const beanDefectCupSlots = getUnionSlots(BEAN_DEFECT_KEYS, defectCupSlots, totalBoxes);
     const roastDefectCupSlots = getUnionSlots(ROAST_DEFECT_KEYS, defectCupSlots, totalBoxes);
@@ -515,7 +473,7 @@ export function DefectsSection({
     };
 
     const pendingOptions =
-      pendingDefectChoice?.group === "roast" ? ROAST_DEFECT_OPTIONS : BEAN_DEFECT_OPTIONS;
+      pendingDefectChoice?.group === "roast" ? ROAST_DEFECT_OPTIONS : CVA_BEAN_DEFECT_OPTIONS;
     const pendingKeys =
       pendingDefectChoice?.group === "roast" ? ROAST_DEFECT_KEYS : BEAN_DEFECT_KEYS;
     const pendingSelectedKeys = pendingDefectChoice
@@ -526,34 +484,28 @@ export function DefectsSection({
 
     return (
       <View style={styles.designSection}>
-        <View style={styles.designGroupFirst}>
-          <DesignCDefectItem
-            title="Non-uniform cups"
-            description="Identify none uniform cups. -2pt per cup."
-            selectedSlots={nonUniformCupSlots}
-            maxCount={totalBoxes}
-            disabled={disabled}
-            onChange={onChangeNonUniformCupSlots}
-            scale={scale}
-            isLastInGroup
-            bottomSpacing={spacing.lg}
-          />
-
+        <View style={inline ? [styles.inlineDefectGroup, { paddingVertical: spacing.md * scale }] : styles.designGroupFirst}>
           <DesignCDefectTypeItem
-            title="Bean defects"
-            description="Identify cups with a coffee defect. -4pt per defect."
+            title={inline ? "Bean defects" : "Defective cups"}
+            description={beanAssessment?.hint || 'Tap a cup to choose its defect type. Other is an observation only.'}
             selectedSlots={beanDefectCupSlots}
             maxCount={totalBoxes}
-            options={BEAN_DEFECT_OPTIONS}
+            options={CVA_BEAN_DEFECT_OPTIONS}
             defectCupSlots={defectCupSlots}
             disabled={disabled}
             onSlotPress={(slot, selected) => handleTypedSlotPress({ group: "bean", slot, selected })}
             scale={scale}
             isLastInGroup
+            paddingVertical={inline ? 0 : spacing.sm * scale}
+            scoreImpact={inline ? (beanAssessment?.value ?? scoreImpact) : null}
+            scoreImpactControl={beanAssessment?.control}
+            descriptionGap={inline ? spacing.sm * scale : undefined}
+            titleLineHeight={inline ? 28 : undefined}
+            titleRowGap={inline ? spacing.sm * scale : undefined}
           />
         </View>
 
-        <View style={[styles.designGroup, { marginTop: spacing.lg * scale, paddingTop: 0 }]}>
+        <View style={inline ? [styles.inlineDefectGroup, { paddingVertical: spacing.md * scale }] : [styles.designGroup, { marginTop: spacing.lg * scale, paddingTop: 0 }]}>
           <DesignCDefectTypeItem
             title="Roast defects"
             description="Identify cups with a roast defect. No impact on score."
@@ -565,8 +517,20 @@ export function DefectsSection({
             onSlotPress={(slot, selected) => handleTypedSlotPress({ group: "roast", slot, selected })}
             scale={scale}
             isLastInGroup
+            paddingVertical={inline ? 0 : spacing.sm * scale}
+            descriptionGap={inline ? spacing.sm * scale : undefined}
+            titleLineHeight={inline ? 28 : undefined}
           />
         </View>
+        {showDefectDescription && <View style={inline ? [styles.inlineDefectGroup, { paddingVertical: spacing.md * scale }] : null}>
+          <NotesInput value={defectDescription} onChangeText={onChangeDefectDescription} onFocus={onFocusDefectDescription} onBlur={onBlurDefectDescription}
+          disabled={disabled} placeholder="Describe the defect..." accessibilityLabel="Describe the defect"
+          style={[styles.defectDescriptionInput, inline && { marginTop: 0 }, { minHeight: 114 * scale, borderRadius: 13 * scale,
+            paddingHorizontal: 15 * scale, paddingTop: 8 * scale, paddingBottom: 8 * scale }]} /></View>}
+        {!inline && <View style={styles.scoreImpactRow} accessibilityLiveRegion="polite">
+          <Text style={styles.designDefectLabel}>Score deduction</Text>
+          <Text style={styles.designDefectLabel}>{scoreImpact}</Text>
+        </View>}
         <DefectTypeDialog
           visible={Boolean(pendingDefectChoice)}
           title={pendingDefectChoice?.group === "roast" ? "Select roast defect" : "Select bean defect"}
@@ -712,10 +676,26 @@ const styles = StyleSheet.create({
   designSection: {
     width: "100%",
   },
+  defectDescriptionInput: {
+    marginTop: spacing.lg,
+  },
+  scoreImpactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.lg,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.quietBorder,
+  },
   designGroup: {
     paddingTop: spacing.sm,
   },
   designGroupFirst: {},
+  inlineDefectGroup: {
+    borderTopWidth: 1,
+    borderTopColor: colors.quietBorder,
+  },
   designGroupTitle: {
     ...typography.text_section_title,
     marginBottom: spacing.xs,
@@ -739,15 +719,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
   },
-  designCupBoxRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-  },
-  designCupBoxTouchTarget: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
   designSingleBoxTouchTarget: {
     minWidth: 44,
     minHeight: 44,
@@ -768,15 +739,6 @@ const styles = StyleSheet.create({
     borderColor: colors.muted,
     backgroundColor: colors.panel,
   },
-  designCupBoxInnerRim: {
-    borderColor: colors.quietBorder,
-  },
-  designCupBoxInnerRimSelected: {
-    borderColor: colors.surface,
-  },
-  designCupBoxInnerRimDisabled: {
-    borderColor: colors.muted,
-  },
   selectedDefectIconRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -786,6 +748,7 @@ const styles = StyleSheet.create({
   selectedDefectIcon: {
     flexDirection: "row",
     alignItems: "center",
+    gap: spacing.xs,
     backgroundColor: colors.panel,
     borderWidth: 1,
     borderColor: colors.quietBorder,
@@ -809,6 +772,7 @@ const styles = StyleSheet.create({
   dialogCard: {
     width: "100%",
     maxWidth: 420,
+    maxHeight: "100%",
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
@@ -819,14 +783,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: spacing.sm,
+    flexShrink: 0,
   },
   dialogTitle: {
     ...typography.text_section_title,
     flex: 1,
+    flexShrink: 1,
   },
   dialogCloseButton: {
     width: 44,
     height: 44,
+    flexShrink: 0,
+  },
+  dialogOptionScroll: {
+    flexShrink: 1,
+    minHeight: 0,
   },
   dialogOptionList: {
     gap: spacing.sm,
@@ -839,6 +810,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginTop: spacing.md,
+    flexShrink: 0,
   },
   dialogAddButtonDisabled: {
     backgroundColor: colors.muted,
@@ -887,6 +859,19 @@ const styles = StyleSheet.create({
   },
   designDefectLabel: {
     ...typography.text_section_title,
+  },
+  designDefectTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  designDefectTitle: {
+    flexShrink: 1,
+  },
+  designDefectImpact: {
+    ...typography.text_body,
+    color: colors.action,
   },
   designDefectDescription: {
     ...typography.text_secondary_body,

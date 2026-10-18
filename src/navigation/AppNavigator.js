@@ -3,6 +3,7 @@ import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { TypographyAuditText as Text } from "../components/ui/TypographyAuditText";
 import { HomeScreen } from "../features/home/screens/HomeScreen";
 import { CuppingScreen } from "../features/cupping/screens/CuppingScreen";
+import { LegacyCuppingScreen } from "../features/forms/legacy/LegacyCuppingScreen";
 import { CuppingSessionScreen } from "../features/cupping/screens/CuppingSessionScreen";
 import { CuppingSessionDetailsScreen } from "../features/cupping/screens/CuppingSessionDetailsScreen";
 import { ActiveSessionScreen } from "../features/cupping/screens/ActiveSessionScreen";
@@ -25,12 +26,14 @@ import {
   looksLikeSmartCupUuid,
 } from "../services/nfcTagClassifier";
 import { playNfcFailureFeedback } from "../services/nfcFailureFeedback";
-import { requireCvaRoute, requireCvaTag, UNSUPPORTED_MESSAGE } from "../features/forms/sessionFormRoute";
+import { requireFormRoute, requireFormTag, UNSUPPORTED_MESSAGE } from "../features/forms/sessionFormRoute";
 import { logAppError } from "../services/errorLogger";
 import {
   activateSession,
+  getSessionSetupAccess,
   findActiveSampleByCupUUID,
   getSessionById,
+  getLocalTastingPresentation,
   resetSessionToPending,
   resolveActiveSampleFromCupMetadata,
 } from "../data/sessionRepository";
@@ -60,6 +63,10 @@ export function AppNavigator() {
   };
   const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [selectedCupContext, setSelectedCupContext] = useState(null);
+  const assessmentReadEpoch = useRef(0);
+  const currentRoute = useRef(route);
+  currentRoute.current = route;
+  useEffect(() => () => { assessmentReadEpoch.current += 1; }, [route]);
   const [sessionSampleContexts, setSessionSampleContexts] = useState([]);
   const [sampleRuntimeById, setSampleRuntimeById] = useState({});
   const [homeTemperatureC, setHomeTemperatureC] = useState(null);
@@ -301,16 +308,34 @@ export function AppNavigator() {
       tagClassification?.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
       tagClassification?.type === NFC_TAG_TYPES.EMPTY_TAG);
 
-  const canOpenCvaSample = async (sessionId, sample, metadata) => {
+  const canOpenSample = async (sessionId, sample, metadata) => {
     try {
       const session = sessionId ? await getSessionById(sessionId) : null;
       const storedSample = session?.samples?.find((entry) => entry.id === (sample?.sampleId || sample?.id));
-      requireCvaRoute(session, storedSample, metadata);
-      return true;
+      return requireFormRoute(session, storedSample, metadata);
     } catch (error) {
       showWarning("Form unavailable", error?.message || UNSUPPORTED_MESSAGE);
-      return false;
+      return null;
     }
+  };
+
+  const projectAssessmentContextForSavedSession = async (context) => {
+    const presentation = await getLocalTastingPresentation(context.sessionId, { purpose: 'tasting' });
+    const sample = presentation.session?.samples?.find(item => item.id === context.sampleId);
+    if (!sample) throw new Error(UNSUPPORTED_MESSAGE);
+    // Preserve the real mode/form contract. Identity is a separate repository
+    // projection; neither Open route flags nor caller coffee text grant reveal.
+    return { ...context, cuppingMode: sample.cuppingMode,
+      coffeeNameOrigin: sample.coffeeNameOrigin, process: sample.process || '',
+      isSessionComplete: presentation.session.status === 'complete' };
+  };
+  const selectSavedAssessment = async context => {
+    const epoch = ++assessmentReadEpoch.current;
+    const origin = currentRoute.current;
+    const projected = await projectAssessmentContextForSavedSession(context);
+    if (epoch !== assessmentReadEpoch.current || origin !== currentRoute.current) return false;
+    setSelectedCupContext(projected);
+    return true;
   };
 
   const scanCupForAssessment = async ({ statusPrefix } = {}) => {
@@ -363,7 +388,7 @@ export function AppNavigator() {
         }
 
         const metadata = tagClassification.metadataPayload;
-        requireCvaTag(metadata);
+        requireFormTag(metadata);
         const importedSample = metadata
           ? await resolveActiveSampleFromCupMetadata({
               cupUUID: tagId,
@@ -379,7 +404,8 @@ export function AppNavigator() {
           return;
         }
 
-        requireCvaRoute(await getSessionById(activeSample.sessionId), activeSample, metadata);
+        const storedSession = await getSessionById(activeSample.sessionId);
+        const form = requireFormRoute(storedSession, activeSample, metadata);
 
         const ntagCupNumber = resolveCupNumberFromMetadata(metadata);
         setHomeTemperatureC(null);
@@ -388,10 +414,10 @@ export function AppNavigator() {
         setHomeBrewTimeSeconds(null);
         setHomeStateLabel("Cupping");
         setHomeSampleNumber(activeSample.sampleNumber || null);
-        if (activeSample.sessionId && activeSample.sessionStatus !== "complete") {
+        if (activeSample.sessionId && activeSample.sessionStatus !== "complete" && (await getSessionSetupAccess(activeSample.sessionId)).canManageSetup) {
           await activateSession(activeSample.sessionId);
         }
-        setSelectedCupContext({
+        if (!await selectSavedAssessment({
           cupUUID: tagId,
           tagType: NFC_TAG_TYPES.NTAG_CUP,
           scanRevision: Date.now(),
@@ -405,6 +431,7 @@ export function AppNavigator() {
           },
           sessionId: activeSample.sessionId,
           sampleId: activeSample.sampleId,
+          cuppingForm: form,
           cupIndex: activeSample.cupIndex,
           cupTotal: activeSample.cupTotal,
           sampleNumber: activeSample.sampleNumber,
@@ -415,7 +442,7 @@ export function AppNavigator() {
           startInFinalMode: false,
           startInFinalSaved: false,
           isSessionComplete: activeSample.sessionStatus === "complete",
-        });
+        })) return;
         rememberSampleRuntime(activeSample.sampleId, {
           tagType: NFC_TAG_TYPES.NTAG_CUP,
           cupStateNumber: 3,
@@ -474,7 +501,7 @@ export function AppNavigator() {
       }
 
       const noSessionMode = isNoSessionMode(parsed);
-      if (!noSessionMode) requireCvaTag(parsed?.text4);
+      if (!noSessionMode) requireFormTag(parsed?.text4);
       const importedSample = noSessionMode
         ? null
         : await resolveActiveSampleFromCupMetadata({
@@ -509,7 +536,8 @@ export function AppNavigator() {
         setSleepDialogVisible(true);
         return;
       }
-      requireCvaRoute(await getSessionById(activeSample.sessionId), activeSample, parsed?.text4);
+      const storedSession = await getSessionById(activeSample.sessionId);
+      const form = requireFormRoute(storedSession, activeSample, parsed?.text4);
       const cupStatus = {
         state: cupState === 1 ? "READY" : cupState === BREWING_STATE ? "BREWING" : "CUPPING",
         temp: formatTemp(parsed?.text2?.temp),
@@ -518,10 +546,10 @@ export function AppNavigator() {
       const ndefCupNumber = resolveCupNumberFromText4(parsed);
       setHomeSampleNumber(activeSample.sampleNumber || null);
 
-      if (activeSample.sessionId && activeSample.sessionStatus !== "complete") {
+      if (activeSample.sessionId && activeSample.sessionStatus !== "complete" && (await getSessionSetupAccess(activeSample.sessionId)).canManageSetup) {
         await activateSession(activeSample.sessionId);
       }
-      setSelectedCupContext({
+      if (!await selectSavedAssessment({
         cupUUID,
         scanRevision: Date.now(),
         initialScrollTarget: null,
@@ -530,6 +558,7 @@ export function AppNavigator() {
         cupStatus,
         sessionId: activeSample.sessionId,
         sampleId: activeSample.sampleId,
+        cuppingForm: form,
         cupIndex: activeSample.cupIndex,
         cupTotal: activeSample.cupTotal,
         sampleNumber: activeSample.sampleNumber,
@@ -542,7 +571,7 @@ export function AppNavigator() {
         startInFinalMode: false,
         startInFinalSaved: false,
         isSessionComplete: activeSample.sessionStatus === "complete",
-      });
+      })) return;
       rememberSampleRuntime(activeSample.sampleId, {
         cupStateNumber: cupState,
         cupStatus,
@@ -601,28 +630,22 @@ export function AppNavigator() {
     await scanCupForAssessment({ statusPrefix: "Scan next cup..." });
   };
 
-  const handleAddAromaFromBrewing = () => {
+  const handleAddAromaFromBrewing = async () => {
     if (!selectedCupContext?.sessionId || !selectedCupContext?.sampleId) {
       return;
     }
 
-    setSelectedCupContext((current) => {
-      if (!current) {
-        return current;
-      }
-
-      return {
-        ...current,
+    if (!await selectSavedAssessment({
+        ...selectedCupContext,
         scanRevision: Date.now(),
         initialScrollTarget: "top",
         captureMode: "aroma_only",
         cupStateNumber: 3,
         cupStatus: {
-          ...(current.cupStatus || {}),
+          ...(selectedCupContext.cupStatus || {}),
           state: "CUPPING",
         },
-      };
-    });
+      })) return;
     setScanStatusMessage("");
     setRoute("Cupping");
   };
@@ -767,7 +790,7 @@ export function AppNavigator() {
       }
 
       try {
-        const session = await getSessionById(sessionId);
+        const { session } = await getLocalTastingPresentation(sessionId, { purpose: 'tasting' });
         if (isCancelled) {
           return;
         }
@@ -805,6 +828,7 @@ export function AppNavigator() {
       cupStatus,
       sessionId: options.sessionId || selectedCupContext?.sessionId || sample.sessionId,
       sampleId: sample.id,
+      cuppingForm: sample.cuppingForm,
       cupIndex: index,
       cupTotal: total,
       sampleNumber: Number(sample.sampleNumber) || index + 1,
@@ -839,8 +863,8 @@ export function AppNavigator() {
     }
 
     const nextContext = buildContextFromSessionSample(samples[nextIndex], nextIndex, samples.length);
-    if (nextContext && await canOpenCvaSample(nextContext.sessionId, samples[nextIndex])) {
-      setSelectedCupContext(nextContext);
+    if (nextContext && await canOpenSample(nextContext.sessionId, samples[nextIndex])) {
+      if (!await selectSavedAssessment(nextContext)) return;
       setScanStatusMessage("");
       setRoute("Cupping"); // keep existing cuppingReturnRoute
     }
@@ -848,25 +872,29 @@ export function AppNavigator() {
 
   const handleActiveSessionSamplePress = async (sample, index = 0, total = 1) => {
     const context = buildContextFromSessionSample(sample, index, total);
-    if (!context || !await canOpenCvaSample(context.sessionId, sample)) {
+    if (!context || !await canOpenSample(context.sessionId, sample)) {
       return;
     }
 
-    setSelectedCupContext(context);
+    if (!await selectSavedAssessment(context)) return;
     setScanStatusMessage("");
     goToCupping(route); // return to whichever session screen launched this
   };
 
   const handleSessionDetailsSampleOpen = async (sample, index = 0, total = 1, options = {}) => {
+    if (!options.sessionId) {
+      showWarning("Form unavailable", UNSUPPORTED_MESSAGE);
+      return;
+    }
     const context = buildContextFromSessionSample(sample, index, total, {
-      sessionId: selectedSessionId,
+      sessionId: options.sessionId,
       isSessionComplete: Boolean(options.isSessionComplete),
     });
-    if (!context || !await canOpenCvaSample(context.sessionId, sample)) {
+    if (!context || !await canOpenSample(context.sessionId, sample)) {
       return;
     }
 
-    setSelectedCupContext(context);
+    if (!await selectSavedAssessment(context)) return;
     setScanStatusMessage("");
     goToCupping("Cupping Session Details");
   };
@@ -884,18 +912,27 @@ export function AppNavigator() {
       cupStateNumber: 1,
       cupStatus: { state: "READY", temp: "N/A", time: "00:00" },
     });
-    if (!context || !await canOpenCvaSample(sessionId, sample)) {
+    if (!context || !await canOpenSample(sessionId, sample)) {
       return;
     }
 
     setSelectedSessionId(sessionId);
-    setSelectedCupContext(context);
+    if (!await selectSavedAssessment(context)) return;
     setScanStatusMessage("");
     goToCupping("Cupping Session Details");
   };
 
   const content = useMemo(() => {
     if (route === "Cupping") {
+      if (selectedCupContext?.cuppingForm === 2) return (
+        <LegacyCuppingScreen key={selectedCupContext?.sampleId} sessionId={selectedCupContext.sessionId}
+          sampleId={selectedCupContext.sampleId} cupCount={selectedCupContext.defectsCupTotal}
+          coffeeNameOrigin={selectedCupContext.coffeeNameOrigin}
+          process={selectedCupContext.process} cuppingMode={selectedCupContext.cuppingMode}
+          sampleNumber={selectedCupContext.sampleNumber} cupIndex={selectedCupContext.cupIndex}
+          cupStatus={selectedCupContext.cupStatus} onScanPress={handleScanNextCupFromCupping}
+          onBackPress={() => { setSelectedSessionId(selectedCupContext.sessionId); setRoute(cuppingReturnRoute); }} />
+      );
       return (
         <CuppingScreen
           key={selectedCupContext?.sampleId || selectedCupContext?.cupUUID || "cupping-screen"}
@@ -1017,12 +1054,13 @@ export function AppNavigator() {
           onBackPress={() => setRoute("Cupping Session")}
           onSamplePress={async (sample, index, total) => {
             const context = buildContextFromSessionSample(sample, index, total);
-            if (!context || !await canOpenCvaSample(context.sessionId, sample)) return;
-            setSelectedCupContext({ ...context, isSessionComplete: true });
+            if (!context || !await canOpenSample(context.sessionId, sample)) return;
+            if (!await selectSavedAssessment({ ...context, isSessionComplete: true })) return;
             setScanStatusMessage("");
             goToCupping("Complete Session");
           }}
           onResetToPending={async (sid) => {
+            if (!(await getSessionSetupAccess(sid || selectedSessionId)).canManageSetup) return;
             await resetSessionToPending(sid || selectedSessionId);
             setSelectedSessionId(sid || selectedSessionId);
             setRoute("Pending Session");

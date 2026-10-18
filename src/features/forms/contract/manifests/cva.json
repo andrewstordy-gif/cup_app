@@ -3,7 +3,7 @@
   "protocol_profile": "ndef4-r1",
   "ndef_form_value": 1,
   "form_key": "sca_cva_affective_104_2024",
-  "form_version": "1.0.0",
+  "form_version": "2.0.0",
   "source": {
     "edition": "SCA Standard 104-2024, Affective Assessment",
     "sha256": "c788f986e938d3b10786ce0ee62462b21aec0ed2cfdce6de9f090e0d1b491c75",
@@ -12,19 +12,26 @@
   "fields": [
     { "id": "ratings", "type": "ordered_integer_mapping", "required_for_completion": true, "keys": ["fragrance", "aroma", "flavor", "aftertaste", "acidity", "sweetness", "mouthfeel", "overall"], "minimum": 1, "maximum": 9, "provenance": "SCA-104" },
     { "id": "affective_notes", "type": "optional_text_mapping", "required_for_completion": false, "keys": ["fragrance_aroma", "flavor_aftertaste", "acidity", "sweetness", "mouthfeel", "overall"], "provenance": "SCA-104" },
+    { "id": "general_affective_notes", "type": "optional_text", "required_for_completion": false, "provenance": "Cup App mixed tasting notes; no source-category attribution or score effect" },
     { "id": "non_uniform_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCA-104" },
     { "id": "defective_cups", "type": "assessed_cup_set", "required_for_completion": true, "provenance": "SCA-104" },
-    { "id": "defect_type", "type": "assessed_nullable_enum", "required_for_completion": true, "values": ["potato", "moldy", "phenolic"], "provenance": "SCA-104" },
+    { "id": "defect_type_masks", "type": "assessed_cup_set_mapping", "required_for_completion": true, "keys": ["moldy", "phenolic", "potato"], "provenance": "Cup App lossless per-cup multi-type representation of SCA-104 source defects" },
+    { "id": "other_bean_cups", "type": "optional_cup_set", "required_for_completion": false, "provenance": "Cup App observation only; no score effect" },
+    { "id": "roast_defect_type_masks", "type": "optional_cup_set_mapping", "required_for_completion": false, "keys": ["underdeveloped", "baked", "unevenRoast", "overdeveloped"], "provenance": "Cup App roast observations only; no score effect" },
+    { "id": "defect_description", "type": "optional_text", "required_for_completion": false, "provenance": "Cup App descriptive note; no score effect" },
     { "id": "evenly_defective_all_cups", "type": "boolean", "required_for_completion": true, "provenance": "Cup App explicit coherence evidence for SCA-104 exception" }
   ],
   "validation": [
     "response_identity_and_form_match_independently_trusted_session_pin",
     "cup_count_integer_1_to_8",
     "cup_sets_ascending_unique_one_based_within_count",
-    "mandatory_absent_or_null_unassessed_except_explicit_null_defect_type",
+    "mandatory_absent_or_null_unassessed_empty_set_or_mapping_assessed_none",
+    "draft_structural_errors_rejected_missing_and_coherence_judgments_retained_without_final_score",
     "one_cup_non_uniform_set_empty",
-    "defect_type_null_iff_defective_set_empty",
+    "defective_cups_equal_union_of_source_type_masks_once_per_cup",
+    "other_and_roast_observations_never_add_scored_defective_cups",
     "even_flag_true_only_if_all_cups_defective_and_even",
+    "one_cup_defective_requires_even_true",
     "defective_cups_subset_of_non_uniform_unless_explicit_even_all_exception",
     "no_unknown_response_fields"
   ],

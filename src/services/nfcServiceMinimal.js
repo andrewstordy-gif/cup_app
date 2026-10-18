@@ -29,21 +29,23 @@ function logTimestamp() {
 
 function logNfcEvent(stage, payload) {
   const ts = logTimestamp();
-  if (payload === undefined) {
-    console.log(`${ts} NFC minimal ${stage}`);
-    return;
+  const safeStage = /^(?:waiting for session cooldown|session cooldown armed|read start|read result|write start|write success|write retry scheduled|read\+write start|read\+write read result|read\+write (?:metadata-only )?write (?:start|success)|read\+write write retry scheduled|write metadata-only (?:start|success)|(?:read|write|read\+write) (?:tag summary|missing ndefMessage, retrying|retry tag summary))$/.test(stage)
+    ? stage : "event";
+  const counts = {};
+  for (const key of ["delayMs", "attempt", "recordCount", "byteLength"]) {
+    const value = payload?.[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) counts[key] = value;
   }
-
-  console.log(`${ts} NFC minimal ${stage}:`, payload);
+  // Raw NDEF, decoded text, byte windows and native objects can identify a
+  // blind coffee. Diagnostics use fixed stages and operational counts only.
+  console.log(`${ts} NFC minimal ${safeStage}`, counts);
 }
 
-function logNativeNfcError(stage, error) {
+function logNativeNfcError(stage) {
   const ts = logTimestamp();
-  console.log(`${ts} NFC minimal error stage: ${stage}`);
-  console.log(`${ts} NFC minimal error object:`, error);
-  console.log(`${ts} NFC minimal error message:`, error?.message);
-  console.log(`${ts} NFC minimal error code:`, error?.code);
-  console.log(`${ts} NFC minimal error stack:`, error?.stack);
+  const safeStage = ["requestTechnology", "getTag", "writeNdefMessage", "read+write writeNdefMessage"].includes(stage)
+    ? stage : "operation";
+  console.log(`${ts} NFC minimal error stage: ${safeStage}`);
 }
 
 function byteToHex(value) {
@@ -108,6 +110,11 @@ function summarizeRecordForDebug(record) {
 }
 
 function normalizeNfcError(error, fallbackMessage) {
+  if (error?.code === "PENDING_CUP_CONFLICT") {
+    const conflict = new Error("This cup is already assigned to another active session. Remove it from that session before adding it here, or use a different cup.");
+    conflict.code = "PENDING_CUP_CONFLICT";
+    return conflict;
+  }
   const stack = String(error?.stack || "");
   if (stack.includes("UserCancel")) {
     return new Error("NFC read session was cancelled.");

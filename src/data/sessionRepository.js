@@ -1,6 +1,19 @@
 import { getLocalDatabase } from "./localDatabase";
+import { getLocalProfileIdentity, getOrCreateLocalProfileIdentity } from "./userProfileRepository";
 import { generateDomainId } from "../utils/secureIdentifiers";
-import { cvaIdentity, isPinnedCva, requireCvaTag, requireTagCuppingMode } from "../features/forms/sessionFormRoute";
+import { fail as tastingFail, validActor, contextToken, stateWithDb as tastingStateWithDb,
+  assertUnstartedWithDb, startWithDb as startTastingWithDb, hasStartedWithDb,
+  streamWithDb, writeStreamWithDb, adoptionDuplicateWithDb, completeWithDb as completeTastingWithDb } from './localTastingState';
+import { formIdentity, isPinnedForm, requireFormTag, requireTagCuppingMode } from "../features/forms/sessionFormRoute";
+import { PROFILE, validateResponse, scoreResponse } from "../features/forms/contract";
+import { canonicalize } from '../features/forms/contract/canonical';
+import { readWithDb as readCanonicalCva, saveWithDb as saveCanonicalCva,
+  statusesWithDb as canonicalCvaStatuses, closeWithDb as closeCanonicalCva } from '../features/cupping/data/cvaResponseStore';
+import { RATINGS, cvaUiMasks, cvaNoteGroups } from '../features/cupping/data/cvaResponse';
+import { tokenizeFlavourKeywords } from '../features/cupping/data/flavourKeywords';
+import { CVA_SCORED_DEFECT_POLICY, getCvaScoredDefectSlots } from "../features/cupping/data/cvaDefectPolicy";
+import { CVA_EXACT_CALCULATION_POLICY, CVA_UNKNOWN_CALCULATION_MESSAGE,
+  calculateCvaScore, cvaResultLabel, isSupportedCvaCalculationPolicy } from "../features/cupping/data/cvaScoreCalculation";
 import {
   getSessionDateLabel,
   getSessionTypeLabel,
@@ -12,8 +25,56 @@ function generateId() {
   return generateDomainId();
 }
 
+const SETUP_PERMISSION_ERROR = "Only the local profile that created this session can manage its setup.";
+
+async function assertLocalCreatorWithDb(db, sessionId) {
+  const profileId = await getLocalProfileIdentity();
+  const row = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [sessionId]);
+  if (!profileId || !row?.creator || row.creator !== profileId) throw new Error(SETUP_PERMISSION_ERROR);
+}
+
+export async function getSessionSetupAccess(sessionId) {
+  try {
+    const db = await getLocalDatabase();
+    await assertLocalCreatorWithDb(db, sessionId);
+    const started = await hasStartedWithDb(db, sessionId);
+    return { canManageSetup: !started, isLocalCreator: true, started };
+  } catch { return { canManageSetup: false, isLocalCreator: false, started: true }; }
+}
+
+export async function getOwnedSessionSetup(sessionId) {
+  const db = await getLocalDatabase();
+  await assertLocalCreatorWithDb(db, sessionId);
+  await assertUnstartedWithDb(db, sessionId);
+  return getSessionById(sessionId);
+}
+
+async function ownedMutation(sessionId, operation) {
+  const db = await getLocalDatabase();
+  let result;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await assertLocalCreatorWithDb(txn, sessionId);
+    // Existing domain commands can reuse their transaction body without opening
+    // a nested SQLite transaction. Every mutation remains on this guarded handle.
+    const scoped = {
+      getFirstAsync: (...args) => txn.getFirstAsync(...args),
+      getAllAsync: (...args) => txn.getAllAsync(...args),
+      runAsync: (...args) => txn.runAsync(...args),
+      withExclusiveTransactionAsync: callback => callback(scoped),
+    };
+    result = await operation(scoped);
+  });
+  return result;
+}
+
 function normalizeCupUuid(value) {
   return String(value || "").trim().toUpperCase();
+}
+
+function observedPositiveInteger(value, maximum = Number.MAX_SAFE_INTEGER) {
+  const number = typeof value === 'number' ? value
+    : typeof value === 'string' && /^[1-9][0-9]*$/.test(value.trim()) ? Number(value.trim()) : NaN;
+  return Number.isSafeInteger(number) && number >= 1 && number <= maximum ? number : null;
 }
 
 function coerceCupNumber(value) {
@@ -27,6 +88,109 @@ function coerceCupNumber(value) {
 
 function cleanString(value) {
   return String(value || "").trim();
+}
+
+function isActiveFormPin(session, f) {
+  if (session?.cuppingForm !== f) return false;
+  const active = formIdentity(f);
+  return session.formKey === active.form_key &&
+    session.formVersion === active.form_version &&
+    session.formHash === active.form_hash;
+}
+
+const PROTOTYPE_CVA_PIN = {
+  form_key: 'sca_cva_affective_104_2024', form_version: '1.1.0',
+  form_hash: '2a9e341fb17664559875a08235a01f88571a3833682ead2a1de09558ba6bf0bb',
+};
+function isPrototypeCvaPin(session) {
+  return session?.cuppingForm === 1 && session.formKey === PROTOTYPE_CVA_PIN.form_key &&
+    session.formVersion === PROTOTYPE_CVA_PIN.form_version && session.formHash === PROTOTYPE_CVA_PIN.form_hash;
+}
+
+export async function getCvaResponse(sessionId, sampleId) {
+  const db = await getLocalDatabase();
+  let output;
+  await db.withExclusiveTransactionAsync(async txn => {
+    output = await withTastingResponseAccess(txn, sessionId, sampleId, 1, await readCanonicalCva(txn, sessionId, sampleId));
+  });
+  return output;
+}
+export async function saveCvaResponse(input) {
+  // Freeze the same command before any await: provenance, response write and
+  // acknowledgement must never target different samples after caller mutation.
+  let response;
+  try { response = JSON.parse(canonicalize(input?.response)); } catch { tastingFail('cva:malformed_response'); }
+  const command = { sessionId: input?.sessionId, sampleId: input?.sampleId, response,
+    expectedRevision: input?.expectedRevision, expectedIdentity: input?.expectedIdentity ? { ...input.expectedIdentity } : null,
+    expectedCupCount: input?.expectedCupCount };
+  const db = await getLocalDatabase();
+  const actor = await getOrCreateLocalProfileIdentity();
+  const result = await saveCanonicalCva(db, command, generateId, cvaDescriptors, async txn => {
+    await requireSameTastingActor(actor);
+    await writeStreamWithDb(txn, { sessionId: command.sessionId, sampleId: command.sampleId, form: 1, actor });
+    return () => requireSameTastingActor(actor);
+  });
+  return { ...result, ...await getCvaResponse(command.sessionId, command.sampleId), firstComplete: result.firstComplete };
+}
+
+const cvaDescriptors = response => cvaNoteGroups(response).flatMap(group => tokenizeFlavourKeywords(group.notes)
+  .filter(token => token.type === 'pill').map(token => ({ keyword: token.keyword, label: token.keyword, colour: token.colour, sourceField: group.key })));
+
+async function requireSameTastingActor(actor) {
+  if (!validActor(actor) || await getLocalProfileIdentity() !== actor) tastingFail('tasting:actor_changed');
+}
+
+async function withTastingResponseAccess(db, sessionId, sampleId, form, saved) {
+  let actor = null;
+  try { actor = await getOrCreateLocalProfileIdentity(); } catch { /* unavailable fails closed */ }
+  const access = await streamWithDb(db, sessionId, sampleId, form, actor);
+  const presentation = await getLocalTastingPresentationWithDb(db, sessionId, 'tasting', actor);
+  const sample = presentation.session.samples.find(row => row.id === sampleId);
+  if (actor) await requireSameTastingActor(actor);
+  return { ...saved, access: { state: access.state, canWrite: access.canWrite, canAdopt: access.canAdopt, sourceToken: access.sourceToken },
+    identity: { visible: !presentation.identityHidden, name: sample?.coffeeNameOrigin || '', process: sample?.process || '' },
+    tasting: presentation.tasting };
+}
+
+async function canonicalCvaForSample(db, sampleId) {
+  const row = await db.getFirstAsync(`SELECT s.id, s.cupping_form AS cuppingForm,
+    s.form_key AS formKey, s.form_version AS formVersion, s.form_hash AS formHash
+    FROM samples sm JOIN sessions s ON s.id = sm.session_id WHERE sm.id = ? LIMIT 1`, [sampleId]);
+  return row && isActiveFormPin(row, 1) ? readCanonicalCva(db, row.id, sampleId) : null;
+}
+
+async function assertActiveCvaSampleWithDb(db, sessionId, sampleId) {
+  const row = await db.getFirstAsync(
+    `SELECT s.id AS sessionId, s.cupping_form AS cuppingForm,
+            s.form_key AS formKey, s.form_version AS formVersion,
+            s.form_hash AS formHash, sm.cupping_form AS sampleForm
+     FROM samples sm JOIN sessions s ON s.id = sm.session_id
+     WHERE sm.id = ? LIMIT 1`,
+    [sampleId]
+  );
+  if (!row || (sessionId && row.sessionId !== sessionId) || row.sampleForm !== 1 ||
+      !isPrototypeCvaPin(row)) {
+    throw new Error('This sample is not linked to the active CVA form version. Its saved data was not changed.');
+  }
+  return row.sessionId;
+}
+
+export async function assertWritableCvaSample({ sessionId, sampleId } = {}) {
+  const db = await getLocalDatabase();
+  return assertActiveCvaSampleWithDb(db, cleanString(sessionId), cleanString(sampleId));
+}
+
+async function savedCvaCalculationWithDb(db, sampleId) {
+  const latest = await db.getFirstAsync(
+    'SELECT calculation_policy AS calculationPolicy FROM sample_defect_entries WHERE sample_id = ? ORDER BY rowid DESC LIMIT 1',
+    [sampleId]
+  );
+  if (latest && !isSupportedCvaCalculationPolicy(latest.calculationPolicy)) {
+    throw new Error(CVA_UNKNOWN_CALCULATION_MESSAGE);
+  }
+  if (latest) return latest.calculationPolicy;
+  const feedback = await db.getFirstAsync('SELECT id FROM sample_feedback_entries WHERE sample_id = ? LIMIT 1', [sampleId]);
+  return feedback ? null : CVA_EXACT_CALCULATION_POLICY;
 }
 
 function normalizeSessionUuid(value) {
@@ -132,8 +296,17 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
       [normalizedSessionId]
     );
     const feedbackCount = Number(feedbackCountRow?.count) || 0;
-    if (feedbackCount > 0) {
+    const legacyCountRow = await db.getFirstAsync(
+      "SELECT COUNT(*) AS count FROM legacy_responses WHERE session_id = ?",
+      [normalizedSessionId]
+    );
+    const cvaCountRow = await db.getFirstAsync(
+      "SELECT COUNT(*) AS count FROM cva_response_revisions WHERE session_id = ?",
+      [normalizedSessionId]
+    );
+    if (feedbackCount > 0 || Number(legacyCountRow?.count) > 0 || Number(cvaCountRow?.count) > 0) {
       nextStatus = "in_progress";
+      await startTastingWithDb(db, normalizedSessionId);
     }
   }
 
@@ -162,20 +335,10 @@ export const CUPPING_SCORE_FIELDS = [
   "Mouthfeel",
   "Overall",
 ];
-const CUPPING_SCORE_STEP = 0.25;
 
 function toNumericOrZero(value) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function roundToStep(value, step = CUPPING_SCORE_STEP) {
-  const numericValue = Number(value);
-  const numericStep = Number(step);
-  if (!Number.isFinite(numericValue) || !Number.isFinite(numericStep) || numericStep <= 0) {
-    return 0;
-  }
-  return Math.round((numericValue + Number.EPSILON) / numericStep) * numericStep;
 }
 
 function calculateFinalScore({
@@ -183,24 +346,21 @@ function calculateFinalScore({
   nonUniformCups,
   defectiveCups,
   numberOfCups,
+  calculationPolicy = null,
 }) {
   const cups = Math.max(1, toNumericOrZero(numberOfCups));
   const sumHi = CUPPING_SCORE_FIELDS.reduce(
     (sum, field) => sum + toNumericOrZero(finalScoresByField?.[field]),
     0
   );
-  const uRaw = toNumericOrZero(nonUniformCups);
-  const dRaw = toNumericOrZero(defectiveCups);
-  const uNormalized = (uRaw / cups) * 5;
-  const dNormalized = (dRaw / cups) * 5;
-  const scoreBeforeRounding = 0.65625 * sumHi + 52.75 - 2 * uNormalized - 4 * dNormalized;
-  return roundToStep(scoreBeforeRounding, CUPPING_SCORE_STEP);
+  return calculateCvaScore({ sumHi, nonUniformCups, defectiveCups, numberOfCups: cups, calculationPolicy });
 }
 
 export async function saveSessionWithSamples({
   sessionUUID,
   existingSessionId = null,
   cuppingForm,
+  cuppingMode,
   sessionDisplayId,
   sessionName,
   sessionType,
@@ -209,10 +369,11 @@ export async function saveSessionWithSamples({
   sessionDate,
   samples,
 }) {
-  const pinnedForm = cvaIdentity();
-  if (cuppingForm !== pinnedForm.f) {
+  if (cuppingForm !== 1 && cuppingForm !== 2) {
     throw new Error("The session form is missing or unsupported. No session was saved.");
   }
+  const pinnedForm = formIdentity(cuppingForm);
+  if (cuppingForm === 2 && cuppingMode !== 'open') throw new Error('SCA Legacy currently requires Open Cupping. No session was saved.');
   const trimmedSessionName = cleanString(sessionName);
   if (!trimmedSessionName) {
     throw new Error("Session name is required before saving.");
@@ -237,11 +398,11 @@ export async function saveSessionWithSamples({
     }))
     .filter((sample) => sample.cupUUID);
 
-  if (normalizedSamples.length === 0) {
-    throw new Error("Add at least one cup sample before saving.");
-  }
   if (normalizedSamples.some((sample) => sample.cuppingForm !== pinnedForm.f)) {
-    throw new Error("A sample form does not match the session's SCA CVA form.");
+    throw new Error("A sample form does not match the session form.");
+  }
+  if (cuppingForm === 2 && normalizedSamples.some((sample) => sample.cuppingMode !== 'open')) {
+    throw new Error('SCA Legacy Blind Cupping is not yet available. No session or cup assignment was saved.');
   }
 
   const db = await getLocalDatabase();
@@ -251,24 +412,71 @@ export async function saveSessionWithSamples({
   const displayIdValue = cleanString(sessionDisplayId) || `SESSION-${sessionUuidValue.slice(0, 8).toUpperCase()}`;
   const sessionStatusValue = cleanString(status).toLowerCase() || "pending";
 
-  await db.withTransactionAsync(async () => {
+  const creatorId = existingSessionId ? null : await getOrCreateLocalProfileIdentity();
+  await db.withExclusiveTransactionAsync(async txn => {
+    const db = txn;
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
     const existingSession = await db.getFirstAsync(
-      "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash FROM sessions WHERE id = ?",
+      "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode, form_locked AS formLocked, status FROM sessions WHERE id = ?",
       [sessionId]
     );
-    if (existingSession && !isPinnedCva(existingSession)) {
-      throw new Error("This older or unsupported prototype session cannot be converted to a versioned SCA CVA session. Its data is unchanged.");
+    if (existingSession) {
+      await assertLocalCreatorWithDb(db, sessionId);
+      await assertUnstartedWithDb(db, sessionId);
+    }
+    else if (existingSessionId) throw new Error('This saved session is unavailable. No new session was created.');
+    if (existingSession && isPinnedForm(existingSession, existingSession.cuppingForm) &&
+        !isActiveFormPin(existingSession, existingSession.cuppingForm) && !isPrototypeCvaPin(existingSession)) {
+      throw new Error('This historical form version is read-only. Start a new session; its saved data was not changed.');
+    }
+    if (existingSession && (!isPinnedForm(existingSession, cuppingForm) ||
+        (cuppingForm === 2 && existingSession.cuppingMode !== 'open'))) {
+      if (!isPinnedForm(existingSession, existingSession.cuppingForm)) {
+        throw new Error('This older or unsupported prototype session cannot be converted to a versioned form. Its data is unchanged.');
+      }
+      if (existingSession.cuppingForm === 2 && existingSession.cuppingMode !== 'open') {
+        throw new Error('Legacy session Open mode is missing or conflicting. Its data is unchanged.');
+      }
+      const assigned = await db.getFirstAsync('SELECT COUNT(*) AS count FROM samples WHERE session_id = ?', [sessionId]);
+      if (Number(assigned?.count) > 0 || Number(existingSession.formLocked) === 1) {
+        throw new Error("An existing session's pinned form or mode cannot be changed after cup assignment. Its data is unchanged.");
+      }
+    }
+    if (existingSession?.cuppingForm === 2) {
+      if (existingSession.status === 'complete') {
+        throw new Error('This completed Legacy Session is read-only. Reset it to Pending before editing; no local record was changed.');
+      }
+      const recorded = await db.getAllAsync(
+        `SELECT samples.cup_uuid AS cupUUID, samples.cup_number AS cupNumber
+         FROM samples JOIN legacy_responses ON legacy_responses.sample_id = samples.id
+         WHERE samples.session_id = ?`, [sessionId]
+      );
+      for (const prior of recorded) {
+        const next = normalizedSamples.find(sample => sample.cupUUID === prior.cupUUID);
+        if (!next || next.cupNumber !== Number(prior.cupNumber)) {
+          throw new Error('A Legacy sample with a saved response cannot be removed or have its cup count changed. No local record was changed.');
+        }
+      }
     }
 
     const createdAt = existingSession?.created_at || nowIso;
+    const savedPin = cuppingForm === 1 && isPrototypeCvaPin(existingSession)
+      ? { f: 1, ...PROTOTYPE_CVA_PIN } : pinnedForm;
+    if (existingSession?.cuppingForm === 1 && isActiveFormPin(existingSession, 1)) {
+      if (existingSession.status === 'complete') throw new Error('This completed CVA Session is read-only. No local record was changed.');
+      const captured = await db.getAllAsync(`SELECT sm.cup_uuid AS cupUUID, sm.cup_number AS cupCount
+        FROM samples sm JOIN cva_response_revisions r ON r.sample_id = sm.id WHERE sm.session_id = ?`, [sessionId]);
+      if (captured.some(prior => !normalizedSamples.some(next => next.cupUUID === prior.cupUUID && next.cupNumber === prior.cupCount))) {
+        throw new Error('A CVA sample with a saved response cannot be removed or have its cup count changed.');
+      }
+    }
 
     await db.runAsync(
       `
         INSERT INTO sessions (
           id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date,
-          cupping_form, form_key, form_version, form_hash, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          cupping_form, form_key, form_version, form_hash, cupping_mode, form_locked, created_at, updated_at, local_creator_profile_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           session_uuid = excluded.session_uuid,
           session_display_id = excluded.session_display_id,
@@ -281,6 +489,8 @@ export async function saveSessionWithSamples({
           form_key = excluded.form_key,
           form_version = excluded.form_version,
           form_hash = excluded.form_hash,
+          cupping_mode = excluded.cupping_mode,
+          form_locked = excluded.form_locked,
           updated_at = excluded.updated_at
       `,
       [
@@ -293,11 +503,14 @@ export async function saveSessionWithSamples({
         sessionStatusValue,
         cleanString(sessionDate),
         pinnedForm.f,
-        pinnedForm.form_key,
-        pinnedForm.form_version,
-        pinnedForm.form_hash,
+        savedPin.form_key,
+        savedPin.form_version,
+        savedPin.form_hash,
+        cuppingForm === 2 ? 'open' : null,
+        Number(existingSession?.formLocked) === 1 || normalizedSamples.length > 0 ? 1 : 0,
         createdAt,
         nowIso,
+        creatorId,
       ]
     );
 
@@ -347,7 +560,7 @@ export async function saveSessionWithSamples({
 
     const keepCupUuids = normalizedSamples.map((sample) => sample.cupUUID);
     if (keepCupUuids.length === 0) {
-      await db.runAsync("DELETE FROM samples WHERE session_id = ?", [sessionId]);
+      await db.runAsync('DELETE FROM samples WHERE session_id = ?', [sessionId]);
       return;
     }
 
@@ -418,6 +631,8 @@ export async function listSessions() {
         form_key AS formKey,
         form_version AS formVersion,
         form_hash AS formHash,
+        cupping_mode AS cuppingMode,
+        form_locked AS formLocked,
         updated_at AS updatedAt
       FROM sessions
       ORDER BY updated_at DESC
@@ -480,12 +695,15 @@ export async function findPendingSessionByCupUUID({ cupUUID, excludeSessionId } 
 }
 
 export async function findSessionBySessionUUID(sessionUUID) {
+  return findSessionBySessionUUIDWithDb(await getLocalDatabase(), sessionUUID);
+}
+
+async function findSessionBySessionUUIDWithDb(db, sessionUUID) {
   const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
   if (!normalizedSessionUUID) {
     return null;
   }
 
-  const db = await getLocalDatabase();
   const row = await db.getFirstAsync(
     `
       SELECT
@@ -501,6 +719,8 @@ export async function findSessionBySessionUUID(sessionUUID) {
         form_key AS formKey,
         form_version AS formVersion,
         form_hash AS formHash,
+        cupping_mode AS cuppingMode,
+        form_locked AS formLocked,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM sessions
@@ -513,9 +733,138 @@ export async function findSessionBySessionUUID(sessionUUID) {
   return row || null;
 }
 
-export async function getSessionById(sessionId) {
+export async function getSessionById(sessionId, { reconcile = true } = {}) {
   const db = await getLocalDatabase();
-  await reconcileCompletedSessions(db);
+  return getSessionByIdWithDb(db, sessionId, { reconcile });
+}
+
+export async function getLocalTastingPresentation(sessionId, { purpose = 'tasting' } = {}) {
+  const db = await getLocalDatabase();
+  let output;
+  await db.withExclusiveTransactionAsync(async txn => {
+    let actor = null;
+    try { actor = await getLocalProfileIdentity(); } catch { /* redact */ }
+    output = await getLocalTastingPresentationWithDb(txn, sessionId, purpose, actor);
+    if (actor && await getLocalProfileIdentity() !== actor) tastingFail('tasting:actor_changed');
+  });
+  return output;
+}
+
+async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) {
+  const raw = await getSessionByIdWithDb(db, sessionId);
+  if (!raw) tastingFail('tasting:unavailable');
+  const creator = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [sessionId]);
+  const isLocalCreator = validActor(actor) && creator?.creator === actor;
+  const state = await tastingStateWithDb(db, sessionId, actor);
+  const samples = raw.samples || [];
+  const supported = (isActiveFormPin(raw, 1) || isActiveFormPin(raw, 2)) &&
+    ['new', 'pending', 'in_progress', 'complete'].includes(raw.status) &&
+    samples.every(sample => sample.cuppingForm === raw.cuppingForm && Number.isInteger(sample.cupNumber) && sample.cupNumber >= 1 && sample.cupNumber <= 8);
+  const modes = samples.map(sample => sample.cuppingMode);
+  const consistentMode = samples.length ? modes.every(mode => mode === modes[0]) && ['open', 'blind'].includes(modes[0])
+    && (raw.cuppingMode == null || raw.cuppingMode === modes[0]) : ['open', 'blind'].includes(raw.cuppingMode);
+  const validMode = consistentMode && (raw.cuppingForm !== 2 || raw.cuppingMode === 'open' && modes.every(mode => mode === 'open'));
+  const open = validMode && (samples.length ? modes[0] === 'open' : raw.cuppingMode === 'open');
+  const canManageSetup = Boolean(supported && isLocalCreator && !state.started && raw.status !== 'complete');
+  const show = Boolean(supported && validMode && (open || state.revealed || purpose === 'setup' && canManageSetup));
+  const projected = {
+    id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
+    sessionName: raw.sessionName, sessionType: raw.sessionType, sessionDate: raw.sessionDate,
+    samplesInSession: raw.samplesInSession, status: raw.status, cuppingForm: raw.cuppingForm,
+    formKey: raw.formKey, formVersion: raw.formVersion, formHash: raw.formHash,
+    cuppingMode: raw.cuppingMode, formLocked: raw.formLocked, createdAt: raw.createdAt, updatedAt: raw.updatedAt,
+    samples: samples.map((sample, index) => ({
+    id: sample.id, cupUUID: sample.cupUUID, cupNumber: sample.cupNumber,
+    cuppingForm: sample.cuppingForm, cuppingMode: sample.cuppingMode,
+    sampleNumber: sample.sampleNumber, positionIndex: sample.positionIndex,
+    coffeeNameOrigin: show ? sample.coffeeNameOrigin : `Sample ${Number(sample.sampleNumber) || index + 1}`,
+    process: show ? sample.process : null, identityHidden: !show,
+  })) };
+  return { session: projected, identityHidden: !show,
+    tasting: { ...state, canComplete: Boolean(validActor(actor) && supported && validMode && samples.length && !state.completed),
+      canManageSetup, isLocalCreator } };
+}
+
+export async function completeLocalTasting(sessionId, { expectedContextToken } = {}) {
+  const db = await getLocalDatabase();
+  const actor = await getLocalProfileIdentity();
+  let output;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    if (!expectedContextToken || expectedContextToken !== contextToken(actor, sessionId)) tastingFail('tasting:stale_context');
+    const presentation = await getLocalTastingPresentationWithDb(txn, sessionId, 'tasting', actor);
+    // Validate current pin/mode before returning an idempotent acknowledgement.
+    const session = await getSessionByIdWithDb(txn, sessionId);
+    if ((!isActiveFormPin(session, 1) && !isActiveFormPin(session, 2)) ||
+        !['new', 'pending', 'in_progress', 'complete'].includes(session.status)) tastingFail('tasting:unsupported');
+    if (presentation.tasting.completed) {
+      if (presentation.identityHidden) tastingFail('tasting:unsupported');
+      await requireSameTastingActor(actor);
+      output = { status: 'complete', tasting: presentation.tasting }; return;
+    }
+    if (!presentation.tasting.canComplete) tastingFail('tasting:unavailable');
+    const statuses = await getSessionSampleFinalStatusWithDb(txn, sessionId);
+    const incompleteSamples = [];
+    for (const [index, sample] of session.samples.entries()) {
+      const access = await streamWithDb(txn, sessionId, sample.id, session.cuppingForm, actor);
+      if (access.state !== 'mine' || !statuses[sample.id]?.isComplete) {
+        incompleteSamples.push({ sampleId: sample.id, label: `Sample ${Number(sample.sampleNumber) || index + 1}` });
+      }
+    }
+    if (incompleteSamples.length) {
+      await requireSameTastingActor(actor);
+      output = { status: 'incomplete', incompleteSamples, tasting: presentation.tasting }; return;
+    }
+    await requireSameTastingActor(actor);
+    await completeTastingWithDb(txn, sessionId, actor);
+    output = { status: 'complete', tasting: (await getLocalTastingPresentationWithDb(txn, sessionId, 'tasting', actor)).tasting };
+    await requireSameTastingActor(actor);
+  });
+  return output;
+}
+
+export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceToken } = {}) {
+  const db = await getLocalDatabase();
+  const actor = await getLocalProfileIdentity();
+  if (!validActor(actor) || typeof expectedSourceToken !== 'string' || !expectedSourceToken) tastingFail('tasting:stale_review');
+  let form;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    const session = await getSessionByIdWithDb(txn, sessionId);
+    form = session?.cuppingForm;
+    if ((!isActiveFormPin(session, 1) && !isActiveFormPin(session, 2)) || !['new', 'pending', 'in_progress'].includes(session?.status)) tastingFail('tasting:read_only');
+    if (await adoptionDuplicateWithDb(txn, sessionId, sampleId, actor, expectedSourceToken)) {
+      await requireSameTastingActor(actor); return;
+    }
+    const prior = form === 1 ? await readCanonicalCva(txn, sessionId, sampleId) : await getLegacyResponseWithDb(txn, sessionId, sampleId);
+    if (!prior.response) tastingFail('tasting:stale_review');
+    if (form === 1) {
+      const scoped = { getFirstAsync: (...args) => txn.getFirstAsync(...args), getAllAsync: (...args) => txn.getAllAsync(...args),
+        runAsync: (...args) => txn.runAsync(...args), withExclusiveTransactionAsync: callback => callback(scoped) };
+      await saveCanonicalCva(scoped, { sessionId, sampleId, response: prior.response, expectedRevision: prior.revision,
+        expectedIdentity: prior.trusted.identity, expectedCupCount: prior.n }, generateId, cvaDescriptors, async handle => {
+        await requireSameTastingActor(actor);
+        await writeStreamWithDb(handle, { sessionId, sampleId, form, actor, expectedSourceToken });
+        return { preserveDraft: !prior.complete, finalize: () => requireSameTastingActor(actor) };
+      });
+    } else {
+      const sample = session.samples.find(row => row.id === sampleId);
+      const validation = validateResponse({ ...trustedLegacySession(session), cup_count: sample.cupNumber,
+        response: prior.response, complete: Boolean(prior.complete) }, trustedLegacySession(session));
+      if (!validation.ok) tastingFail('tasting:invalid_saved_response');
+      await writeStreamWithDb(txn, { sessionId, sampleId, form, actor, expectedSourceToken });
+      // Adoption does not alter any saved judgement or its finality. The exact
+      // original row has been retained by writeStreamWithDb before this write.
+      await txn.runAsync('UPDATE legacy_responses SET updated_at = ? WHERE session_id = ? AND sample_id = ?',
+        [new Date().toISOString(), sessionId, sampleId]);
+    }
+    await requireSameTastingActor(actor);
+  });
+  return form === 1 ? getCvaResponse(sessionId, sampleId) : getLegacyResponse(sessionId, sampleId);
+}
+
+async function getSessionByIdWithDb(db, sessionId, { reconcile = true } = {}) {
+  if (reconcile) await reconcileCompletedSessions(db);
 
   const session = await db.getFirstAsync(
     `
@@ -532,6 +881,8 @@ export async function getSessionById(sessionId) {
         form_key AS formKey,
         form_version AS formVersion,
         form_hash AS formHash,
+        cupping_mode AS cuppingMode,
+        form_locked AS formLocked,
         created_at AS createdAt,
         updated_at AS updatedAt
       FROM sessions
@@ -570,26 +921,29 @@ export async function getSessionById(sessionId) {
   };
 }
 
-async function assertPinnedCvaSessionWithDb(db, sessionId) {
+async function assertPinnedSessionWithDb(db, sessionId) {
   const row = await db.getFirstAsync(
     `SELECT cupping_form AS cuppingForm, form_key AS formKey,
-            form_version AS formVersion, form_hash AS formHash
+            form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode
      FROM sessions WHERE id = ? LIMIT 1`,
     [sessionId]
   );
-  if (!isPinnedCva(row)) {
+  if (!isPinnedForm(row, row?.cuppingForm) || (row.cuppingForm === 2 && row.cuppingMode !== 'open')) {
     throw new Error("This older or unsupported prototype session is read-only. No record was changed.");
   }
 }
 
 export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) {
+  return findSampleInSessionByCupUUIDWithDb(await getLocalDatabase(), { sessionId, cupUUID });
+}
+
+async function findSampleInSessionByCupUUIDWithDb(db, { sessionId, cupUUID } = {}) {
   const normalizedSessionId = cleanString(sessionId);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
   if (!normalizedSessionId || !normalizedCupUUID) {
     return null;
   }
 
-  const db = await getLocalDatabase();
   const row = await db.getFirstAsync(
     `
       SELECT
@@ -615,7 +969,14 @@ export async function findSampleInSessionByCupUUID({ sessionId, cupUUID } = {}) 
   return row || null;
 }
 
-export async function upsertSessionFromCupMetadata({
+export async function upsertSessionFromCupMetadata(input = {}) {
+  const db = await getLocalDatabase();
+  let result;
+  await db.withExclusiveTransactionAsync(async txn => { result = await importSessionWithDb(txn, input); });
+  return result;
+}
+
+async function importSessionWithDb(db, {
   sessionUUID,
   cuppingForm,
   sessionName,
@@ -624,39 +985,50 @@ export async function upsertSessionFromCupMetadata({
   samplesInSession,
   status = "new",
 } = {}) {
-  requireCvaTag({ f: cuppingForm });
-  const pinnedForm = cvaIdentity();
+  const f = requireFormTag({ f: cuppingForm });
+  const pinnedForm = formIdentity(f);
   const normalizedSessionUUID = normalizeSessionUuid(sessionUUID);
   if (!normalizedSessionUUID) {
     throw new Error("sessionUUID is required to upsert a session.");
   }
 
-  const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
-  const existing = await findSessionBySessionUUID(normalizedSessionUUID);
-  if (existing && !isPinnedCva(existing)) {
+  const existing = await findSessionBySessionUUIDWithDb(db, normalizedSessionUUID);
+  if (existing && !isPinnedForm(existing, f)) {
     throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
   }
+  if (existing && !isActiveFormPin(existing, f) && !isPrototypeCvaPin(existing)) {
+    throw new Error('This cup refers to a read-only historical form version. Its saved data was not changed.');
+  }
+  if (f === 2 && (!existing || existing.cuppingMode !== 'open')) {
+    throw new Error('SCA Legacy cup is not linked to a trusted local Open Cupping session. No local data was changed.');
+  }
+  if (f === 2) return existing;
+  const provenance = existing && await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [existing.id]);
+  if (provenance?.creator) {
+    // Earlier cups legitimately carry the old total/header after another sample
+    // is added or organiser metadata changes. Those tag fields are observations,
+    // never authority to update local setup. The sample import still requires an
+    // exact known assignment, form, mode, cup count, identity and position.
+    return existing;
+  }
+  // A trusted local historical pin is authority; a tag's f=1 never upgrades it.
+  if (isPrototypeCvaPin(existing)) return existing;
   const sessionId = cleanString(existing?.id) || normalizedSessionUUID;
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextStatus = cleanString(existing?.status || status).toLowerCase() || "new";
-  const nextSessionName = cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
-  const nextSessionType =
-    getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
-  const nextSessionDate =
-    getSessionDateLabel(sessionDate) ||
-    cleanString(existing?.sessionDate) ||
-    formatSessionDateFallback(new Date());
-  const nextSamplesInSession =
-    normalizePositiveInteger(samplesInSession, Number(existing?.samplesInSession) || 0);
+  const nextSessionName = f === 2 ? existing.sessionName : cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
+  const nextSessionType = f === 2 ? existing.sessionType : getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
+  const nextSessionDate = f === 2 ? existing.sessionDate : getSessionDateLabel(sessionDate) || cleanString(existing?.sessionDate) || formatSessionDateFallback(new Date());
+  const nextSamplesInSession = f === 2 ? Number(existing.samplesInSession) || 0 : normalizePositiveInteger(samplesInSession, Number(existing?.samplesInSession) || 0);
   const nextDisplayId = cleanString(existing?.sessionDisplayId) || `SESSION-${normalizedSessionUUID.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 
   await db.runAsync(
     `
       INSERT INTO sessions (
         id, session_uuid, session_display_id, session_name, session_type, samples_in_session, status, session_date,
-        cupping_form, form_key, form_version, form_hash, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        cupping_form, form_key, form_version, form_hash, cupping_mode, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         session_uuid = excluded.session_uuid,
         session_display_id = excluded.session_display_id,
@@ -669,6 +1041,7 @@ export async function upsertSessionFromCupMetadata({
         form_key = excluded.form_key,
         form_version = excluded.form_version,
         form_hash = excluded.form_hash,
+        cupping_mode = excluded.cupping_mode,
         updated_at = excluded.updated_at
     `,
     [
@@ -684,6 +1057,7 @@ export async function upsertSessionFromCupMetadata({
       pinnedForm.form_key,
       pinnedForm.form_version,
       pinnedForm.form_hash,
+      f === 2 ? 'open' : null,
       createdAt,
       nowIso,
     ]
@@ -702,12 +1076,20 @@ export async function upsertSessionFromCupMetadata({
     formKey: pinnedForm.form_key,
     formVersion: pinnedForm.form_version,
     formHash: pinnedForm.form_hash,
+    cuppingMode: f === 2 ? 'open' : null,
     createdAt,
     updatedAt: nowIso,
   };
 }
 
-export async function upsertSessionSampleFromCupMetadata({
+export async function upsertSessionSampleFromCupMetadata(input = {}) {
+  const db = await getLocalDatabase();
+  let result;
+  await db.withExclusiveTransactionAsync(async txn => { result = await importSampleWithDb(txn, input); });
+  return result;
+}
+
+async function importSampleWithDb(db, {
   sessionId,
   cupUUID,
   coffeeNameOrigin,
@@ -723,9 +1105,8 @@ export async function upsertSessionSampleFromCupMetadata({
     throw new Error("sessionId and cupUUID are required to upsert a sample.");
   }
 
-  const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
-  const existing = await findSampleInSessionByCupUUID({
+  const existing = await findSampleInSessionByCupUUIDWithDb(db, {
     sessionId: normalizedSessionId,
     cupUUID: normalizedCupUUID,
   });
@@ -747,14 +1128,54 @@ export async function upsertSessionSampleFromCupMetadata({
   const sampleId = cleanString(existing?.id) || generateId();
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextCupNumber = coerceCupNumber(cupNumber ?? existing?.cupNumber);
-  const pinnedSession = await getSessionById(normalizedSessionId);
-  if (!isPinnedCva(pinnedSession) || cuppingForm !== 1 || (existing && existing.cuppingForm !== 1)) {
+  const pinnedSession = await getSessionByIdWithDb(db, normalizedSessionId, { reconcile: cuppingForm !== 2 });
+  if (!isPinnedForm(pinnedSession, cuppingForm) || (existing && existing.cuppingForm !== cuppingForm)) {
     throw new Error("Cup form does not match the session form. No sample was changed.");
   }
-  const nextCuppingForm = 1;
+  if (cuppingForm === 1 && !isActiveFormPin(pinnedSession, 1) && !isPrototypeCvaPin(pinnedSession)) {
+    throw new Error('This historical CVA session is read-only. No sample was changed.');
+  }
+  const nextCuppingForm = cuppingForm;
+  if (nextCuppingForm === 1 && isActiveFormPin(pinnedSession, 1) && existing) {
+    const captured = await db.getFirstAsync('SELECT revision FROM cva_response_revisions WHERE sample_id = ? LIMIT 1', [existing.id]);
+    if (captured && existing.cupNumber !== nextCupNumber) throw new Error('Cannot change the cup count after a CVA response was saved.');
+  }
+  if (nextCuppingForm === 2 && existing && Number(existing.cupNumber) !== nextCupNumber) {
+    const responseRow = await db.getFirstAsync('SELECT sample_id FROM legacy_responses WHERE sample_id = ? LIMIT 1', [existing.id]);
+    if (responseRow) throw new Error('Cannot change the cup count after a Legacy response was saved. No local record was changed.');
+  }
   const nextCuppingMode = requireTagCuppingMode(
     cuppingMode === "b" || cuppingMode === "o" ? { m: cuppingMode } : { cuppingMode }
   );
+  if (nextCuppingForm === 2 && (pinnedSession.cuppingMode !== 'open' || nextCuppingMode !== 'open')) {
+    throw new Error('SCA Legacy Blind Cupping is not yet available. No local record was changed.');
+  }
+  const provenance = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [normalizedSessionId]);
+  const observedCount = observedPositiveInteger(cupNumber, 8);
+  const observedPosition = observedPositiveInteger(sampleNumber);
+  if (provenance?.creator && existing && (observedCount === null || (sampleNumber !== undefined && observedPosition === null))) {
+    throw new Error('Cup assignment count or position is missing or invalid. No local record was changed.');
+  }
+  if (nextCuppingForm === 2) {
+    if (!existing) {
+      throw new Error('This Legacy cup has no trusted local assignment. Reopen the Session and assign the cup before scanning; no local data was changed.');
+    }
+    if (Number(existing.cupNumber) !== nextCupNumber ||
+        cleanString(coffeeNameOrigin) !== existing.coffeeNameOrigin ||
+        String(process) !== String(existing.process) ||
+        normalizePositiveInteger(sampleNumber, existing.sampleNumber) !== Number(existing.sampleNumber)) {
+      throw new Error('Legacy cup metadata conflicts with its trusted local assignment. No local record was changed.');
+    }
+    return existing;
+  }
+  if (provenance?.creator) {
+    if (!existing || existing.cupNumber !== observedCount || existing.cuppingMode !== nextCuppingMode ||
+        cleanString(coffeeNameOrigin) !== existing.coffeeNameOrigin || cleanString(process) !== String(existing.process) ||
+        (sampleNumber !== undefined && observedPosition !== Number(existing?.sampleNumber))) {
+      throw new Error('Cup metadata conflicts with locally created sample assignment. No local record was changed.');
+    }
+    return existing;
+  }
   if ((pinnedSession.samples || []).some((sample) => sample.cuppingMode !== nextCuppingMode)) {
     throw new Error("Cup cupping mode conflicts with its stored session samples. No local record was changed.");
   }
@@ -797,6 +1218,8 @@ export async function upsertSessionSampleFromCupMetadata({
     ]
   );
 
+  await db.runAsync('UPDATE sessions SET form_locked = 1 WHERE id = ?', [normalizedSessionId]);
+
   await recomputeSessionProgressStatusWithDb(db, normalizedSessionId);
 
   return {
@@ -817,8 +1240,12 @@ export async function upsertSessionSampleFromCupMetadata({
 
 export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } = {}) {
   // Validate the raw tag before local fallback or any database write.
-  requireCvaTag(metadata);
+  const f = requireFormTag(metadata);
   const tagMode = requireTagCuppingMode(metadata);
+  const rawCupCount = metadata?.cupNumber ?? metadata?.y;
+  if (f === 2 && (!Number.isInteger(rawCupCount) || rawCupCount < 1 || rawCupCount > 8 || tagMode !== 'open')) {
+    throw new Error('SCA Legacy cup count or Open mode is missing or unsupported. No local data was changed.');
+  }
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
   const sessionUUID = normalizeSessionUuid(
     metadata?.sessionUUID ?? metadata?.u
@@ -829,17 +1256,45 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
   }
 
   const existingSession = await findSessionBySessionUUID(sessionUUID);
+  if (f === 2 && !existingSession) {
+    throw new Error('SCA Legacy cup is not linked to a trusted local Open Cupping session. No local data was changed.');
+  }
   if (existingSession) {
-    if (!isPinnedCva(existingSession)) {
+    if (!isPinnedForm(existingSession, f)) {
       throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
     }
-    const trustedSession = await getSessionById(existingSession.id);
-    if ((trustedSession?.samples || []).some((sample) => sample.cuppingForm !== 1 || sample.cuppingMode !== tagMode)) {
+    const trustedSession = await getSessionById(existingSession.id, { reconcile: f !== 2 });
+    if ((f === 2 && (trustedSession.cuppingMode !== 'open' || tagMode !== 'open')) ||
+        (trustedSession?.samples || []).some((sample) => sample.cuppingForm !== f || sample.cuppingMode !== tagMode)) {
       throw new Error("The cup form or cupping mode conflicts with stored session samples. No local record was changed.");
+    }
+    if (f === 2) {
+      const storedSample = trustedSession.samples.find(sample => normalizeCupUuid(sample.cupUUID) === normalizedCupUUID);
+      if (!storedSample) {
+        throw new Error('This Legacy cup has no trusted local assignment. Reopen the Session and assign the cup before scanning; no local data was changed.');
+      }
+      if (Number(storedSample.cupNumber) !== rawCupCount ||
+          storedSample.coffeeNameOrigin !== cleanString(metadata?.coffeeName ?? metadata?.n) ||
+          String(storedSample.process) !== String(metadata?.coffeeProcess ?? metadata?.p) ||
+          ((metadata?.sampleNumber ?? metadata?.z) !== undefined &&
+            observedPositiveInteger(metadata?.sampleNumber ?? metadata?.z) !== Number(storedSample.sampleNumber))) {
+        throw new Error('Legacy cup metadata conflicts with its trusted local assignment. No local record was changed.');
+      }
+      return {
+        sessionId: trustedSession.id, sessionUUID: trustedSession.sessionUUID,
+        sessionDisplayId: trustedSession.sessionDisplayId, sessionName: trustedSession.sessionName,
+        sessionType: trustedSession.sessionType, sessionStatus: trustedSession.status,
+        sessionDate: trustedSession.sessionDate, sampleId: storedSample.id,
+        cupUUID: storedSample.cupUUID, cupNumber: storedSample.cupNumber,
+        cuppingForm: storedSample.cuppingForm, cuppingMode: storedSample.cuppingMode,
+        sampleNumber: storedSample.sampleNumber, coffeeNameOrigin: storedSample.coffeeNameOrigin,
+        coffeeProcess: storedSample.process, cupIndex: Number(storedSample.positionIndex) || 0,
+        cupTotal: Number(trustedSession.samplesInSession) || trustedSession.samples.length || 1,
+      };
     }
   }
 
-  const session = await upsertSessionFromCupMetadata({
+  const session = f === 2 ? existingSession : await upsertSessionFromCupMetadata({
     sessionUUID,
     cuppingForm: metadata?.f ?? metadata?.cuppingForm,
     sessionName: metadata?.sessionName ?? metadata?.e,
@@ -861,15 +1316,18 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
   });
 
   const db = await getLocalDatabase();
+  const provenance = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [session.id]);
   // Transition session from new → pending on first cup scan.
-  await db.runAsync(
-    `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
-    [new Date().toISOString(), session.id]
-  );
-  await db.runAsync(
-    `UPDATE sessions SET updated_at = ? WHERE id = ?`,
-    [new Date().toISOString(), session.id]
-  );
+  if (!provenance?.creator) {
+    await db.runAsync(
+      `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
+      [new Date().toISOString(), session.id]
+    );
+    await db.runAsync(
+      `UPDATE sessions SET updated_at = ? WHERE id = ?`,
+      [new Date().toISOString(), session.id]
+    );
+  }
 
   const cupTotalRow = await db.getFirstAsync(
     `
@@ -902,12 +1360,15 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
 }
 
 export async function deleteSessionById(sessionId) {
+  return ownedMutation(sessionId, db => deleteOwnedSessionById(db, sessionId));
+}
+
+async function deleteOwnedSessionById(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) {
     throw new Error("sessionId is required to delete a session.");
   }
 
-  const db = await getLocalDatabase();
   const existing = await db.getFirstAsync(
     `
       SELECT id
@@ -926,13 +1387,154 @@ export async function deleteSessionById(sessionId) {
   return { deleted: true };
 }
 
+function trustedLegacySession(session) {
+  if (!isPinnedForm(session, 2) || session.cuppingMode !== 'open') {
+    throw new Error('SCA Legacy Open Cupping session identity is unavailable. No response was changed.');
+  }
+  return {
+    profile: PROFILE,
+    f: 2,
+    identity: { form_key: session.formKey, form_version: session.formVersion, form_hash: session.formHash },
+  };
+}
+
+export async function getLegacyResponse(sessionId, sampleId) {
+  const db = await getLocalDatabase();
+  let output;
+  await db.withExclusiveTransactionAsync(async txn => {
+    output = await withTastingResponseAccess(txn, sessionId, sampleId, 2, await getLegacyResponseWithDb(txn, sessionId, sampleId));
+  });
+  return output;
+}
+
+async function getLegacyResponseWithDb(db, sessionId, sampleId) {
+  const session = await getSessionByIdWithDb(db, sessionId);
+  const trusted = trustedLegacySession(session);
+  const sample = session.samples.find((row) => row.id === sampleId);
+  if (!sample || sample.cuppingForm !== 2 || sample.cuppingMode !== 'open') {
+    throw new Error('Legacy sample identity does not match its session.');
+  }
+  const row = await db.getFirstAsync(
+    'SELECT form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cup_count AS cupCount, response_json AS responseJson, is_complete AS isComplete FROM legacy_responses WHERE session_id = ? AND sample_id = ? LIMIT 1',
+    [sessionId, sampleId]
+  );
+  if (!row) return { response: null, complete: false, result: null, errors: [], sessionComplete: session.status === 'complete' };
+  if (row.formKey !== trusted.identity.form_key || row.formVersion !== trusted.identity.form_version ||
+      row.formHash !== trusted.identity.form_hash || Number(row.cupCount) !== Number(sample.cupNumber) || ![0, 1].includes(row.isComplete)) {
+    throw new Error('Saved Legacy response identity or cup count conflicts with this session.');
+  }
+  let response;
+  try { response = JSON.parse(row.responseJson); } catch { throw new Error('Saved Legacy response is damaged.'); }
+  const input = { ...trusted, cup_count: Number(sample.cupNumber), response, complete: Boolean(row.isComplete) };
+  const validation = validateResponse(input, trusted);
+  if (row.isComplete && !validation.ok) throw new Error(`Saved Legacy response is invalid: ${validation.errors.join(', ')}`);
+  const result = row.isComplete ? scoreResponse(input, trusted) : null;
+  if (row.isComplete && !result?.ok) throw new Error('Saved Legacy score could not be reproduced.');
+  return { response, complete: Boolean(row.isComplete), result, errors: validation.errors,
+    sessionComplete: session.status === 'complete' };
+}
+
+export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false }) {
+  try { response = JSON.parse(canonicalize(response)); } catch { return { ok: false, errors: ['response:invalid_object'] }; }
+  const actor = await getOrCreateLocalProfileIdentity();
+  const session = await getSessionById(sessionId);
+  const trusted = trustedLegacySession(session);
+  if (session.status === 'complete') {
+    return { ok: false, errors: ['session:complete_read_only'] };
+  }
+  const sample = session.samples.find((row) => row.id === sampleId);
+  if (!sample || sample.cuppingForm !== 2 || sample.cuppingMode !== 'open') {
+    throw new Error('Legacy sample identity does not match its session. No response was saved.');
+  }
+  const input = { ...trusted, cup_count: Number(sample.cupNumber), response, complete: Boolean(complete) };
+  const validation = validateResponse(input, trusted);
+  if (complete && !validation.ok) return { ok: false, errors: validation.errors };
+  if (!response || typeof response !== 'object' || Array.isArray(response)) {
+    return { ok: false, errors: ['response:invalid_object'] };
+  }
+  const result = complete ? scoreResponse(input, trusted) : null;
+  if (complete && !result?.ok) return { ok: false, errors: result?.errors || ['score:invalid'] };
+  const db = await getLocalDatabase();
+  let outcome = null;
+  // The earlier UI/validation read is not authority for a later write. Hold an
+  // exclusive transaction while rechecking the current pin, Session state,
+  // Sample mode/count, and any response row that an UPSERT would replace.
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    const current = await txn.getFirstAsync(
+      `SELECT s.status, s.cupping_form AS cuppingForm, s.form_key AS formKey,
+              s.form_version AS formVersion, s.form_hash AS formHash, s.cupping_mode AS cuppingMode,
+              sm.cupping_form AS sampleForm, sm.cupping_mode AS sampleMode, sm.cup_number AS cupCount
+       FROM sessions s JOIN samples sm ON sm.session_id = s.id
+       WHERE s.id = ? AND sm.id = ? LIMIT 1`, [sessionId, sampleId]
+    );
+    if (current?.status === 'complete') {
+      outcome = { ok: false, errors: ['session:complete_read_only'] };
+      return;
+    }
+    if (!current || current.cuppingForm !== 2 || current.sampleForm !== 2 ||
+        current.cuppingMode !== 'open' || current.sampleMode !== 'open' ||
+        current.formKey !== trusted.identity.form_key || current.formVersion !== trusted.identity.form_version ||
+        current.formHash !== trusted.identity.form_hash || Number(current.cupCount) !== Number(sample.cupNumber)) {
+      outcome = { ok: false, errors: ['session:form_or_sample_changed'] };
+      return;
+    }
+    const prior = await txn.getFirstAsync(
+      `SELECT session_id AS sessionId, form_key AS formKey, form_version AS formVersion,
+              form_hash AS formHash, cup_count AS cupCount
+       FROM legacy_responses WHERE sample_id = ? LIMIT 1`, [sampleId]
+    );
+    if (prior && (prior.sessionId !== sessionId || prior.formKey !== trusted.identity.form_key ||
+        prior.formVersion !== trusted.identity.form_version || prior.formHash !== trusted.identity.form_hash ||
+        Number(prior.cupCount) !== Number(sample.cupNumber))) {
+      outcome = { ok: false, errors: ['response:stored_identity_mismatch'] };
+      return;
+    }
+    await requireSameTastingActor(actor);
+    await writeStreamWithDb(txn, { sessionId, sampleId, form: 2, actor });
+    await txn.runAsync(
+      `INSERT INTO legacy_responses (sample_id, session_id, form_key, form_version, form_hash, cup_count, response_json, is_complete, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(sample_id) DO UPDATE SET response_json = excluded.response_json, is_complete = excluded.is_complete,
+         updated_at = excluded.updated_at`,
+      [sampleId, sessionId, trusted.identity.form_key, trusted.identity.form_version, trusted.identity.form_hash,
+        Number(sample.cupNumber), JSON.stringify(response), complete ? 1 : 0, new Date().toISOString()]
+    );
+    await recomputeSessionProgressStatusWithDb(txn, sessionId);
+    await requireSameTastingActor(actor);
+    outcome = { ok: true, result, errors: validation.errors,
+      access: { state: 'mine', canWrite: true, canAdopt: false, sourceToken: null } };
+  });
+  return outcome?.ok ? { ...outcome, ...await getLegacyResponse(sessionId, sampleId) } : outcome;
+}
+
 export async function getSessionSampleFinalStatus(sessionId) {
+  return getSessionSampleFinalStatusWithDb(await getLocalDatabase(), sessionId);
+}
+
+async function getSessionSampleFinalStatusWithDb(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) {
     return {};
   }
 
-  const db = await getLocalDatabase();
+  const session = await getSessionByIdWithDb(db, normalizedSessionId);
+  if (isActiveFormPin(session, 1)) return canonicalCvaStatuses(db, normalizedSessionId);
+  if (isPinnedForm(session, 2)) {
+    trustedLegacySession(session);
+    const rows = await db.getAllAsync(
+      'SELECT sample_id AS sampleId, is_complete AS isComplete FROM legacy_responses WHERE session_id = ?',
+      [normalizedSessionId]
+    );
+    const saved = new Map((rows || []).map((row) => [row.sampleId, row]));
+    const statuses = {};
+    for (const sample of session.samples) {
+      const row = saved.get(sample.id);
+      const complete = row ? await getLegacyResponseWithDb(db, normalizedSessionId, sample.id) : null;
+      statuses[sample.id] = { isComplete: Boolean(complete?.result?.ok), finalScore: complete?.result?.display_score || null,
+        resultLabel: complete?.result?.label || null, hasAnyFeedback: Boolean(row), scoresByField: {} };
+    }
+    return statuses;
+  }
   const samples = await db.getAllAsync(
     `
       SELECT id
@@ -960,9 +1562,12 @@ export async function getSessionSampleFinalStatus(sessionId) {
         FROM sample_feedback_entries
         WHERE session_id = ?
           AND sample_id IN (${placeholders})
-        ORDER BY created_at ASC
+        ORDER BY CASE WHEN (
+          SELECT d.calculation_policy FROM sample_defect_entries d
+          WHERE d.sample_id = sample_feedback_entries.sample_id ORDER BY d.rowid DESC LIMIT 1
+        ) = ? THEN rowid END ASC, created_at ASC, rowid ASC
       `,
-      [normalizedSessionId, ...sampleIds]
+      [normalizedSessionId, ...sampleIds, CVA_EXACT_CALCULATION_POLICY]
     );
   } catch (error) {
     const message = String(error?.message || "");
@@ -981,11 +1586,13 @@ export async function getSessionSampleFinalStatus(sessionId) {
           non_uniform_cups AS nonUniformCups,
           defective_cups AS defectiveCups,
           number_of_cups AS numberOfCups,
+          calculation_policy AS calculationPolicy,
+          score_policy AS scorePolicy,
           created_at AS createdAt
         FROM sample_defect_entries
         WHERE session_id = ?
           AND sample_id IN (${placeholders})
-        ORDER BY created_at ASC
+        ORDER BY rowid ASC
       `,
       [normalizedSessionId, ...sampleIds]
     );
@@ -1020,6 +1627,8 @@ export async function getSessionSampleFinalStatus(sessionId) {
       nonUniformCups: Math.max(0, Number.parseInt(row?.nonUniformCups, 10) || 0),
       defectiveCups: Math.max(0, Number.parseInt(row?.defectiveCups, 10) || 0),
       numberOfCups: Math.max(1, Number.parseInt(row?.numberOfCups, 10) || 1),
+      calculationPolicy: row?.calculationPolicy ?? null,
+      scorePolicy: row?.scorePolicy ?? null,
     };
   });
 
@@ -1052,7 +1661,10 @@ export async function getSessionSampleFinalStatus(sessionId) {
         nonUniformCups: defects.nonUniformCups,
         defectiveCups: defects.defectiveCups,
         numberOfCups: defects.numberOfCups,
+        calculationPolicy: defects.calculationPolicy ?? null,
       }),
+      calculationPolicy: defects.calculationPolicy ?? null,
+      resultLabel: cvaResultLabel(defects.calculationPolicy ?? null, defects.numberOfCups, defects.scorePolicy),
       scoresByField: finalScoresByField,
       hasAnyFeedback,
     };
@@ -1061,10 +1673,13 @@ export async function getSessionSampleFinalStatus(sessionId) {
 }
 
 export async function activateSession(sessionId) {
+  return ownedMutation(sessionId, db => activateOwnedSession(db, sessionId));
+}
+
+async function activateOwnedSession(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return;
-  const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1072,10 +1687,13 @@ export async function activateSession(sessionId) {
 }
 
 export async function resetSessionToPending(sessionId) {
+  return ownedMutation(sessionId, db => resetOwnedSessionToPending(db, sessionId));
+}
+
+async function resetOwnedSessionToPending(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
-  const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'complete'`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1084,10 +1702,15 @@ export async function resetSessionToPending(sessionId) {
 }
 
 export async function manuallyMarkSessionComplete(sessionId) {
+  return ownedMutation(sessionId, db => manuallyMarkOwnedSessionComplete(db, sessionId));
+}
+
+async function manuallyMarkOwnedSessionComplete(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) return { updated: false };
-  const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
+  const session = await getSessionByIdWithDb(db, normalizedSessionId);
+  if (isActiveFormPin(session, 1)) return closeCanonicalCva(db, normalizedSessionId);
   await db.runAsync(
     `UPDATE sessions SET status = 'complete', updated_at = ? WHERE id = ?`,
     [new Date().toISOString(), normalizedSessionId]
@@ -1119,15 +1742,51 @@ export async function getSessionCompletionSummary(sessionId) {
 }
 
 export async function deleteSampleFromSession(sampleId) {
+  const db = await getLocalDatabase();
+  const sample = await db.getFirstAsync('SELECT session_id AS sessionId FROM samples WHERE id = ?', [sampleId]);
+  if (!sample) return { deleted: false };
+  return ownedMutation(sample.sessionId, txn => deleteOwnedSampleFromSession(txn, sampleId));
+}
+
+async function deleteOwnedSampleFromSession(db, sampleId) {
   const normalizedSampleId = cleanString(sampleId);
   if (!normalizedSampleId) throw new Error("sampleId is required.");
-  const db = await getLocalDatabase();
   const sample = await db.getFirstAsync(
     "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
     [normalizedSampleId]
   );
   if (!sample?.sessionId) return { deleted: false };
-  await assertPinnedCvaSessionWithDb(db, sample.sessionId);
+  await assertUnstartedWithDb(db, sample.sessionId);
+  await assertPinnedSessionWithDb(db, sample.sessionId);
+  const ownerPin = await db.getFirstAsync(
+    'SELECT cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash FROM sessions WHERE id = ? LIMIT 1',
+    [sample.sessionId]
+  );
+  if (ownerPin?.cuppingForm === 1 && !isActiveFormPin(ownerPin, 1) && !isPrototypeCvaPin(ownerPin)) {
+    throw new Error('This historical CVA session is read-only. No sample was removed.');
+  }
+  const owner = await db.getFirstAsync('SELECT cupping_form AS cuppingForm, status FROM sessions WHERE id = ? LIMIT 1', [sample.sessionId]);
+  if (isActiveFormPin(ownerPin, 1)) {
+    // Serialize the guard with Save; a successful response acknowledgement must
+    // never be followed by an earlier deletion check cascading its revision away.
+    await db.withExclusiveTransactionAsync(async txn => {
+      const current = await txn.getFirstAsync(`SELECT cupping_form AS cuppingForm, form_key AS formKey,
+        form_version AS formVersion, form_hash AS formHash, status FROM sessions WHERE id = ?`, [sample.sessionId]);
+      if (!isActiveFormPin(current, 1) || !['new', 'pending', 'in_progress'].includes(current.status)) throw new Error('This CVA sample cannot be removed.');
+      const captured = await txn.getFirstAsync('SELECT revision FROM cva_response_revisions WHERE sample_id = ? LIMIT 1', [normalizedSampleId]);
+      if (captured) throw new Error('A saved CVA response cannot be removed.');
+      await txn.runAsync('DELETE FROM samples WHERE id = ? AND session_id = ?', [normalizedSampleId, sample.sessionId]);
+      await recomputeSessionProgressStatusWithDb(txn, sample.sessionId);
+    });
+    return { deleted: true };
+  }
+  if (owner?.cuppingForm === 2 && owner.status === 'complete') {
+    throw new Error('This completed Legacy Session is read-only. Reset it to Pending before editing; no local record was changed.');
+  }
+  if (owner?.cuppingForm === 2) {
+    const response = await db.getFirstAsync('SELECT sample_id FROM legacy_responses WHERE sample_id = ? LIMIT 1', [normalizedSampleId]);
+    if (response) throw new Error('A Legacy sample with a saved response cannot be removed. No local record was changed.');
+  }
   await db.runAsync("DELETE FROM samples WHERE id = ?", [normalizedSampleId]);
   if (sample?.sessionId) {
     await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
@@ -1136,15 +1795,20 @@ export async function deleteSampleFromSession(sampleId) {
 }
 
 export async function markSessionCompleteIfAllSamplesComplete(sessionId) {
+  return ownedMutation(sessionId, db => markOwnedSessionCompleteIfAllSamplesComplete(db, sessionId));
+}
+
+async function markOwnedSessionCompleteIfAllSamplesComplete(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) {
     return { updated: false, status: null };
   }
 
-  const db = await getLocalDatabase();
-  await assertPinnedCvaSessionWithDb(db, normalizedSessionId);
+  await assertPinnedSessionWithDb(db, normalizedSessionId);
+  const session = await getSessionByIdWithDb(db, normalizedSessionId);
+  if (isActiveFormPin(session, 1)) return closeCanonicalCva(db, normalizedSessionId);
 
-  const sampleStatusMap = await getSessionSampleFinalStatus(normalizedSessionId);
+  const sampleStatusMap = await getSessionSampleFinalStatusWithDb(db, normalizedSessionId);
   const statusEntries = Object.values(sampleStatusMap || {});
   if (statusEntries.length === 0) {
     return { updated: false, status: null };
@@ -1256,6 +1920,15 @@ export async function getSampleFeedback(sampleId) {
   }
 
   const db = await getLocalDatabase();
+  const canonical = await canonicalCvaForSample(db, normalizedSampleId);
+  if (canonical) return Object.fromEntries(Object.entries(RATINGS).map(([label, key]) => [label,
+    canonical.response?.ratings?.[key] != null ? [{ score: canonical.response.ratings[key], comments: '', isFinal: canonical.complete }] : []]));
+  const calculation = await db.getFirstAsync(
+    'SELECT calculation_policy AS calculationPolicy FROM sample_defect_entries WHERE sample_id = ? ORDER BY rowid DESC LIMIT 1',
+    [normalizedSampleId]
+  );
+  const feedbackOrder = calculation?.calculationPolicy === CVA_EXACT_CALCULATION_POLICY
+    ? 'rowid ASC' : 'created_at ASC, rowid ASC';
   let rows = [];
   try {
     rows = await db.getAllAsync(
@@ -1271,7 +1944,7 @@ export async function getSampleFeedback(sampleId) {
           updated_at AS updatedAt
         FROM sample_feedback_entries
         WHERE sample_id = ?
-        ORDER BY created_at ASC
+        ORDER BY ${feedbackOrder}
       `,
       [normalizedSampleId]
     );
@@ -1295,7 +1968,7 @@ export async function getSampleFeedback(sampleId) {
           updated_at AS updatedAt
         FROM sample_feedback_entries
         WHERE sample_id = ?
-        ORDER BY created_at ASC
+        ORDER BY ${feedbackOrder}
       `,
       [normalizedSampleId]
     );
@@ -1394,6 +2067,7 @@ export async function saveSampleFlavourObservations({
   let savedCount = 0;
 
   await db.withTransactionAsync(async () => {
+    await assertActiveCvaSampleWithDb(db, normalizedSessionId, normalizedSampleId);
     for (const observation of normalizedObservations) {
       await db.runAsync(
         `
@@ -1416,6 +2090,7 @@ export async function saveSampleFlavourObservations({
       );
       savedCount += 1;
     }
+    if (savedCount > 0) await startTastingWithDb(db, normalizedSessionId);
   });
 
   return { savedCount };
@@ -1428,28 +2103,25 @@ export async function pruneSampleFlavourObservations({ sampleId, pruneGroups = [
   if (!normalizedSampleId || !pruneGroups.length) return;
 
   const db = await getLocalDatabase();
-  const rows = await db.getAllAsync(
-    "SELECT id, keyword, source_field FROM sample_flavour_observations WHERE sample_id = ?",
-    [normalizedSampleId]
-  );
-  if (!rows.length) return;
-
-  const idsToDelete = [];
-  for (const row of rows) {
-    const rowSourceParts = String(row.source_field || "").split(",").map((s) => s.trim());
-    for (const { includeSourceFields, keepKeywords } of pruneGroups) {
-      const overlaps = includeSourceFields.some((f) => rowSourceParts.includes(f));
-      if (!overlaps) continue;
-      const keepSet = new Set((keepKeywords || []).map((k) => String(k).toLowerCase()));
-      if (!keepSet.has(String(row.keyword || "").toLowerCase())) {
-        idsToDelete.push(row.id);
-      }
-      break;
-    }
-  }
-
-  if (idsToDelete.length === 0) return;
   await db.withTransactionAsync(async () => {
+    await assertActiveCvaSampleWithDb(db, null, normalizedSampleId);
+    const rows = await db.getAllAsync(
+      "SELECT id, keyword, source_field FROM sample_flavour_observations WHERE sample_id = ?",
+      [normalizedSampleId]
+    );
+    const idsToDelete = [];
+    for (const row of rows) {
+      const rowSourceParts = String(row.source_field || "").split(",").map((s) => s.trim());
+      for (const { includeSourceFields, keepKeywords } of pruneGroups) {
+        const overlaps = includeSourceFields.some((f) => rowSourceParts.includes(f));
+        if (!overlaps) continue;
+        const keepSet = new Set((keepKeywords || []).map((k) => String(k).toLowerCase()));
+        if (!keepSet.has(String(row.keyword || "").toLowerCase())) {
+          idsToDelete.push(row.id);
+        }
+        break;
+      }
+    }
     for (const id of idsToDelete) {
       await db.runAsync("DELETE FROM sample_flavour_observations WHERE id = ?", [id]);
     }
@@ -1463,6 +2135,8 @@ export async function hasFinalFeedbackForSample(sampleId) {
   }
 
   const db = await getLocalDatabase();
+  const canonical = await canonicalCvaForSample(db, normalizedSampleId);
+  if (canonical) return canonical.complete;
   try {
     const row = await db.getFirstAsync(
       `
@@ -1489,10 +2163,23 @@ export async function getSampleDefects(sampleId) {
     return {
       nonFinal: [],
       final: [],
+      latest: null,
     };
   }
 
   const db = await getLocalDatabase();
+  const canonical = await canonicalCvaForSample(db, normalizedSampleId);
+  if (canonical) {
+    if (!canonical.response) return { nonFinal: [], final: [], latest: null };
+    const response = canonical.response;
+    const masks = cvaUiMasks(response);
+    const entry = { ...Object.fromEntries(Object.entries(masks).map(([key, cups]) => [key, cups.length > 0])),
+      isFinal: canonical.complete, nonUniformCups: response.non_uniform_cups?.length ?? 0,
+      defectiveCups: response.defective_cups?.length ?? 0, nonUniformCupSlots: response.non_uniform_cups,
+      defectiveCupSlots: response.defective_cups, defectCupSlots: masks, defectDescription: response.defect_description || '',
+      numberOfCups: canonical.n, scorePolicy: CVA_SCORED_DEFECT_POLICY, calculationPolicy: CVA_EXACT_CALCULATION_POLICY };
+    return { nonFinal: canonical.complete ? [] : [entry], final: canonical.complete ? [entry] : [], latest: entry };
+  }
   let rows = [];
   try {
     rows = await db.getAllAsync(
@@ -1512,6 +2199,9 @@ export async function getSampleDefects(sampleId) {
           non_uniform_mask AS nonUniformMask,
           defective_mask AS defectiveMask,
           defect_type_masks AS defectTypeMasks,
+          score_policy AS scorePolicy,
+          calculation_policy AS calculationPolicy,
+          defect_description AS defectDescription,
           number_of_cups AS numberOfCups,
           temp_snapshot AS tempSnapshot,
           time_snapshot AS timeSnapshot,
@@ -1519,7 +2209,7 @@ export async function getSampleDefects(sampleId) {
           updated_at AS updatedAt
         FROM sample_defect_entries
         WHERE sample_id = ?
-        ORDER BY created_at ASC
+        ORDER BY rowid ASC
       `,
       [normalizedSampleId]
     );
@@ -1545,6 +2235,9 @@ export async function getSampleDefects(sampleId) {
           '' AS nonUniformMask,
           '' AS defectiveMask,
           '' AS defectTypeMasks,
+          NULL AS scorePolicy,
+          NULL AS calculationPolicy,
+          NULL AS defectDescription,
           number_of_cups AS numberOfCups,
           temp_snapshot AS tempSnapshot,
           time_snapshot AS timeSnapshot,
@@ -1552,7 +2245,7 @@ export async function getSampleDefects(sampleId) {
           updated_at AS updatedAt
         FROM sample_defect_entries
         WHERE sample_id = ?
-        ORDER BY created_at ASC
+        ORDER BY rowid ASC
       `,
       [normalizedSampleId]
     );
@@ -1587,6 +2280,9 @@ export async function getSampleDefects(sampleId) {
           row?.defectTypeMasks,
           Math.max(1, Number.parseInt(row?.numberOfCups, 10) || 1)
         ),
+        scorePolicy: cleanString(row?.scorePolicy) || null,
+        calculationPolicy: row?.calculationPolicy ?? null,
+        defectDescription: typeof row?.defectDescription === 'string' ? row.defectDescription : '',
         tempSnapshot: cleanString(row?.tempSnapshot),
         timeSnapshot: cleanString(row?.timeSnapshot),
         createdAt: cleanString(row?.createdAt),
@@ -1598,9 +2294,10 @@ export async function getSampleDefects(sampleId) {
       } else {
         acc.nonFinal.push(entry);
       }
+      acc.latest = entry;
       return acc;
     },
-    { nonFinal: [], final: [] }
+    { nonFinal: [], final: [], latest: null }
   );
 }
 
@@ -1613,6 +2310,7 @@ export async function saveSampleDefectsEntry({
   nonUniformCupSlots = [],
   defectiveCupSlots = [],
   defectCupSlots = {},
+  defectDescription = '',
   numberOfCups = 1,
   tempSnapshot = "",
   timeSnapshot = "",
@@ -1626,25 +2324,27 @@ export async function saveSampleDefectsEntry({
 
   const cups = Math.max(1, Number.parseInt(numberOfCups, 10) || 1);
   const nonUniform = Math.max(0, Math.min(cups, Number.parseInt(nonUniformCups, 10) || 0));
-  const defective = Math.max(0, Math.min(cups, Number.parseInt(defectiveCups, 10) || 0));
 
   const db = await getLocalDatabase();
   const nowIso = new Date().toISOString();
   const defectsId = generateId();
   const normalizedNonUniformCupSlots = normalizeCupSlotList(nonUniformCupSlots, cups);
-  const normalizedDefectiveCupSlots = normalizeCupSlotList(defectiveCupSlots, cups);
   const normalizedDefectCupSlots = normalizeDefectTypeMasks(defectCupSlots, cups);
+  const normalizedDefectiveCupSlots = getCvaScoredDefectSlots(normalizedDefectCupSlots, cups, defects);
   const nonUniformCount = normalizedNonUniformCupSlots.length > 0 ? normalizedNonUniformCupSlots.length : nonUniform;
-  const defectiveCount = normalizedDefectiveCupSlots.length > 0 ? normalizedDefectiveCupSlots.length : defective;
+  const defectiveCount = normalizedDefectiveCupSlots.length;
 
-  await db.runAsync(
-    `
+  await db.withTransactionAsync(async () => {
+    await assertActiveCvaSampleWithDb(db, normalizedSessionId, normalizedSampleId);
+    const calculationPolicy = await savedCvaCalculationWithDb(db, normalizedSampleId);
+    await db.runAsync(
+      `
       INSERT INTO sample_defect_entries (
         id, session_id, sample_id, is_final, moldy, phenolic, potato, other_bean,
         underdeveloped, baked, uneven_roast, overdeveloped,
-        non_uniform_cups, defective_cups, non_uniform_mask, defective_mask, defect_type_masks,
+        non_uniform_cups, defective_cups, non_uniform_mask, defective_mask, defect_type_masks, score_policy, calculation_policy, defect_description,
         number_of_cups, temp_snapshot, time_snapshot, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `,
     [
       defectsId,
@@ -1664,18 +2364,168 @@ export async function saveSampleDefectsEntry({
       JSON.stringify(normalizedNonUniformCupSlots),
       JSON.stringify(normalizedDefectiveCupSlots),
       JSON.stringify(normalizedDefectCupSlots),
+      CVA_SCORED_DEFECT_POLICY,
+      calculationPolicy,
+      typeof defectDescription === 'string' ? defectDescription : '',
       cups,
       cleanString(tempSnapshot),
       cleanString(timeSnapshot),
       nowIso,
       nowIso,
-    ]
-  );
+      ]
+    );
+    await startTastingWithDb(db, normalizedSessionId);
+  });
 
   return {
     saved: true,
     id: defectsId,
   };
+}
+
+// Explicit CVA Save is a single commit boundary. Partial-entry helpers above and
+// below intentionally retain their existing independent-write behaviour.
+export async function saveCvaAssessmentAtomically({
+  sessionId,
+  sampleId,
+  emptyFieldsToClear = [],
+  finalFieldsToReplace = [],
+  feedback = {},
+  finalFeedback = {},
+  finalFieldsToClear = [],
+  pruneGroups = [],
+  observations = [],
+  defectsEntry,
+  tempSnapshot = '',
+  timeSnapshot = '',
+} = {}) {
+  const normalizedSessionId = cleanString(sessionId);
+  const normalizedSampleId = cleanString(sampleId);
+  if (!normalizedSessionId || !normalizedSampleId || !defectsEntry) {
+    throw new Error('Session, sample and defects are required to save the CVA assessment.');
+  }
+  const db = await getLocalDatabase();
+  if (typeof db.withExclusiveTransactionAsync !== 'function') {
+    throw new Error('Atomic CVA Save is unavailable on this device. No assessment was saved.');
+  }
+  const nowIso = new Date().toISOString();
+  const fields = (items) => Array.from(new Set((Array.isArray(items) ? items : []).map(cleanString).filter(Boolean)));
+  const deleteFeedback = async (txn, names, finalOnly) => {
+    const selected = fields(names);
+    if (!selected.length) return;
+    await txn.runAsync(
+      `DELETE FROM sample_feedback_entries WHERE session_id = ? AND sample_id = ? AND field_name IN (${selected.map(() => '?').join(', ')})${finalOnly ? ' AND is_final = 1' : ''}`,
+      [normalizedSessionId, normalizedSampleId, ...selected]
+    );
+  };
+  const insertFeedback = async (txn, entries, isFinal) => {
+    for (const [fieldName, value] of Object.entries(entries || {})) {
+      const normalizedFieldName = cleanString(fieldName);
+      if (!normalizedFieldName) continue;
+      const score = value?.score == null || Number.isNaN(Number(value.score)) ? null : Number.parseInt(value.score, 10);
+      const comments = cleanString(value?.comments);
+      if (score == null && !comments && !isFinal) continue;
+      await txn.runAsync(
+        `INSERT INTO sample_feedback_entries
+         (id, session_id, sample_id, field_name, is_final, score, comments, temp_snapshot, time_snapshot, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [generateId(), normalizedSessionId, normalizedSampleId, normalizedFieldName, isFinal ? 1 : 0,
+          score, comments, cleanString(tempSnapshot), cleanString(timeSnapshot), nowIso, nowIso]
+      );
+    }
+  };
+
+  await db.withExclusiveTransactionAsync(async (txn) => {
+    await assertActiveCvaSampleWithDb(txn, normalizedSessionId, normalizedSampleId);
+    const session = await txn.getFirstAsync('SELECT status FROM sessions WHERE id = ? LIMIT 1', [normalizedSessionId]);
+    if (cleanString(session?.status).toLowerCase() === 'complete') {
+      throw new Error('This session is complete. Its saved assessment was not changed.');
+    }
+    const previousCalculation = await savedCvaCalculationWithDb(txn, normalizedSampleId);
+    if (previousCalculation === null) {
+      // The old calculation selected rating rows by wall-clock time. Capture
+      // those selected values for untouched fields before adopting append order,
+      // so a backwards clock cannot change an unedited rating during conversion.
+      const historicalRows = await txn.getAllAsync(
+        `SELECT field_name AS fieldName, is_final AS isFinal, score, comments
+         FROM sample_feedback_entries WHERE session_id = ? AND sample_id = ?
+         ORDER BY created_at ASC, rowid ASC`, [normalizedSessionId, normalizedSampleId]
+      );
+      const changedFields = new Set([
+        ...fields(emptyFieldsToClear), ...fields(finalFieldsToReplace), ...fields(finalFieldsToClear),
+        ...Object.keys(finalFeedback || {}),
+        ...Object.keys(feedback || {}).filter((field) => feedback[field]?.score != null || cleanString(feedback[field]?.comments)),
+      ]);
+      const selected = new Map(historicalRows.map((row) => [row.fieldName, row]));
+      for (const [field, row] of selected) {
+        if (!changedFields.has(field)) await insertFeedback(txn, { [field]: row }, Number(row.isFinal) === 1);
+      }
+    }
+    await deleteFeedback(txn, emptyFieldsToClear, false);
+    await deleteFeedback(txn, finalFieldsToReplace, true);
+    await insertFeedback(txn, feedback, false);
+    await insertFeedback(txn, finalFeedback, true);
+    await deleteFeedback(txn, finalFieldsToClear, true);
+
+    if (pruneGroups.length) {
+      const rows = await txn.getAllAsync(
+        'SELECT id, keyword, source_field FROM sample_flavour_observations WHERE session_id = ? AND sample_id = ?',
+        [normalizedSessionId, normalizedSampleId]
+      );
+      for (const row of rows) {
+        const sourceFields = String(row.source_field || '').split(',').map((part) => part.trim());
+        for (const group of pruneGroups) {
+          if (!(group.includeSourceFields || []).some((field) => sourceFields.includes(field))) continue;
+          const keep = new Set((group.keepKeywords || []).map((keyword) => cleanString(keyword).toLowerCase()));
+          if (!keep.has(cleanString(row.keyword).toLowerCase())) {
+            await txn.runAsync('DELETE FROM sample_flavour_observations WHERE id = ? AND session_id = ? AND sample_id = ?',
+              [row.id, normalizedSessionId, normalizedSampleId]);
+          }
+          break;
+        }
+      }
+    }
+    for (const observation of Array.isArray(observations) ? observations : []) {
+      const keyword = cleanString(observation?.keyword).toLowerCase();
+      const label = cleanString(observation?.label) || cleanString(observation?.keyword);
+      if (!keyword || !label) continue;
+      const tempC = observation?.tempC == null || Number.isNaN(Number(observation.tempC))
+        ? null : Math.round(Number(observation.tempC));
+      const elapsedSeconds = observation?.elapsedSeconds == null || Number.isNaN(Number(observation.elapsedSeconds))
+        ? null : Math.max(0, Number.parseInt(observation.elapsedSeconds, 10));
+      await txn.runAsync(
+        `INSERT INTO sample_flavour_observations
+         (id, session_id, sample_id, keyword, label, colour, temp_c, elapsed_seconds, source_field, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [generateId(), normalizedSessionId, normalizedSampleId, keyword, label, cleanString(observation?.colour),
+          tempC, elapsedSeconds, cleanString(observation?.sourceField), cleanString(observation?.createdAt) || nowIso]
+      );
+    }
+
+    const cups = Math.max(1, Number.parseInt(defectsEntry.numberOfCups, 10) || 1);
+    const nonUniformSlots = normalizeCupSlotList(defectsEntry.nonUniformCupSlots, cups);
+    const typeMasks = normalizeDefectTypeMasks(defectsEntry.defectCupSlots, cups);
+    const defectiveSlots = getCvaScoredDefectSlots(typeMasks, cups, defectsEntry.defects);
+    const count = (slots, value) => slots.length > 0 ? slots.length : Math.max(0, Math.min(cups, Number.parseInt(value, 10) || 0));
+    const defects = defectsEntry.defects || {};
+    await txn.runAsync(
+      `INSERT INTO sample_defect_entries
+       (id, session_id, sample_id, is_final, moldy, phenolic, potato, other_bean,
+        underdeveloped, baked, uneven_roast, overdeveloped, non_uniform_cups, defective_cups,
+        non_uniform_mask, defective_mask, defect_type_masks, score_policy, calculation_policy, defect_description, number_of_cups,
+        temp_snapshot, time_snapshot, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [generateId(), normalizedSessionId, normalizedSampleId, 1,
+        defects.moldy ? 1 : 0, defects.phenolic ? 1 : 0, defects.potato ? 1 : 0, defects.otherBean ? 1 : 0,
+        defects.underdeveloped ? 1 : 0, defects.baked ? 1 : 0, defects.unevenRoast ? 1 : 0,
+        defects.overdeveloped ? 1 : 0, count(nonUniformSlots, defectsEntry.nonUniformCups),
+        defectiveSlots.length, JSON.stringify(nonUniformSlots), JSON.stringify(defectiveSlots),
+        JSON.stringify(typeMasks), CVA_SCORED_DEFECT_POLICY, CVA_EXACT_CALCULATION_POLICY, typeof defectsEntry.defectDescription === 'string' ? defectsEntry.defectDescription : '',
+        cups, cleanString(tempSnapshot), cleanString(timeSnapshot), nowIso, nowIso]
+    );
+    await recomputeSessionProgressStatusWithDb(txn, normalizedSessionId);
+  });
+  return { saved: true };
 }
 
 export async function saveSampleFeedbackBatch({
@@ -1703,6 +2553,7 @@ export async function saveSampleFeedbackBatch({
 
   const isFinalValue = isFinal ? 1 : 0;
   await db.withTransactionAsync(async () => {
+    await assertActiveCvaSampleWithDb(db, normalizedSessionId, normalizedSampleId);
     for (const [fieldName, value] of entries) {
       const normalizedFieldName = cleanString(fieldName);
       const score =
@@ -1738,6 +2589,7 @@ export async function saveSampleFeedbackBatch({
       );
       savedCount += 1;
     }
+    if (savedCount > 0) await startTastingWithDb(db, normalizedSessionId);
   });
 
   if (savedCount > 0) {
@@ -1758,10 +2610,6 @@ export async function clearSampleFeedbackFields({ sampleId, fields = [], isFinal
   }
 
   const db = await getLocalDatabase();
-  const sample = await db.getFirstAsync(
-    "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
-    [normalizedSampleId]
-  );
   const placeholders = normalizedFields.map(() => "?").join(", ");
   const finalClause = isFinal === null ? "" : " AND is_final = ?";
   const params = [normalizedSampleId, ...normalizedFields];
@@ -1769,21 +2617,17 @@ export async function clearSampleFeedbackFields({ sampleId, fields = [], isFinal
     params.push(isFinal ? 1 : 0);
   }
 
-  const result = await db.runAsync(
-    `
-      DELETE FROM sample_feedback_entries
-      WHERE sample_id = ?
-        AND field_name IN (${placeholders})
-        ${finalClause}
-    `,
-    params
-  );
-
-  const clearedCount = Number(result?.changes) || 0;
-  if (clearedCount > 0 && sample?.sessionId) {
-    await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
-  }
-
+  let clearedCount = 0;
+  await db.withTransactionAsync(async () => {
+    const sessionId = await assertActiveCvaSampleWithDb(db, null, normalizedSampleId);
+    const result = await db.runAsync(
+      `DELETE FROM sample_feedback_entries
+       WHERE sample_id = ? AND field_name IN (${placeholders}) ${finalClause}`,
+      params
+    );
+    clearedCount = Number(result?.changes) || 0;
+    if (clearedCount > 0) await recomputeSessionProgressStatusWithDb(db, sessionId);
+  });
   return { clearedCount };
 }
 
@@ -1798,25 +2642,17 @@ export async function clearSampleFinalFeedbackFields({ sampleId, fields = [] } =
   }
 
   const db = await getLocalDatabase();
-  const sample = await db.getFirstAsync(
-    "SELECT session_id AS sessionId FROM samples WHERE id = ? LIMIT 1",
-    [normalizedSampleId]
-  );
   const placeholders = normalizedFields.map(() => "?").join(", ");
-  const result = await db.runAsync(
-    `
-      DELETE FROM sample_feedback_entries
-      WHERE sample_id = ?
-        AND is_final = 1
-        AND field_name IN (${placeholders})
-    `,
-    [normalizedSampleId, ...normalizedFields]
-  );
-
-  const clearedCount = Number(result?.changes) || 0;
-  if (clearedCount > 0 && sample?.sessionId) {
-    await recomputeSessionProgressStatusWithDb(db, sample.sessionId);
-  }
-
+  let clearedCount = 0;
+  await db.withTransactionAsync(async () => {
+    const sessionId = await assertActiveCvaSampleWithDb(db, null, normalizedSampleId);
+    const result = await db.runAsync(
+      `DELETE FROM sample_feedback_entries
+       WHERE sample_id = ? AND is_final = 1 AND field_name IN (${placeholders})`,
+      [normalizedSampleId, ...normalizedFields]
+    );
+    clearedCount = Number(result?.changes) || 0;
+    if (clearedCount > 0) await recomputeSessionProgressStatusWithDb(db, sessionId);
+  });
   return { clearedCount };
 }

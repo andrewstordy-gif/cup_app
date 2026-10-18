@@ -1,9 +1,9 @@
 # Cup App — Product Specification v1.0
 
 **Status:** Released
-**Version:** 1.1
+**Version:** 1.2
 **Release date:** 1 October 2026
-**Last reviewed:** 2 October 2026
+**Last reviewed:** 18 October 2026
 **Evidence base:** 11 customer interviews, the MVP-filtered demand review, and the current Version 2 website
 **Product principle:** Cup the coffee, not the app.
 **Release constraint:** Ship first with user-supplied, off-the-shelf NFC tags; add Smart Cup capabilities without replacing the core workflow.
@@ -14,7 +14,7 @@ Cup App is a focused live-cupping companion for coffee professionals. Its first 
 
 Smart Cups are a later enhancement, not a launch dependency. When the hardware is ready, the same tag identity, session, sample, form, response, and export model will accept time, temperature, and device-status data from a Smart Cup.
 
-The account boundary is simple: a person needs an account only to create and manage a cupping session. Tasting in someone else's session—including joining, scanning NFC cups, recording results, and submitting—does not require an account.
+The later online/commercial account boundary is simple: accounts are for creating and managing account-backed sessions, not tasting in someone else's session. The approved installation-local stage uses persistent local profile ownership first, with explicit verified account linking later (section 12.2). Neither stage makes creator/participant a permanent user type: the role is determined separately for each session.
 
 The first release should not attempt to replace Cropster, Catador, Coffee Roast, an ERP, or a laboratory quality-management system. Its wedge is the part those systems handle poorly: fast, low-error capture at the cupping table.
 
@@ -143,7 +143,7 @@ The product is therefore best understood as a **sample-identity and sensory-capt
 - Scanning the NFC cup adds the referenced session to the participant's app and opens that cup within the session. Tasting notes, scores, results, and participant data are never stored on the tag.
 - Account-free join by link/QR/session code with display name only.
 - Scan cup to open the correct tasting screen.
-- Blind mode with per-participant reveal when that participant explicitly completes the session; reveal persists on that device and is separate from sharing.
+- Blind mode with revision-specific local reveal when that taster explicitly completes; saved tasting edits or participant sample changes reopen and hide details again under section 6.8. Reveal is separate from sharing.
 - Exactly two session forms: SCA CVA and SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). Each includes the descriptive inputs appropriate to that form.
 - Autosaved notes, descriptors, result, and optional score.
 - Native device voice capture/dictation for flavour notes, producing editable text with typed input as the fallback.
@@ -212,7 +212,7 @@ The signed-in host mobile experience has three primary destinations:
 2. **New session** — rapid session setup.
 3. **Settings** — account, defaults, NFC cups, and offline status.
 
-Account-free participants enter directly into one session and do not see host navigation. The signed-in host uses the online portal for shared results, session history, team administration, billing, search, and exports.
+Account-free participants can enter directly through a cup scan and retain their joined local sessions in Sessions. Setup controls depend on ownership of the selected session, not a permanent host navigation role. The account-backed host uses the online portal for shared results, session history, team administration, billing, search, and exports. The agreed installed-app screen/state contract is section 6.8.
 
 ### 6.2 Host flow: create and run a session
 
@@ -229,11 +229,11 @@ Account-free participants enter directly into one session and do not see host na
    - Write and verify the protocol-defined session/sample payload on the attached NFC tag.
    - Repeat for multiple cups belonging to one sample.
 7. Review readiness warnings: unassigned samples, duplicate cup assignment, unwritten protocol payloads, and failed tag verification.
-8. Start the session.
+8. Save setup; tasting starts only when the first score or note is explicitly saved, not when a form opens.
 9. Share a QR code, link, short join code, or the NFC cups themselves. The active session remains available without internet.
 10. During offline cupping, each participant can monitor their own completion; the host sees combined team progress after devices share their results.
 11. End the host session when appropriate. This does not globally reveal or conceal identity on participant devices.
-12. Each participant's explicit completion has already revealed the locally held coffee metadata on that participant's device. Participants separately decide whether to share their completed results. Once connectivity is available, explicitly shared results appear in the host's online portal, where the host can manage incomplete submissions and exports.
+12. Each taster explicitly completes their own local session and separately decides whether to upload completed results. Saving subsequent tasting edits reopens that local tasting and hides blind details again. Host-global closure is not the mobile Complete Session action and cannot close offline copies. Once connectivity is available, explicitly shared results appear in the host's online portal.
 
 ### 6.3 Account-free participant flow: join and taste
 
@@ -243,9 +243,9 @@ Account-free participants enter directly into one session and do not see host na
 4. If the participant joined by link or QR code, scan a cup or use the clearly labelled manual fallback. If they joined by tapping an NFC cup, that cup is already selected.
 5. See the assigned blind code or sample name and the selected form.
 6. Record observations using large controls and short free text.
-7. Save or move to the next cup; autosave protects partial work.
+7. Press Save to commit scores/notes; crash-recovery draft storage protects partial work but is not an explicit Save, completion or upload consent. Warn before leaving with unsaved changes.
 8. Re-scan any cup to resume its entry.
-9. Explicitly complete the session locally. In a blind session, that completion durably reveals the coffee metadata already held on this device and it remains revealed if the participant later reopens or edits results where policy allows. Completion/reveal creates no share consent, outbox item, or upload. Results remain private on the device unless the participant separately presses **Share results**; an offline share is then queued until connectivity returns.
+9. Explicitly complete the local session after required scores for its remaining scanned samples are saved. Completion reveals locally held blind coffee metadata without creating consent, an outbox item or an upload. Saving changed scores/notes, adding a new scanned sample or removing a sample reopens that participant's tasting and hides details again. Results remain private unless **Upload** (the mobile label for **Share results**) is pressed; offline uploads queue until connectivity returns. See section 6.8 for replacement and deletion rules.
 
 ### 6.4 Subsequent-release Quick QC form
 
@@ -306,11 +306,97 @@ Release 1 stores observations locally and does not present note timing as sensor
 4. The host may give the NFC cup a short internal label, for example `Cup 01`.
 5. The host verifies that the attached tag can be read and written.
 6. The NFC cup enters a reusable cup list.
-7. When the cup is assigned in a session, Cup App writes and verifies the protocol-defined session/sample metadata. Assigning the cup to a later session replaces the earlier assignment payload.
+7. When the cup is assigned in a session, Cup App writes and separately rescans/verifies the protocol-defined metadata. Reassignment requires physically clearing and verifying the previous session assignment first, then assigning and verifying the new one; it is not a silent overwrite. Whole local-session deletion is different and never changes the cup (section 6.8).
 
 The authoritative format is the project's [NDEF protocol](NDEF_PROTOCOL.md), implemented by `src/services/nfcServiceMinimal.js` and classified by `src/services/nfcTagClassifier.js`. A standard NTAG sticker contains one Well-Known Text record carrying the compact NDEF4 JSON. A Smart Cup contains one NDEF message with four ordered Well-Known Text records; its fourth record uses the same session/sample payload. The product specification does not redefine those fields.
 
-For blind sessions, NDEF4 may retain the real coffee name/origin in `n` and processing method in `p`. Cup App uses `m=b` plus the participant's local completion state to keep those fields out of every participant-facing app surface during tasting, then reveal the locally held metadata permanently on that device when the participant explicitly completes. Completion does not require a tag rewrite, internet connection, host-global reveal, reveal QR, or result upload. A participant deliberately inspecting raw tag bytes with a third-party NFC reader is outside the Release 1 threat model; NDEF still must never contain results, participant data, credentials, tenant secrets, or device secrets.
+For blind sessions, NDEF4 may retain the real coffee name/origin in `n` and processing method in `p`. Cup App uses `m=b` and the current local completion revision to hide those fields during tasting and reveal them on explicit completion. Saved edits and participant sample changes hide them again under section 6.8; hiding cannot make already-seen information secret again. No completion/reopen transition rewrites a tag, requires internet or host-global reveal, or uploads results. Deliberate third-party raw NFC inspection is outside this presentation threat model; NDEF must never contain results, participant data, credentials, tenant secrets or device secrets.
+
+### 6.8 Agreed mobile screen and state map (18 October 2026)
+
+This section is the approved behaviour, not a claim of implementation. It supersedes older pre-start-only sample editing, permanent reveal, global-close edit restrictions and autosave-as-explicit-Save interpretations. [The implementation plan](SESSION_SCREEN_STATE_IMPLEMENTATION_PLAN.md) sequences the gaps; it is not a second product authority.
+
+#### 6.8.1 Per-session role, screens and controls
+
+One profile may create Session A and participate in Session B. Creator provenance is immutable stored ownership, not editable profile fields, a route flag or NDEF data (section 12.2). Participants retain independent local copies containing only samples they scan/add, preserving assigned sample numbers; there is no implied view of the creator's full sample roster. Every saved local session appears under its actual session name, including empty drafts and blind sessions. Blind protects coffee identity, not the session name; diagnostics are still minimized and must not log names merely because they are visible.
+
+| Screen | Creator of this session | Participant in this session |
+| --- | --- | --- |
+| Home / Sessions | Open saved sessions or scan; Add Session creates locally owned setup | Open joined local sessions or scan; no setup grant inferred |
+| Session Details | Permitted setup plus own tasting and progress | Only locally scanned samples, own tasting and progress; no setup controls |
+| Add Coffee Sample | Add/edit unassigned coffee setup and physically assign cups | Not available |
+| Tasting Form | Own scores and notes | Own scores and notes |
+
+Scanning an assigned cup or pressing its sample card opens its form. Expanding a card shows its permitted details. Preserve existing assessment **Save / Scan Cup**, notes/keyboard behaviour and CVA nine-score single-row layout. Do not add a completion button above scoring fields or duplicate the original session controls.
+
+| Role/state | Permitted behaviour | Session Details controls |
+| --- | --- | --- |
+| Creator / DRAFT | Edit unassigned setup, add coffees and assign cups; Save before tasting. Assigned metadata remains locked even in temporary DRAFT. | Existing Save, Add Sample and permitted sample controls |
+| Creator / PENDING | Saved coffees, no saved score/note yet. Add coffees or physically remove cups. | Scan Cup, Add Sample, physical-removal crosses |
+| Creator / IN PROGRESS | Save/revise tasting; add coffees or physically remove cups unless this tasting has ever been COMPLETE. | Original Complete Session / Scan Cup footer and permitted setup controls |
+| Creator / COMPLETE | Review/edit tasting, deliberate upload; no further setup changes. | Original grey upload control alongside Scan Cup |
+| Participant / PENDING | Open scanned samples, no setup editing. | Scan Cup and local sample-removal crosses |
+| Participant / IN PROGRESS | Save/revise own results; scan new samples; remove local samples. | Original Complete Session / Scan Cup footer and local removal crosses |
+| Participant / COMPLETE | Review/edit, deliberately upload, scan additional samples or remove local samples. | Original grey upload control alongside Scan Cup and local removal crosses |
+
+Blue is reserved for physical-cup actions; Save, Complete Session, upload and status icons are neutral grey/charcoal. Reuse the established controls, shared icons and warning dialogs, not novel main actions. Status indicators are not buttons and have accessible equivalent text.
+
+#### 6.8.2 Local state and blind identity
+
+| Event | Committed result |
+| --- | --- |
+| Save a new empty creator session | DRAFT, persisted and visible |
+| Save new creator setup with coffees | PENDING, provided required physical verification is complete |
+| Open a form or type unsaved edits | No committed state change |
+| First explicitly saved score **or note** | IN PROGRESS |
+| Permitted creator setup change | DRAFT until Save; preserve durable tasting-start history, prior results and blind protection |
+| Save those setup changes | PENDING if never started; otherwise IN PROGRESS |
+| Complete with missing required saved scores | Immediate clear warning; no completion or reveal |
+| Successful Complete Session | COMPLETE and local blind reveal atomically for current saved revision and remaining local sample coverage |
+| Save actual changed scores/notes after COMPLETE | IN PROGRESS, blind details hidden again; current-version upload check removed; no new upload permitted until completion again |
+| Participant adds a new scanned sample or removes a sample after COMPLETE | IN PROGRESS, blind details hidden again; other saved results retained |
+| Rescan an already-added sample | Open its form; no duplicate sample or automatic reopen |
+| Participant removes last sample | Visible IN PROGRESS with Scan Cup; cannot complete/upload until another sample is added, scored and explicitly completed |
+
+Completion validates required saved scores for every remaining sample in this person's local copy, not unseen creator samples; notes are not made mandatory by this decision. Opening a completed assessment or discarding unsaved edits preserves its previous COMPLETE state. Saving changed notes alone also reopens it. Upload status never substitutes for tasting status.
+
+Blind preparation identity is visible in the creator's own expanded setup cards only before tasting has ever started. Blind assessment forms hide identity until current explicit completion. Once started, all relevant expanded cards/forms, accessibility, previews and other projections hide protected coffee details until current completion, including temporary DRAFT. Saving post-completion changes re-hides them; merely opening/reviewing does not. Keep durable has-ever-started and has-ever-completed history separate from current revision completion: clearing scores, stale status or reopening must neither restore preparation visibility nor unlock setup. Open-mode identity stays visible under supported access/form rules. Re-hiding is a UI rule, not erasure of human knowledge or previously seen data.
+
+Session name/type/form and coffee name/process are locked once written to assigned cups. Changes require physical removal and reassignment, not silent metadata editing. Permitted creator additions/removals remain available during PENDING and IN PROGRESS until the first completion; setup stays locked after that even when tasting edits reopen. Participants never gain setup authority.
+
+#### 6.8.3 Physical consistency and durable NFC recovery
+
+The retained creator session and its assigned cups must agree. Before any physical assignment/removal/reassignment write, durably save the intended operation and canonical data; if staging fails, do not touch the cup. Write, then require a **separate physical rescan/read-back** verifying the same cup identity and complete intended payload. A write callback alone is not verification. Only verified operations plus successful explicit session Save restore PENDING/IN PROGRESS.
+
+If the cup changes but final local Save fails, retain the earlier durable recovery intent and DRAFT; retry existing Save idempotently without duplicate samples or unnecessary rewrites. Leaving, app closure or interrupted verification preserves that intent and resumes at **Rescan to verify**, never an automatic rewrite. A mismatch stays unfinished and must not silently overwrite another assignment. Physical cup removal clears its session assignment and is verified before reassignment. Exact canonical unassignment encoding and affected `i`/`z`/`y` count/position consistency require a reviewed technical contract and physical conformance gate; this decision invents no new wire fields or clearing bytes.
+
+#### 6.8.4 Local deletion and unsaved exits
+
+The Sessions-list delete cross is available in **all states for both roles**, independent of setup-edit authority. Confirm before deleting that local session, samples, saved scores and notes. Whole-session deletion requires no NFC scan, changes no cup and changes no creator/other-device copy or previously accepted service results. It also discards that session's pending NFC verification and cancels/deletes its queued upload. Pending work cannot resurrect the deleted local session through stale callbacks or restart.
+
+Creator removal of an assigned cup while retaining the session requires physical NFC removal; participant sample removal is local-only with a warning before deleting its saved results. Participant removal after COMPLETE reopens/hides; removal of the last sample follows section 6.8.2.
+
+Leaving setup/form with unsaved edits shows existing **Leave / Stay**. Leave discards ordinary uncommitted edits and preserves previous saved results/state; Stay continues editing. Leaving is **not** deletion: pending physical cup recovery survives Leave or crash. Deliberate whole-session deletion instead discards that pending verification without changing the cup.
+
+If an upload is pending, the deletion confirmation must explicitly warn: “This deletes the local session, its saved results and its pending upload. The pending results will not be sent. Any results already uploaded remain unchanged.” Use existing Cancel/Delete confirmation. Mobile local deletion is distinct from authorised tenant/service erasure, its retention/tombstone policies and its propagation requirements; neither implies the other.
+
+#### 6.8.5 Explicit upload, revisions and status icons
+
+**Upload** is the mobile label for the existing **Share results** contract: one explicit action authorises one immutable snapshot of completed saved results. Save, completion, connectivity and background work cannot create consent. Offline Upload queues that snapshot; connectivity restoration sends/retries it. An existing authorised queued version remains eligible to send when subsequent edits reopen the tasting; editing alone does not pause/cancel it or upload new results.
+
+Revised results require **Save edits → IN PROGRESS → complete again → Upload**. At that Upload press, if results are queued **or previously uploaded**, ask:
+
+> **Replace previous results?** Results for this session are already queued for upload or have previously been uploaded. Replace them with your latest completed results? **Yes, replace / No, keep existing**
+
+Yes creates a new explicitly consented revision/snapshot; replace any still-waiting older queue version safely without mutating its immutable operation identity/bytes. A version already sent/accepted may still arrive and must be handled by backend ordering. No leaves previous queued/uploaded results unchanged; neither choice deletes local tasting. Retries of the same upload are idempotent. A newer revision supersedes an older one; late older arrivals cannot overwrite newer results. Use revision ordering within the verified participant/session/response stream, never arrival-time or phone-clock last-write-wins. Preserve raw/audit/conflict requirements and tenant/session isolation.
+
+| Sessions-card indicator | Meaning |
+| --- | --- |
+| Grey cloud-clock | An explicitly authorised upload is pending, even if it represents an older saved revision |
+| Grey cloud-check | Durable service acknowledgement confirms the **current saved version** was uploaded |
+| No icon | No pending upload and no confirmed upload of the current saved version |
+
+Saving changed scores/notes removes cloud-check. An older queued acknowledgement cannot restore it; only confirmation of the revised current results can. Participant sample membership changes similarly invalidate current-version completion/acknowledgement coverage. Icons are non-interactive with equivalent accessible status text. A queue insertion, connectivity change or uncommitted HTTP response is not upload success. Local deletion cancels queued work; already accepted remote results are not deleted by it. An in-flight request cannot be falsely claimed recalled: the implementation must resolve deletion/send races and disclose any already-sent limitation, without creating a new remote erase action.
 
 ## 7. Functional requirements
 
@@ -320,7 +406,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 
 | ID | Priority | Requirement | Acceptance criterion |
 | --- | --- | --- | --- |
-| FR-001 | P0 | Creating or managing a cupping session requires a paid host account or active trial/pilot entitlement; price is TBC. | An unauthenticated user can join and taste but is asked to sign in only after choosing **Create session**. Expired entitlement never interrupts an active offline session or blocks existing records. |
+| FR-001 | P0 | Creator authority is scoped to each session. The approved local-profile stage precedes account-backed paid/trial creation (section 12.2); commercial price is TBC. | Local creator rights require stored profile/creator provenance, never caller/NDEF flags. Future account linking is explicit and verified. Account-free joining/tasting remains available; commercial entitlement expiry never interrupts an active offline session or existing records. |
 | FR-002 | P0 | A participant can join a live session with a display name and no account. | A first-time participant reaches the tasting screen in no more than three actions after opening a join link, scanning a session QR code, or tapping an assigned NFC cup. |
 | FR-003 | P0 | Account-free participant access is scoped to one session and expires. | The participant token cannot open other sessions and expires after a configurable period following session completion. |
 | FR-004 | P0 | A host can remove an incomplete or invalid evaluator from aggregate results without deleting the raw record. | The summary changes, the exclusion is labelled, and an audit record is retained. |
@@ -331,10 +417,10 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | ID | Priority | Requirement | Acceptance criterion |
 | --- | --- | --- | --- |
 | FR-010 | P0 | A host can create a session using either SCA CVA or SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). | A session can be ready for cup assignment with only name and one of the two Release 1 forms supplied; the form identifier is included in the NDEF4 session/sample payload. |
-| FR-011 | P0 | A host can add, edit, reorder, and remove samples before the session starts. | Changes are reflected consistently in assignment and participant views. |
+| FR-011 | P0 | The creator manages permitted setup in DRAFT/PENDING/IN PROGRESS until first completion, following section 6.8. | Assigned name/type/form and coffee name/process remain locked; changes require physical removal/reassignment. Setup changes temporarily DRAFT then Save restores prior progress; NFC data and retained creator setup agree. Participants cannot edit setup or inherit an unscanned roster. |
 | FR-012 | P0 | Minimal sample metadata includes name or code; optional fields include supplier, origin, process, lot, roast reference, sample stage, and notes. | Only one identifying field is required. |
-| FR-013 | P0 | Blind mode substitutes neutral codes for protected coffee metadata in participant-facing Cup App surfaces until that participant completes. | Before explicit participant completion, protected coffee metadata is absent from the participant UI, accessibility output, page titles, notifications, cached previews, ordinary app diagnostics, and participant network responses. NDEF4 may still contain the real `n` name/origin and `p` process under the section 6.7 threat-model exception. |
-| FR-014 | P0 | Explicit participant completion reveals the coffee metadata already held locally for that participant. | Completion and reveal are recorded durably and atomically, work offline, remain visible on that device during later permitted review/editing, and do not create share consent, an outbox item, or an upload. No host-global reveal, reveal QR, network refresh, or tag rewrite is required. |
+| FR-013 | P0 | Blind mode substitutes neutral codes until explicit completion of the current local tasting revision/coverage. | Protected coffee metadata is absent from incomplete/reopened tasting UI, accessibility, titles, notifications, cached previews, ordinary diagnostics and participant network responses; creator preparation has only the section 6.8 exception. Raw NDEF4 `n`/`p` remains covered by section 6.7, not a UI bypass. |
+| FR-014 | P0 | Explicit current-revision completion reveals coffee metadata held locally for that taster. | Offline completion/reveal is durable and atomic. Saving changed scores/notes or changing a participant's sample membership reopens/hides under section 6.8; merely reviewing/discarding edits does not. No consent, outbox, upload, host-global reveal, reveal QR, network refresh or tag rewrite is created. |
 | FR-015 | P1 | A host can duplicate a prior session. | Samples and form settings copy; results, participants, and cup assignments do not. |
 
 ### 7.3 Cup assignment and scanning
@@ -351,7 +437,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | FR-026 | P1 | Cup assignment can be performed rapidly in sequence. | After assigning one cup, the host remains in scan mode with the next logical sample suggested. |
 | FR-027 | P0 | A participant can tap an NFC cup while offline. | Cup App reads the canonical NDEF payload locally, adds the referenced session, and opens the scanned cup in that session without a network request. |
 | FR-028 | P0 | NFC data conforms to the canonical protocol. | A standard NTAG sticker has one Well-Known Text record containing the NDEF4 JSON; a Smart Cup uses the defined four-record message. Notes, scores, results, and participant data are absent. |
-| FR-028A | P0 | Assigning an NFC cup to a new session updates the session/sample metadata stored on its tag. | After a successful write and verification, scanning the cup resolves the new assignment; an interrupted write leaves a visible error and never reports success. |
+| FR-028A | P0 | Physical assignment/removal/reassignment durably stages intent before writing and requires a separate rescan/read-back. | Stage failure leaves cup untouched; interrupted work resumes verification without automatic rewrite, remains DRAFT until verified and saved, and survives Leave/restart. Deliberate local-session deletion discards pending verification without touching the cup. Mismatch never reports success (section 6.8.3). |
 | FR-028B | P0 | The canonical NDEF4 form enum supports exactly the two Release 1 forms. | `f=1` selects SCA CVA and `f=2` selects SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023); unknown or unsupported values fail visibly and are never guessed or silently mapped. Quick QC and Purchasing/selection have no assigned values. |
 | FR-029 | P1 | NFC Cup and Smart Cup identities use the same resolution contract. | Adding a hardware type does not change session, assignment, response, or participant-flow APIs. |
 
@@ -360,13 +446,13 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | ID | Priority | Requirement | Acceptance criterion |
 | --- | --- | --- | --- |
 | FR-030 | P0 | Each session selects one supported form mode. | Every scan opens the correct form without the taster choosing it again. |
-| FR-031 | P0 | Partial entries autosave locally without depending on connectivity. | Closing and reopening the app restores the most recent edit with no explicit save action. |
+| FR-031 | P0 | Partial entries have durable local crash-recovery drafts, distinct from explicit Save. | Restart can recover unsaved work, but only explicit Save commits scores/notes and state/revision changes. Leave/Stay warns on unsaved exit; Leave discards ordinary uncommitted edits, not pending NFC work. Autosave creates no completion/reveal/upload consent. |
 | FR-032 | P0 | A taster can enter the notes, discrete choices, descriptors, and scores defined by the selected Release 1 SCA form. | The complete selected form can be recorded with large controls and without horizontal sliders for common inputs. |
 | FR-032A | P0 | A taster can record a flavour note using the device's native voice capture/dictation. | The resulting text is editable and typed entry remains available when native voice input is unavailable; no custom cloud transcription service is required. |
 | FR-032B | P0 | Recognised SCA flavour-wheel descriptors receive their established category and colour through deterministic matching. | The original words and text category remain visible, and users can correct a match. |
 | FR-034 | P1 | When Smart Cup support ships, available temperature is attached to the event automatically. | The UI distinguishes measured temperature from unavailable or manually entered values. |
-| FR-035 | P0 | A taster can revisit and update an entry until the host closes the session. | Revisions are persisted; latest values appear in the summary. |
-| FR-036 | P0 | A participant can explicitly submit or mark their session complete. | The host sees complete/incomplete state and required-field warnings. |
+| FR-035 | P0 | A local taster can revisit and update scores/notes, including after their own completion. | Saved actual changes create a revision, return IN PROGRESS and hide blind details; unsaved/discarded edits preserve previous committed state. Local completion is not host-global closure or a setup unlock (section 6.8). |
+| FR-036 | P0 | The original session-level Complete Session action completes this taster's remaining local samples. | Required saved scores validate before durable COMPLETE/reveal. Missing scores produce a clear warning. Participant coverage is scanned local samples only; empty participant IN PROGRESS cannot complete. No extra form completion control or automatic upload. |
 | FR-037 | P1 | Multiple tasting events can be recorded for one sample as it cools. | Events remain individually timestamped and appear on a temperature/time sequence. |
 | FR-038 | P1 | Forms can provide hot/warm/cool stage prompts. | Stage thresholds are configurable by the host and prompts do not overwrite sensor data. |
 | FR-039 | P0 | Every tasting note or observation is stored locally with a stable event ID before any network action. | Force-closing and reopening the app while offline restores all acknowledged observations. Release 1 does not expose event time as sensory timing data. |
@@ -403,8 +489,8 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 | FR-060 | P0 | The app gives an explicit fallback when an NFC tap cannot open the tag URL. | The user sees manual code/search or QR options, not a dead scan control. |
 | FR-061 | P0 | Core cupping operation never requires internet access. | Session creation, session joining from NFC, cup scanning, note capture, editing, local submission, and local review all work in airplane mode after initial app/account preparation. |
 | FR-062 | P0 | Conflicting edits are detected. | The app preserves both versions or asks an authorised user to resolve; it never silently overwrites. |
-| FR-063 | P0 | Session closure is recoverable from accidental action. | A host must confirm closure and can reopen during a defined grace period. |
-| FR-064 | P0 | Results upload only after the participant explicitly presses **Share results**. | Sharing is retryable and idempotent; the app clearly distinguishes private/local, queued, sharing, shared, and failed states. No automatic end-of-session upload is enabled. |
+| FR-063 | P0 | Local completion and deletion follow section 6.8; later service host-global closure remains a distinct recoverable action. | Local post-completion saved edits reopen/hide; whole local deletion warns in every state for either role, cancels queued upload and discards pending NFC verification without touching cups/remote copies. Service closure confirmation/grace is separately governed and cannot close offline local tastings. |
+| FR-064 | P0 | Only explicit Upload / Share results authorises a completed immutable snapshot. | Offline queue/retry is idempotent; queued older snapshots continue across edits. Replacement confirmation covers queued and uploaded records. Latest verified stream revision wins, late older arrivals cannot overwrite; local deletion cancels queued work. Grey cloud-clock means pending; grey cloud-check requires durable ack of current saved version and disappears on saved edits (section 6.8.5). |
 | FR-065 | P0 | Release 1 online capabilities are reliably accessible from mainland China without a mandatory Google-hosted dependency. | Real mainland-China network evidence covers host authentication/account recovery, session access/reconciliation, explicit result sharing, the host portal, exports/downloads, and all transitive runtime dependencies; optional operational services can fail without blocking these paths. Mainland-China physical hosting is not required. |
 
 ### 7.8 Release 2 sample-label extraction
@@ -422,7 +508,7 @@ Priority uses **P0** for pilot blockers, **P1** for high-value follow-on work, a
 - The tasting screen must prioritise the sample/form content over navigation and branding.
 - Common controls must be large enough for wet, hurried, one-handed use at a cupping table.
 - Avoid fine sliders for common input; prefer discrete choices and large step controls.
-- Autosave state must be visible but quiet.
+- Draft recovery and explicit Save state must be visible but quiet and must not be conflated.
 - A scan must always result in one of four explicit states: assigned, unassigned, unknown, or unsupported.
 - Offline state must be calm and normal rather than presented as an error. The interface must show whether results are private/local, queued for sharing, sharing, shared, or need attention.
 - Before that participant completes, blind sessions must not display protected coffee metadata in participant-facing UI, screen readers, page titles, URLs, notifications, cached preview text, ordinary diagnostics, or participant network responses. Encrypted local retention of metadata read from NDEF4 is allowed solely to support the completion reveal.
@@ -585,9 +671,15 @@ Analytics must not capture free-text tasting notes or hidden sample identity as 
 
 Customers repeatedly want records to flow into spreadsheets, Cropster, Coffee Roast, or internal systems. CSV and a stable schema meet the immediate need without betting the MVP on third-party APIs or corporate integration cycles.
 
-### 12.2 Accounts are for session creators
+### 12.2 Local-first ownership, then accounts for session creators
 
-Login and invitation friction is one of the clearest complaints about existing software. Only people who create and manage sessions need accounts, and the paid host model begins in Release 1 so a permanent-free expectation is not established. Price remains TBC. Everyone else participates through a temporary, session-scoped identity without payment or account creation.
+The Product Owner approved an installation-local profile stage on 17 October 2026, with online accounts later. A cryptographically random, persistent, non-user-editable local profile ID is initialized without requiring a completed Profile form. Display name, organisation label and photo edits preserve it. Locally created sessions bind immutable creator provenance at the data-writing boundary. Creator setup commands must match the stored current profile; NDEF, caller IDs, route flags and editable fields cannot grant authority. Role is per session. Participant local deletion is separately allowed and does not require creator setup authority.
+
+Foreign/unknown creator provenance fails closed for setup, including older records and NFC-joined sessions; never retrospectively claim them because they are open, empty or complete. Profile loss/reinstall/device change does not restore ownership. Corrupt identity must not silently replace existing creator IDs. This is installation-local workflow protection, not authenticated identity or defence against storage tampering/cloning. A later online account may link profile/sessions only through explicit verified migration; a local profile ID is not a service credential, membership or entitlement.
+
+The reviewed prototype still has one response stream per sample, not separate private multi-participant storage. Unknown historical score provenance must not be silently assigned, recalculated or revealed. The previously approved per-sample **Use these saved scores as my tasting** confirmation may preserve original supported editable evidence and explicitly attribute that stream; it is separate from Save/completion and cannot adopt a known foreign-owned or historical read-only stream. This legacy compatibility action is not a new primary flow/control and does not waive future isolated storage, authentication, encryption or release gates.
+
+Section 6.8 is the current screen/state authority and supersedes the earlier monotonic-reveal increment. Later online/commercial creation requires a paid host account or active trial/pilot entitlement; price is TBC. Joining/tasting remains account-free, and the local increment must not be presented as a permanent free commercial plan.
 
 ### 12.3 Multiple cups per sample
 
@@ -646,8 +738,8 @@ This requirement does not require infrastructure to be physically hosted in main
 ### Product
 
 1. What is the smallest useful Release 1 descriptor vocabulary around the SCA framework: free text, organisation-defined chips, a wheel subset, or a combination?
-2. Should an account-free participant be able to reopen their own completed local results after a session, and for how long?
-3. How long can a host reopen a completed session?
+2. What finite service-access/reopening duration applies to account-free grants? Local saved tasting edits/reopening are resolved in section 6.8 and must not be treated as an unanswered permission question.
+3. How long can a host reopen a service-global completed session? This is separate from the local Complete Session flow.
 4. For a subsequent release, which fields are required in Quick QC and Purchasing/selection, and can the host loosen/tighten them?
 
 ### Hardware and technical feasibility
