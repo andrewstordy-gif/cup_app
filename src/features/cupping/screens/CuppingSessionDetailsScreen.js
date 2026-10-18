@@ -753,6 +753,7 @@ export function CuppingSessionDetailsScreen({
         // Trust the locally pinned Open mode even before the first cup exists.
         const saved = await saveSessionWithSamples({ ...formState, sessionName: effectiveSessionName,
           sessionType: effectiveSessionType, existingSessionId: savedSessionIdRef.current, intent: 'setup' });
+        if (setupEpoch !== setupEpochRef.current) return;
         savedSessionIdRef.current = saved.sessionId;
         setSessionStatus(saved.status);
       }
