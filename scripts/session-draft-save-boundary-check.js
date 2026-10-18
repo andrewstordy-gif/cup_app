@@ -35,6 +35,17 @@ async function persistActualAdd(env,id,samples,form=1,status='new') {
   assert.equal(dependencies.ack,'new','actual Add applies durable Draft acknowledgement');
 }
 async function main() {
+  const handler=find(ast,node=>node.type==='VariableDeclarator'&&node.id?.name==='handleScanCup').init;
+  const preparation=handler.body.body.find(node=>node.type==='TryStatement').block.body[0];
+  let release; let applied=0;
+  const epoch={current:1}, savedRef={current:'old-session'};
+  const preparationDeps={formState:{samples:[]},effectiveSessionName:'Creator draft',effectiveSessionType:'Training Session',
+    savedSessionIdRef:savedRef,setupEpoch:1,setupEpochRef:epoch,setSessionStatus:()=>{applied++;},
+    saveSessionWithSamples:()=>new Promise(resolve=>{release=resolve;})};
+  const pending=new Function(...Object.keys(preparationDeps),`return(async()=>{${generate(preparation).code}})();`)(...Object.values(preparationDeps));
+  epoch.current=2; release({sessionId:'old-ack',status:'new'}); await pending;
+  assert.equal(applied,0,'stale pre-write acknowledgement cannot change the next route status');
+  assert.equal(savedRef.current,'old-session','stale acknowledgement cannot retarget the saved session');
   for (const form of [1,2]) {
   const env=fixture(); const id=`already-saved-empty-${form}`;
   await env.create(id,form,form===2?'open':'blind',false);
