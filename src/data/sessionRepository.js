@@ -1054,6 +1054,7 @@ async function importSessionWithDb(db, {
   sessionDate,
   samplesInSession,
   status = "new",
+  expectedExistingSessionId = null,
 } = {}) {
   const f = requireFormTag({ f: cuppingForm });
   const pinnedForm = formIdentity(f);
@@ -1064,6 +1065,9 @@ async function importSessionWithDb(db, {
 
   const nowIso = new Date().toISOString();
   const existing = await findSessionBySessionUUIDWithDb(db, normalizedSessionUUID);
+  if (expectedExistingSessionId && existing?.id !== expectedExistingSessionId) {
+    throw new Error('This local session was removed or changed while scanning. Scan again to import a new local copy.');
+  }
   if (existing && !isPinnedForm(existing, f)) {
     throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
   }
@@ -1381,6 +1385,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
 
   if (existingSession) await assertAssessmentReadyWithDb(await getLocalDatabase(), existingSession.id);
   const session = f === 2 ? existingSession : await upsertSessionFromCupMetadata({
+    expectedExistingSessionId: existingSession?.id ?? null,
     sessionUUID,
     cuppingForm: metadata?.f ?? metadata?.cuppingForm,
     sessionName: metadata?.sessionName ?? metadata?.e,
@@ -1446,10 +1451,13 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } =
 }
 
 export async function deleteSessionById(sessionId) {
-  return ownedMutation(sessionId, db => deleteOwnedSessionById(db, sessionId));
+  const db = await getLocalDatabase();
+  let result;
+  await db.withExclusiveTransactionAsync(async txn => { result = await deleteLocalSessionById(txn, sessionId); });
+  return result;
 }
 
-async function deleteOwnedSessionById(db, sessionId) {
+async function deleteLocalSessionById(db, sessionId) {
   const normalizedSessionId = cleanString(sessionId);
   if (!normalizedSessionId) {
     throw new Error("sessionId is required to delete a session.");
@@ -1469,6 +1477,11 @@ async function deleteOwnedSessionById(db, sessionId) {
     return { deleted: false };
   }
 
+  // This retained pre-event table may have no foreign keys. Remove only this
+  // session's rows, or startup could backfill deleted feedback into an empty store.
+  if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'sample_feedback' LIMIT 1")) {
+    await db.runAsync('DELETE FROM sample_feedback WHERE session_id = ? OR sample_id IN (SELECT id FROM samples WHERE session_id = ?)', [normalizedSessionId, normalizedSessionId]);
+  }
   await db.runAsync("DELETE FROM sessions WHERE id = ?", [normalizedSessionId]);
   return { deleted: true };
 }

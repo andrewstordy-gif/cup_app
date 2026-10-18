@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
-import AntDesign from "@expo/vector-icons/AntDesign";
+import { IconButton } from "../../../components/ui/IconButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
@@ -39,17 +39,13 @@ function CuppingSessionCard({ item, scale, onPress, onDelete }) {
         <Text style={styles.sessionTitle} numberOfLines={1}>
           {item.title}
         </Text>
-        {item.canManageSetup ? <Pressable
+        <IconButton name="close" color={colors.inkSoft}
           onPress={(event) => {
             event?.stopPropagation?.();
             onDelete(item);
           }}
-          hitSlop={12}
-          accessibilityRole="button"
           accessibilityLabel={`Delete session ${item.title}${item.code ? `, ${item.code}` : ""}`}
-        >
-          <AntDesign name="close" size={18} color={colors.inkSoft} />
-        </Pressable> : null}
+        />
       </View>
       <Text style={styles.sessionCategory}>{item.category}</Text>
       {item.code ? <Text style={styles.sessionDate}>{item.code}</Text> : null}
@@ -82,6 +78,7 @@ export function CuppingSessionScreen({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const deleteOperationRef = useRef(null);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
 
   useEffect(() => {
@@ -161,17 +158,20 @@ export function CuppingSessionScreen({
   };
 
   const handleConfirmDelete = async () => {
+    if (deleteOperationRef.current) return;
     if (!deleteCandidate?.id) {
       closeDeleteDialog();
       return;
     }
 
     const sessionToDelete = deleteCandidate;
+    const operation = { sessionId: sessionToDelete.id };
+    deleteOperationRef.current = operation;
 
     try {
       await deleteSessionById(sessionToDelete.id);
       setSessions((prev) => prev.filter((session) => session.id !== sessionToDelete.id));
-      closeDeleteDialog();
+      setDeleteCandidate(current => current?.id === sessionToDelete.id ? null : current);
     } catch (error) {
       void logAppError({
         screen: "CuppingSessionScreen",
@@ -180,8 +180,10 @@ export function CuppingSessionScreen({
         friendlyMessage: "Delete failed.",
         error: new Error("Delete failed."),
       });
-      closeDeleteDialog();
+      setDeleteCandidate(current => current?.id === sessionToDelete.id ? null : current);
       setDeleteErrorMessage("Delete failed.");
+    } finally {
+      if (deleteOperationRef.current === operation) deleteOperationRef.current = null;
     }
   };
 
@@ -266,7 +268,7 @@ export function CuppingSessionScreen({
         title="Delete Session?"
         message={
           deleteCandidate
-            ? `Delete "${deleteCandidate.title}${deleteCandidate.code ? ` (${deleteCandidate.code})` : ""}"? This will permanently delete the session and all saved sample feedback stored on this device.`
+            ? `Delete "${deleteCandidate.title}${deleteCandidate.code ? ` (${deleteCandidate.code})` : ""}"? This permanently deletes this local session, its samples, saved scores and notes from this device. Physical cups, other copies and any results already uploaded remain unchanged.`
             : ""
         }
         okLabel="Cancel"

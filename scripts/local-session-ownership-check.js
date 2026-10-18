@@ -134,7 +134,6 @@ const snapshot = () => JSON.stringify(sqlite.prepare('SELECT * FROM sessions ORD
       () => repo.activateSession(sessionId), () => repo.resetSessionToPending(sessionId),
       () => repo.manuallyMarkSessionComplete(sessionId), () => repo.markSessionCompleteIfAllSamplesComplete(sessionId),
       () => repo.deleteSampleFromSession(`sample-${sessionId.endsWith('1') ? 1 : 2}`),
-      () => repo.deleteSessionById(sessionId),
     ]) await assert.rejects(command(), /local profile that created/);
   }
   assert.equal(snapshot(), beforeEarlierTag, 'all denied commands leave setup unchanged');
