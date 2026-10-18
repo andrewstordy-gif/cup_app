@@ -157,6 +157,7 @@ async function main() {
   let blocked;
   let written = false;
   let persisted = false;
+  const setupSaves = [];
   const dependencies = {
     canEditSessionSetup: true,
     ...details,
@@ -177,8 +178,8 @@ async function main() {
     findPendingSessionByCupUUID: repo.findPendingSessionByCupUUID,
     playNfcFailureFeedback: async () => {},
     logAppError: input => { logArguments.push(input); },
-    formState: {}, setSessionStatus: () => {},
-    saveSessionWithSamples: async input => { if (input.intent !== 'setup') persisted = true; return {sessionId:'newref12345678',status:'new'}; },
+    formState: {samples:[]}, setSessionStatus: () => {},
+    saveSessionWithSamples: async input => { setupSaves.push(input); if (setupSaves.length > 1 || input.samples?.length) persisted = true; return {sessionId:'newref12345678',status:'new'}; },
   };
   const scan = new Function(...Object.keys(dependencies), `return (${generate(declaration.init).code});`)(...Object.values(dependencies));
   const writesBeforeConflict = nativeWrites;
@@ -189,6 +190,9 @@ async function main() {
   assert.match(blocked, /Remove it.*different cup/);
   assert.equal(written, false, 'duplicate is rejected before write');
   assert.equal(persisted, false, 'duplicate is rejected before sample persistence');
+  assert.equal(setupSaves.length, 1, 'only conservative pre-write Draft persistence is allowed before conflict');
+  assert.equal(setupSaves[0].intent, 'setup');
+  assert.deepEqual(setupSaves[0].samples, []);
   assert.equal(logArguments.length, 1);
   assert.equal(logArguments[0].error.code, details.PENDING_CONFLICT_ERROR);
   assert.equal(logArguments[0].context.assignmentConflict, true, 'real service retains conflict code into screen catch');
