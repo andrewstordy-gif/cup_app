@@ -96,6 +96,12 @@ async function main() {
   await assert.rejects(repo().recomputeSessionProgressStatus('empty'),/damaged_history/);
   assert.equal((await repo().getSessionById('empty')).status,'damaged');
   assert.equal((await repo().listSessions()).find(row=>row.id==='empty').status,'damaged');
+  for (const malformed of ['COMPLETE',' PENDING ']) {
+    env.sqlite.prepare('UPDATE sessions SET status=? WHERE id=?').run(malformed,'empty');
+    await assert.rejects(repo().recomputeSessionProgressStatus('empty'),/damaged_history/);
+    assert.equal((await repo().getSessionSetupAccess('empty')).canManageSetup,false);
+    assert.equal((await repo().getSessionById('empty')).status,malformed);
+  }
   const unknown = fixture(); const unknownId = await unknown.create('unknown-state');
   const unknownRead = await unknown.repo.getCvaResponse('unknown-state',unknownId);
   unknown.sqlite.prepare('INSERT INTO local_session_foundations VALUES (?,1,0,0)').run('unknown-state');

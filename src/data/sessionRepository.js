@@ -301,7 +301,7 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
     return null;
   }
 
-  const currentStatus = cleanString(session.status).toLowerCase();
+  const currentStatus = session.status;
   if (!['new', 'pending', 'in_progress', 'complete'].includes(currentStatus)) tastingFail('tasting:damaged_history');
   if (currentStatus === "complete") {
     return "complete";
