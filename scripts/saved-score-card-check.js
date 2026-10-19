@@ -45,6 +45,9 @@ const mocks = {
   '@expo/vector-icons/AntDesign': 'AntDesign',
   '../../../components/ui/TypographyAuditText': { TypographyAuditText: 'Text' },
   '../../../components/ui/AppIcon': leaf('AppIcon'),
+  '../../../components/ui/IconButton': { IconButton: props => react.createElement('Pressable', {
+    ...props, accessibilityRole: 'button', onPress: props.disabled ? undefined : props.onPress,
+  }) },
   '../../../data/sessionRepository': repo,
   './DefectsSection': { BEAN_DEFECT_OPTIONS: [], ROAST_DEFECT_OPTIONS: [] },
   './KeywordPillRow': leaf('KeywordPillRow'),

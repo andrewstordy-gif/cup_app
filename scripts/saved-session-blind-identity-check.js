@@ -123,8 +123,9 @@ assert.match(details, /sample=\{sessionId \? visibleIdentity\.samples\[index\] :
 assert.match(details, /onEditSample=\{showInProgressFooter \|\| !canEditSessionSetup \? undefined/, 'unowned sample cannot open raw edit sheet');
 assert.match(details, /canEditSessionSetup = !sessionId \|\| \(isSessionFormSupported && ownsSavedSetup\)/,
   'saved setup requires local ownership, not merely an Open projection');
-assert.match(details, /const handleRemoveSample = \(sampleId\) => \{\s*if \(!canEditSessionSetup\) return;/, 'unowned sample removal is guarded');
-assert.match(details, /showRemove=\{canEditSessionSetup\}/, 'remove control is absent for unowned saved samples');
+assert.match(details, /permission\?\.canRemove && permission\.removalToken/, 'participant local removal requires trusted scoped permission and token');
+assert.match(details, /if \(!canEditSessionSetup\) return;\s*setIsSessionDirty\(true\);\s*setSamples\(\(prev\) => prev\.filter/, 'creator setup removal remains ownership guarded');
+assert.match(details, /showRemove=\{canEditSessionSetup \|\| Boolean\(sample\.localRemoval\?\.canRemove\)\}/, 'only creator setup or trusted participant local removal exposes a cross');
 assert.match(details, /accessibilityLabel=\{hideSavedIdentity \? "Session code unavailable"/, 'saved blind Details never speaks a stored reference');
 assert.match(details, /hideSavedIdentity \? "Session code unavailable" : sessionDisplayId/, 'saved blind Details never prints a stored reference');
 assert.doesNotMatch(readFileSync(filename, 'utf8'), /safeSavedSessionCode/, 'no stored reference formatter exists for blind views');
@@ -138,7 +139,7 @@ assert.match(details, /accessibilityLabel="Session name"/, 'visible session name
 assert.doesNotMatch(details, /Session name hidden for blind cupping|Identity is hidden in this shared view/, 'session name is not announced as hidden coffee identity');
 const card = readFileSync(path.join(root, 'src/features/cupping/components/CoffeeSampleCard.js'), 'utf8');
 assert.match(card, /sample\.identityHidden \? "Hidden during blind cupping"/, 'expanded process explains redaction');
-assert.match(card, /\{showRemove \? <Pressable/, 'hidden card omits remove control');
+assert.match(card, /\{showRemove \? <IconButton/, 'card omits removal control unless trusted permission exposes it');
 const nav = readFileSync(path.join(root, 'src/navigation/AppNavigator.js'), 'utf8');
 assert.equal((nav.match(/if \(!await selectSavedAssessment\(\{/g) || []).length, 4,
   'both NFC branches, aroma capture and completed review project scorer context');

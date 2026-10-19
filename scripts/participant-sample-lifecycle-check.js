@@ -42,6 +42,12 @@ async function negativeAndRaces(form){
  await assert.rejects(env.repo.resolveActiveSampleFromCupMetadata({cupUUID:'NO-POSITION',metadata:{...tag,z:undefined}}));
  const row=await env.repo.resolveActiveSampleFromCupMetadata({cupUUID:'FIRST',metadata:tag});
  const initial=await env.repo.getParticipantSampleRemovalContext(id,row.sampleId);assert.equal(initial.canRemove,true);
+ if(form===1){env.sqlite.prepare('DELETE FROM local_tasting_revisions WHERE session_id=?').run(id);env.sqlite.prepare("UPDATE sessions SET cupping_mode='damaged' WHERE id=?").run(id);
+  assert.equal((await env.repo.getParticipantSampleRemovalContext(id,row.sampleId)).canRemove,false);
+  await assert.rejects(env.repo.removeParticipantSample({sessionId:id,sampleId:row.sampleId,expectedRemovalToken:initial.removalToken}));
+  env.sqlite.prepare('UPDATE sessions SET cupping_mode=NULL WHERE id=?').run(id);
+  assert.equal((await env.repo.getParticipantSampleRemovalContext(id,row.sampleId)).canRemove,true,'legitimate null CVA parent mode remains valid');
+ }
  await saveOwn(env,id,row.sampleId,form);
  await assert.rejects(env.repo.removeParticipantSample({sessionId:id,sampleId:row.sampleId,expectedRemovalToken:initial.removalToken}));
  env.sqlite.prepare('UPDATE sessions SET local_creator_profile_id=? WHERE id=?').run(env.actorB,id);

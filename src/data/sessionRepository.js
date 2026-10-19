@@ -858,7 +858,8 @@ async function participantRemovalContextWithDb(db, sessionId, sampleId, actor) {
       !['pending','in_progress'].includes(session.status) || sample.cuppingForm !== session.cuppingForm ||
       !Number.isInteger(sample.cupNumber) || sample.cupNumber < 1 || sample.cupNumber > 8 ||
       !['blind','open'].includes(sample.cuppingMode) || session.cuppingForm === 2 && (session.cuppingMode !== 'open' || sample.cuppingMode !== 'open')) return denied;
-  if (!Number.isInteger(sample.sampleNumber) || sample.sampleNumber < 1 || !cleanString(sample.cupUUID) ||
+  if (session.cuppingMode !== null && session.cuppingMode !== sample.cuppingMode ||
+      !Number.isInteger(sample.sampleNumber) || sample.sampleNumber < 1 || !cleanString(sample.cupUUID) ||
       session.samples.some(row => row.cuppingForm !== session.cuppingForm || row.cuppingMode !== sample.cuppingMode ||
         !Number.isInteger(row.cupNumber) || row.cupNumber < 1 || row.cupNumber > 8)) return denied;
   const revision = await revisionWithDb(db, sessionId, actor);
