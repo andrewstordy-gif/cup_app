@@ -75,7 +75,8 @@ async function main() {
       'Details response-readiness flag must not lock a still-open Session');
     find(tree, node => node.props?.accessibilityLabel === `${label} 5 of 9`).props.onPress(); tree = render();
   }
-  find(tree, node => node.type?.name === 'ZeroAssessment' && node.props.label === 'Uniformity').props.onPress(); tree = render();
+  assert.deepEqual(find(tree, node => node.type?.name === 'ZeroAssessment' && node.props.label === 'Uniformity').props.cups, [],
+    'fresh Uniformity already records no non-uniform cups without an extra tap');
   const bean = find(tree, node => node.type === 'DefectsSection').props.beanAssessment;
   assert.equal(bean.value, '0.00');
   assert.equal(bean.control, undefined, 'new zero uses the shared static/live score value, not a hidden confirmation');

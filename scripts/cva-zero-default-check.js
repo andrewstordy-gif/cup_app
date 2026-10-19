@@ -109,25 +109,37 @@ async function open(props) { const ui = screen(props); ui.render(); await tick()
 const bean = tree => first(tree, node => node.type === 'DefectsSection').props.beanAssessment;
 const recordNone = tree => nodes(tree, node => node.props?.accessibilityLabel === 'Record no scored bean defects');
 async function main() {
-  for (const n of [1, 5, 8]) {
+  for (const n of [0,9,-1,1.5,null,undefined,'5',NaN]) assert.throws(()=>tools.createCvaDraft(n),/integer/);
+  const oneDraft=tools.createCvaDraft(5), anotherDraft=tools.createCvaDraft(5);
+  oneDraft.non_uniform_cups.push(1);assert.deepEqual(anotherDraft.non_uniform_cups,[],'new drafts do not share cup sets');
+  for (let n=1;n<=8;n++) {
     const fresh = tools.createCvaDraft(n);
     assert.deepEqual([fresh.defective_cups, fresh.defect_type_masks, fresh.evenly_defective_all_cups], [[], {}, false]);
-    assert.deepEqual(fresh.non_uniform_cups, n === 1 ? [] : null);
+    assert.deepEqual(fresh.non_uniform_cups, []);
+    assert.notEqual(fresh.non_uniform_cups,tools.createCvaDraft(n).non_uniform_cups);
     assert.equal(tools.inspectCvaResponse(fresh, trusted, n).final.ok, false);
-    assert.equal(tools.inspectCvaResponse({ ...fresh, ratings: ratings() }, trusted, n).final.ok, n === 1,
-      'new zero cannot silently satisfy multi-cup Uniformity');
+    assert.equal(tools.inspectCvaResponse({ ...fresh, ratings: ratings() }, trusted, n).final.ok, true,
+      'new Uniformity is assessed none but all eight ratings remain required');
     const props = await fixture(n), before = rows(), beforePins = pins();
     let { ui, tree } = await open(props);
     assert.equal(rows(), before); assert.equal(pins(), beforePins);
+    const unopenedProgress=await repo.getLocalTastingPresentation(props.sessionId);
+    assert.equal(unopenedProgress.tasting.started,false);assert.equal(unopenedProgress.tasting.revealed,false);
+    assert.equal((await repo.getSessionSampleFinalStatus(props.sessionId))[props.sampleId].hasAnyFeedback,false);
     assert.equal(bean(tree).value, '0.00'); assert.equal(bean(tree).control, undefined);
     assert.equal(recordNone(tree).length, 0); assert.ok(!bean(tree).hint.includes('Assessed'));
+    if(n>1){
+      const uniformity=()=>first(tree,node=>node.type?.name==='ZeroAssessment'&&node.props.label==='Uniformity');
+      assert.deepEqual(uniformity().props.cups,[]);assert.equal(uniformity().props.amount,0);
+      first(tree,node=>node.type==='AssessmentCupSelector'&&node.props.label==='Non-uniform').props.onChange([n]);tree=ui.render();
+      assert.deepEqual(uniformity().props.cups,[n]);assert.equal(uniformity().props.amount,10/n);
+      first(tree,node=>node.type==='AssessmentCupSelector'&&node.props.label==='Non-uniform').props.onChange([]);tree=ui.render();
+      assert.deepEqual(uniformity().props.cups,[]);assert.equal(uniformity().props.amount,0);
+      uniformity().props.onPress();tree=ui.render();assert.equal(uniformity().props.cups,null,'explicit unassessed remains possible');
+      uniformity().props.onPress();tree=ui.render();assert.deepEqual(uniformity().props.cups,[]);
+    }
     for (const label of Object.keys(tools.RATINGS)) {
       first(tree, node => node.props?.accessibilityLabel === `${label} 7 of 9`).props.onPress(); tree = ui.render();
-    }
-    if (n > 1) {
-      assert.ok(JSON.stringify(tree).includes('Assess Uniformity'));
-      first(tree, node => node.type?.name === 'ZeroAssessment' && node.props.label === 'Uniformity').props.onPress();
-      tree = ui.render();
     }
     await first(tree, node => node.type === 'FooterButton').props.onPress(); tree = ui.render();
     assert.equal(ui.celebrations(), 1);
@@ -151,7 +163,7 @@ async function main() {
     if (n > 1) edited.non_uniform_cups = [1];
     assert.equal(tools.inspectCvaResponse(edited, trusted, n).final.ok, true);
     assert.equal(tools.inspectCvaResponse(edited, trusted, n).result.display_score,
-      ({ 1: '69.50', 5: '83.50', 8: '85.75' })[n]);
+      ({1:'69.50',2:'74.50',3:'79.50',4:'82.00',5:'83.50',6:'84.50',7:'85.25',8:'85.75'})[n]);
     assert.deepEqual(tools.inspectCvaResponse(edited, trusted, n).result,
       tools.inspectCvaResponse({ ...edited, defect_type_masks: { potato: [1] } }, trusted, n).result,
       'several source types on the same cup deduct only once');
@@ -166,6 +178,24 @@ async function main() {
       assert.equal(tools.inspectCvaResponse(edited, trusted, n).final.ok, false);
       assert.equal(tools.inspectCvaResponse({ ...edited, evenly_defective_all_cups: true }, trusted, n).final.ok, true);
     }
+  }
+  const blankProps=await fixture(5),blank=await save(blankProps,tools.createCvaDraft(5));
+  assert.equal(blank.complete,false);assert.equal(blank.result,null);
+  const blankPresentation=await repo.getLocalTastingPresentation(blankProps.sessionId);
+  assert.equal(blankPresentation.tasting.started,false);assert.equal(blankPresentation.tasting.completed,false);
+  assert.equal(blankPresentation.tasting.revealed,false);
+  assert.equal(blankPresentation.session.status,'pending');
+  assert.equal((await repo.completeLocalTasting(blankProps.sessionId,{expectedContextToken:blankPresentation.tasting.contextToken})).status,'incomplete');
+  assert.equal((await repo.getSessionSampleFinalStatus(blankProps.sessionId))[blankProps.sampleId].isComplete,false);
+  const blankRows=rows();const blankUi=await open(blankProps);blankUi.ui.close();assert.equal(rows(),blankRows);
+  for(const cupSet of [null,undefined,[],[2]]){
+    const props=await fixture(5);const historical={...final(5),non_uniform_cups:cupSet};
+    if(cupSet===undefined)delete historical.non_uniform_cups;
+    await save(props,historical);const before=rows(),beforePins=pins();
+    const {ui,tree}=await open(props);
+    const field=first(tree,node=>node.type?.name==='ZeroAssessment'&&node.props.label==='Uniformity');
+    assert.deepEqual(field.props.cups,cupSet,'saved fields are not merged with new defaults');
+    assert.equal(rows(),before);assert.equal(pins(),beforePins);ui.close();
   }
   const variants = [];
   for (const key of ['defective_cups', 'defect_type_masks', 'evenly_defective_all_cups']) {
@@ -200,7 +230,7 @@ async function main() {
       JSON.stringify(JSON.parse(before).filter(row => row.session_id === props.sessionId && row.revision === 1)), 'earlier bytes/provenance are retained');
     assert.equal(pins(), beforePins); ui.close();
   }
-  console.log('CVA zero-default checks passed: actual screen/repository Save/reopen, n=1/5/8, partial historical tuples and unchanged history.');
+  console.log('CVA zero-default checks passed: actual screen/repository Save/reopen n=1–8, Uniformity select/clear/unassessed, default-only no-start and preserved historical null/absent/selected tuples.');
   db.close();
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

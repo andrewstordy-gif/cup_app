@@ -12,7 +12,7 @@ const NOTES = Object.freeze({ fragrance_aroma: 'Fragrance / Aroma', flavor_after
 
 function createCvaDraft(n) {
   if (!Number.isInteger(n) || n < 1 || n > 8) throw new Error('Physical cup count must be an integer from 1 to 8.');
-  return { ratings: {}, affective_notes: {}, general_affective_notes: '', non_uniform_cups: n === 1 ? [] : null,
+  return { ratings: {}, affective_notes: {}, general_affective_notes: '', non_uniform_cups: [],
     defective_cups: [], defect_type_masks: {}, other_bean_cups: [], roast_defect_type_masks: {},
     defect_description: '', evenly_defective_all_cups: false };
 }
