@@ -31,6 +31,7 @@ export function getSessionStatusBadgeLabel({ samples, sampleStatusById, isSessio
   if (isSessionComplete || hasLocalSessionCompletion(sessionId, tastingPresentation)) {
     return "Complete";
   }
+  if (!(samples || []).length && savedStatus === 'in_progress' && tastingPresentation?.tasting?.started) return "In Progress";
   if ((samples || []).some((sample) => Boolean(sampleStatusById?.[sample.id]?.hasAnyFeedback))) {
     return "In Progress";
   }

@@ -120,7 +120,7 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, cupIndex
       Math.abs(gesture.dx) > 42 && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.6),
     onPanResponderRelease: (_, gesture) => {
       if (dirty || pending) { setMessage('Save changes before switching samples.'); return; }
-      const index = Number.isInteger(sampleNumber) ? sampleNumber - 1 : cupIndex || 0;
+      const index = Number.isInteger(cupIndex) && cupIndex >= 0 && cupIndex < cupTotal ? cupIndex : 0;
       if (gesture.dx < -48 && index < cupTotal - 1) onSampleSwipe?.('next');
       if (gesture.dx > 48 && index > 0) onSampleSwipe?.('previous');
     },

@@ -824,6 +824,10 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked);
   const canManageSetup = Boolean(activePin && supported && setupModeValid && isLocalCreator && !state.started && raw.status !== 'complete');
   const show = Boolean(supported && validMode && (open || state.revealed || purpose === 'setup' && canManageSetup));
+  const localRemoval = {};
+  if (activePin && validMode && validActor(actor) && creator?.creator === null) {
+    for (const sample of samples) localRemoval[sample.id] = await participantRemovalContextWithDb(db, sessionId, sample.id, actor);
+  }
   const projected = {
     id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
     sessionName: raw.sessionName, sessionType: raw.sessionType, sessionDate: raw.sessionDate,
@@ -834,12 +838,98 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     id: sample.id, cupUUID: sample.cupUUID, cupNumber: sample.cupNumber,
     cuppingForm: sample.cuppingForm, cuppingMode: sample.cuppingMode,
     sampleNumber: sample.sampleNumber, positionIndex: sample.positionIndex,
+    localRemoval: localRemoval[sample.id] || { canRemove: false },
     coffeeNameOrigin: show ? sample.coffeeNameOrigin : `Sample ${Number(sample.sampleNumber) || index + 1}`,
     process: show ? sample.process : null, identityHidden: !show,
   })) };
   return { session: projected, identityHidden: !show,
     tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(activePin && validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete' && !(creator?.creator && raw.status === 'new')),
       canManageSetup, isLocalCreator } };
+}
+
+async function participantRemovalContextWithDb(db, sessionId, sampleId, actor) {
+  const denied = { canRemove: false };
+  if (!validActor(actor)) return denied;
+  const session = await getSessionByIdWithDb(db, sessionId);
+  const creator = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id=?', [sessionId]);
+  const sample = session?.samples.find(row => row.id === sampleId);
+  if (!session || creator?.creator !== null || !sample ||
+      !isActiveFormPin(session, session.cuppingForm) || ![1,2].includes(session.cuppingForm) ||
+      !['pending','in_progress'].includes(session.status) || sample.cuppingForm !== session.cuppingForm ||
+      !Number.isInteger(sample.cupNumber) || sample.cupNumber < 1 || sample.cupNumber > 8 ||
+      !['blind','open'].includes(sample.cuppingMode) || session.cuppingForm === 2 && (session.cuppingMode !== 'open' || sample.cuppingMode !== 'open')) return denied;
+  if (!Number.isInteger(sample.sampleNumber) || sample.sampleNumber < 1 || !cleanString(sample.cupUUID) ||
+      session.samples.some(row => row.cuppingForm !== session.cuppingForm || row.cuppingMode !== sample.cuppingMode ||
+        !Number.isInteger(row.cupNumber) || row.cupNumber < 1 || row.cupNumber > 8)) return denied;
+  const revision = await revisionWithDb(db, sessionId, actor);
+  if (!revision.matches || await db.getFirstAsync('SELECT local_profile_id FROM local_tasting_revisions WHERE session_id=? AND local_profile_id<>? LIMIT 1', [sessionId, actor])) return denied;
+  const access = await streamWithDb(db, sessionId, sampleId, session.cuppingForm, actor);
+  if (!['fresh','mine'].includes(access.state)) return denied;
+  const recovery = await db.getAllAsync('SELECT * FROM local_legacy_recovery_drafts WHERE sample_id=? ORDER BY local_profile_id', [sampleId]);
+  if (recovery.some(row => row.session_id !== sessionId || row.local_profile_id !== actor)) return denied;
+  for (const row of recovery) {
+    if (session.cuppingForm !== 2 || typeof row.updated_at !== 'string' || !Number.isFinite(Date.parse(row.updated_at)) ||
+        new Date(row.updated_at).toISOString() !== row.updated_at || row.context_json !== canonicalize({ sessionId, sampleId,
+          pin:trustedLegacySession(session).identity, count:sample.cupNumber })) return denied;
+    if (row.base_fingerprint !== await legacyFingerprintWithDb(db, sessionId, sampleId, actor)) return denied;
+    try { if (!validateResponse({ ...trustedLegacySession(session), cup_count:sample.cupNumber, response:JSON.parse(row.response_json), complete:false }, trustedLegacySession(session)).ok) return denied; }
+    catch { return denied; }
+  }
+  const childTables = ['sample_feedback_entries','sample_defect_entries','sample_flavour_observations','cva_response_revisions','legacy_responses','local_response_streams'];
+  const oldFeedback = await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='sample_feedback'");
+  if (oldFeedback) childTables.push('sample_feedback');
+  for (const table of childTables) {
+    if (await db.getFirstAsync(`SELECT sample_id FROM ${table} WHERE sample_id=? AND (session_id IS NULL OR session_id<>?) LIMIT 1`, [sampleId, sessionId])) return denied;
+    if (access.state === 'fresh' && ['sample_feedback_entries','sample_defect_entries','sample_flavour_observations','sample_feedback'].includes(table) &&
+        await db.getFirstAsync(`SELECT sample_id FROM ${table} WHERE sample_id=? LIMIT 1`, [sampleId])) return denied;
+  }
+  // Validate a committed owned response under its actual pinned contract before
+  // granting destructive local removal; unknown policy/identity is not authority.
+  if (access.source) {
+    if (session.cuppingForm === 1) await readCanonicalCva(db, sessionId, sampleId);
+    else await getLegacyResponseWithDb(db, sessionId, sampleId);
+  }
+  const label = `Sample ${Number(sample.sampleNumber) || session.samples.indexOf(sample) + 1}`;
+  return { canRemove: true, label, removalToken: sha256(canonicalize({ version:1, actor, sessionId, sampleId,
+    sample:{...sample}, creator:null, revision:revision.revision, hash:revision.hash, recovery:recovery.map(row=>({...row})) })) };
+}
+
+export async function getParticipantSampleRemovalContext(sessionId, sampleId) {
+  const db = await getLocalDatabase(), actor = await getLocalProfileIdentity();
+  let output;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    output = await participantRemovalContextWithDb(txn, sessionId, sampleId, actor);
+    await requireSameTastingActor(actor);
+  });
+  return output;
+}
+
+export async function removeParticipantSample({ sessionId, sampleId, expectedRemovalToken } = {}) {
+  const command = { sessionId, sampleId, expectedRemovalToken };
+  const db = await getLocalDatabase(), actor = await getLocalProfileIdentity();
+  let output;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    const context = await participantRemovalContextWithDb(txn, command.sessionId, command.sampleId, actor);
+    if (!context.canRemove || !command.expectedRemovalToken || context.removalToken !== command.expectedRemovalToken) tastingFail('tasting:stale_removal');
+    await persistHistoryWithDb(txn, command.sessionId);
+    if (await txn.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='sample_feedback'")) {
+      await txn.runAsync('DELETE FROM sample_feedback WHERE sample_id=? AND session_id=?', [command.sampleId, command.sessionId]);
+    }
+    await txn.runAsync('DELETE FROM samples WHERE id=? AND session_id=?', [command.sampleId, command.sessionId]);
+    const remaining = await txn.getFirstAsync('SELECT COUNT(*) AS count FROM samples WHERE session_id=?', [command.sessionId]);
+    await commitRevisionWithDb(txn, command.sessionId, actor, { starts: Number(remaining.count) === 0 });
+    await recomputeSessionProgressStatusWithDb(txn, command.sessionId);
+    output = { deleted:true, presentation: await getLocalTastingPresentationWithDb(txn, command.sessionId, 'tasting', actor),
+      statuses: await getSessionSampleFinalStatusWithDb(txn, command.sessionId) };
+    await requireSameTastingActor(actor);
+  });
+  await requireSameTastingActor(actor);
+  const acknowledged = await getLocalTastingPresentation(command.sessionId);
+  await requireSameTastingActor(actor);
+  if (acknowledged.tasting.contextToken !== output.presentation.tasting.contextToken) tastingFail('tasting:ack_changed');
+  return output;
 }
 
 export async function completeLocalTasting(sessionId, { expectedContextToken } = {}) {
@@ -1049,6 +1139,7 @@ async function findSampleInSessionByCupUUIDWithDb(db, { sessionId, cupUUID } = {
 }
 
 export async function upsertSessionFromCupMetadata(input = {}) {
+  input = { ...input };
   const db = await getLocalDatabase();
   let result;
   await db.withExclusiveTransactionAsync(async txn => { result = await importSessionWithDb(txn, input); });
@@ -1064,6 +1155,7 @@ async function importSessionWithDb(db, {
   samplesInSession,
   status = "new",
   expectedExistingSessionId = null,
+  cuppingMode = null,
 } = {}) {
   const f = requireFormTag({ f: cuppingForm });
   const pinnedForm = formIdentity(f);
@@ -1083,10 +1175,10 @@ async function importSessionWithDb(db, {
   if (existing && !isActiveFormPin(existing, f) && !isPrototypeCvaPin(existing)) {
     throw new Error('This cup refers to a read-only historical form version. Its saved data was not changed.');
   }
-  if (f === 2 && (!existing || existing.cuppingMode !== 'open')) {
+  if (f === 2 && (existing ? existing.cuppingMode !== 'open' : cuppingMode !== 'open')) {
     throw new Error('SCA Legacy cup is not linked to a trusted local Open Cupping session. No local data was changed.');
   }
-  if (f === 2) return existing;
+  if (f === 2 && existing) return existing;
   const provenance = existing && await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [existing.id]);
   if (provenance?.creator) {
     // Earlier cups legitimately carry the old total/header after another sample
@@ -1100,10 +1192,10 @@ async function importSessionWithDb(db, {
   const sessionId = cleanString(existing?.id) || normalizedSessionUUID;
   const createdAt = cleanString(existing?.createdAt) || nowIso;
   const nextStatus = cleanString(existing?.status || status).toLowerCase() || "new";
-  const nextSessionName = f === 2 ? existing.sessionName : cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
-  const nextSessionType = f === 2 ? existing.sessionType : getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
-  const nextSessionDate = f === 2 ? existing.sessionDate : getSessionDateLabel(sessionDate) || cleanString(existing?.sessionDate) || formatSessionDateFallback(new Date());
-  const nextSamplesInSession = f === 2 ? Number(existing.samplesInSession) || 0 : normalizePositiveInteger(samplesInSession, Number(existing?.samplesInSession) || 0);
+  const nextSessionName = cleanString(sessionName) || cleanString(existing?.sessionName) || "Imported Session";
+  const nextSessionType = getSessionTypeLabel(sessionType) || cleanString(existing?.sessionType) || "Other";
+  const nextSessionDate = getSessionDateLabel(sessionDate) || cleanString(existing?.sessionDate) || formatSessionDateFallback(new Date());
+  const nextSamplesInSession = normalizePositiveInteger(samplesInSession, Number(existing?.samplesInSession) || 0);
   const nextDisplayId = cleanString(existing?.sessionDisplayId) || `SESSION-${normalizedSessionUUID.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 
   await db.runAsync(
@@ -1166,6 +1258,7 @@ async function importSessionWithDb(db, {
 }
 
 export async function upsertSessionSampleFromCupMetadata(input = {}) {
+  input = { ...input };
   const db = await getLocalDatabase();
   let result;
   await db.withExclusiveTransactionAsync(async txn => { result = await importSampleWithDb(txn, input); });
@@ -1181,6 +1274,8 @@ async function importSampleWithDb(db, {
   cuppingForm,
   cuppingMode,
   sampleNumber,
+  expectedExistingSampleId = undefined,
+  capturedActor = undefined,
 } = {}) {
   const normalizedSessionId = cleanString(sessionId);
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
@@ -1193,10 +1288,11 @@ async function importSampleWithDb(db, {
     sessionId: normalizedSessionId,
     cupUUID: normalizedCupUUID,
   });
+  if (expectedExistingSampleId !== undefined && (existing?.id ?? null) !== expectedExistingSampleId) tastingFail('tasting:stale_membership');
 
   const sampleCountRow = await db.getFirstAsync(
     `
-      SELECT COUNT(*) AS count
+      SELECT COUNT(*) AS count, COALESCE(MAX(position_index), -1) AS lastPosition
       FROM samples
       WHERE session_id = ?
     `,
@@ -1206,7 +1302,7 @@ async function importSampleWithDb(db, {
   const nextCupIndex =
     existing && Number.isInteger(Number(existing.cupIndex))
       ? Number(existing.cupIndex)
-      : sampleCount;
+      : Number(sampleCountRow?.lastPosition ?? sampleCount - 1) + 1;
 
   const sampleId = cleanString(existing?.id) || generateId();
   const createdAt = cleanString(existing?.createdAt) || nowIso;
@@ -1236,10 +1332,13 @@ async function importSampleWithDb(db, {
   const provenance = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [normalizedSessionId]);
   const observedCount = observedPositiveInteger(cupNumber, 8);
   const observedPosition = observedPositiveInteger(sampleNumber);
+  if (!provenance?.creator && !existing && (observedCount === null || observedPosition === null)) {
+    throw new Error('Cup assignment count or assigned position is missing or invalid. No local record was changed.');
+  }
   if (provenance?.creator && existing && (observedCount === null || (sampleNumber !== undefined && observedPosition === null))) {
     throw new Error('Cup assignment count or position is missing or invalid. No local record was changed.');
   }
-  if (nextCuppingForm === 2) {
+  if (nextCuppingForm === 2 && (existing || provenance?.creator)) {
     if (!existing) {
       throw new Error('This Legacy cup has no trusted local assignment. Reopen the Session and assign the cup before scanning; no local data was changed.');
     }
@@ -1269,7 +1368,7 @@ async function importSampleWithDb(db, {
   const nextCoffeeNameOrigin =
     cleanString(coffeeNameOrigin) || cleanString(existing?.coffeeNameOrigin);
   const nextProcess = cleanString(process) || cleanString(existing?.process);
-  const importingActor = await getOrCreateLocalProfileIdentity();
+  const importingActor = capturedActor ?? await getOrCreateLocalProfileIdentity();
   await requireSameTastingActor(importingActor);
   const beforeImport = await revisionWithDb(db, normalizedSessionId, importingActor);
   if (!beforeImport.matches) tastingFail('tasting:stale_content');
@@ -1278,6 +1377,7 @@ async function importSampleWithDb(db, {
       String(existing.process) !== nextProcess)) {
     throw new Error('Cup metadata conflicts with its stored local sample. No local record was changed.');
   }
+  if (existing) return existing;
 
   await db.runAsync(
     `
@@ -1336,127 +1436,83 @@ async function importSampleWithDb(db, {
 }
 
 export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } = {}) {
-  // Validate the raw tag before local fallback or any database write.
-  const f = requireFormTag(metadata);
-  const tagMode = requireTagCuppingMode(metadata);
+  // Freeze the observed read before an await; callers cannot retarget queued work.
+  metadata = JSON.parse(JSON.stringify(metadata));
+  cupUUID = cleanString(cupUUID);
+  const f = requireFormTag(metadata), tagMode = requireTagCuppingMode(metadata);
   const rawCupCount = metadata?.cupNumber ?? metadata?.y;
   if (f === 2 && (!Number.isInteger(rawCupCount) || rawCupCount < 1 || rawCupCount > 8 || tagMode !== 'open')) {
     throw new Error('SCA Legacy cup count or Open mode is missing or unsupported. No local data was changed.');
   }
+  const count = observedPositiveInteger(rawCupCount, 8);
+  const position = metadata?.sampleNumber ?? metadata?.z;
+  if (count === null || position !== undefined && observedPositiveInteger(position) === null) throw new Error('Cup assignment count or position is missing or invalid. No local record was changed.');
   const normalizedCupUUID = normalizeCupUuid(cupUUID);
-  const sessionUUID = normalizeSessionUuid(
-    metadata?.sessionUUID ?? metadata?.u
-  );
-
-  if (!normalizedCupUUID || !sessionUUID || sessionUUID.toUpperCase() === "NO-SESSION") {
-    return null;
-  }
-
-  const existingSession = await findSessionBySessionUUID(sessionUUID);
-  if (f === 2 && !existingSession) {
-    throw new Error('SCA Legacy cup is not linked to a trusted local Open Cupping session. No local data was changed.');
-  }
-  if (existingSession) {
-    if (!isPinnedForm(existingSession, f)) {
-      throw new Error("This cup refers to an older or unsupported prototype session. Its local data was not changed.");
-    }
-    const trustedSession = await getSessionById(existingSession.id, { reconcile: f !== 2 });
-    if ((f === 2 && (trustedSession.cuppingMode !== 'open' || tagMode !== 'open')) ||
-        (trustedSession?.samples || []).some((sample) => sample.cuppingForm !== f || sample.cuppingMode !== tagMode)) {
-      throw new Error("The cup form or cupping mode conflicts with stored session samples. No local record was changed.");
-    }
-    if (f === 2) {
-      const storedSample = trustedSession.samples.find(sample => normalizeCupUuid(sample.cupUUID) === normalizedCupUUID);
-      if (!storedSample) {
-        throw new Error('This Legacy cup has no trusted local assignment. Reopen the Session and assign the cup before scanning; no local data was changed.');
-      }
-      await assertAssessmentReadyWithDb(await getLocalDatabase(), existingSession.id);
-      if (Number(storedSample.cupNumber) !== rawCupCount ||
-          storedSample.coffeeNameOrigin !== cleanString(metadata?.coffeeName ?? metadata?.n) ||
-          String(storedSample.process) !== String(metadata?.coffeeProcess ?? metadata?.p) ||
-          ((metadata?.sampleNumber ?? metadata?.z) !== undefined &&
-            observedPositiveInteger(metadata?.sampleNumber ?? metadata?.z) !== Number(storedSample.sampleNumber))) {
-        throw new Error('Legacy cup metadata conflicts with its trusted local assignment. No local record was changed.');
-      }
-      return {
-        sessionId: trustedSession.id, sessionUUID: trustedSession.sessionUUID,
-        sessionDisplayId: trustedSession.sessionDisplayId, sessionName: trustedSession.sessionName,
-        sessionType: trustedSession.sessionType, sessionStatus: trustedSession.status,
-        sessionDate: trustedSession.sessionDate, sampleId: storedSample.id,
-        cupUUID: storedSample.cupUUID, cupNumber: storedSample.cupNumber,
-        cuppingForm: storedSample.cuppingForm, cuppingMode: storedSample.cuppingMode,
-        sampleNumber: storedSample.sampleNumber, coffeeNameOrigin: storedSample.coffeeNameOrigin,
-        coffeeProcess: storedSample.process, cupIndex: Number(storedSample.positionIndex) || 0,
-        cupTotal: Number(trustedSession.samplesInSession) || trustedSession.samples.length || 1,
-      };
-    }
-  }
-
-  if (existingSession) await assertAssessmentReadyWithDb(await getLocalDatabase(), existingSession.id);
-  const session = f === 2 ? existingSession : await upsertSessionFromCupMetadata({
-    expectedExistingSessionId: existingSession?.id ?? null,
-    sessionUUID,
-    cuppingForm: metadata?.f ?? metadata?.cuppingForm,
-    sessionName: metadata?.sessionName ?? metadata?.e,
-    sessionType: metadata?.sessionType ?? metadata?.t,
-    sessionDate: metadata?.sessionDate ?? metadata?.d,
-    samplesInSession: metadata?.samplesInSession ?? metadata?.i,
-    status: "new",
+  const sessionUUID = normalizeSessionUuid(metadata?.sessionUUID ?? metadata?.u);
+  if (!normalizedCupUUID || !sessionUUID || sessionUUID.toUpperCase() === 'NO-SESSION') return null;
+  const db = await getLocalDatabase(), actor = await getOrCreateLocalProfileIdentity();
+  await requireSameTastingActor(actor);
+  // A known context disappearing while this read is queued is not a new import.
+  let observedSession, observedSample, observedContext;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    observedSession = await findSessionBySessionUUIDWithDb(txn, sessionUUID);
+    observedSample = observedSession ? await findSampleInSessionByCupUUIDWithDb(txn, {sessionId:observedSession.id,cupUUID:normalizedCupUUID}) : null;
+    const revision = observedSession ? await revisionWithDb(txn, observedSession.id, actor) : null;
+    observedContext = observedSession ? canonicalize({session:{...observedSession},revision:revision.revision,hash:revision.hash}) : null;
+    await requireSameTastingActor(actor);
   });
-
-  const sample = await upsertSessionSampleFromCupMetadata({
-    sessionId: session.id,
-    cupUUID: normalizedCupUUID,
-    coffeeNameOrigin: metadata?.coffeeName ?? metadata?.n,
-    process: metadata?.coffeeProcess ?? metadata?.p,
-    cupNumber: metadata?.cupNumber ?? metadata?.y,
-    cuppingForm: metadata?.cuppingForm ?? metadata?.f,
-    cuppingMode: tagMode,
-    sampleNumber: metadata?.sampleNumber ?? metadata?.z,
-  });
-
-  const db = await getLocalDatabase();
-  const provenance = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [session.id]);
-  // Transition session from new → pending on first cup scan.
-  if (!provenance?.creator) {
-    await db.runAsync(
-      `UPDATE sessions SET status = 'pending', updated_at = ? WHERE id = ? AND status = 'new'`,
-      [new Date().toISOString(), session.id]
-    );
-    await db.runAsync(
-      `UPDATE sessions SET updated_at = ? WHERE id = ?`,
-      [new Date().toISOString(), session.id]
-    );
+  if (f === 2 && observedSession && !observedSample) {
+    const provenance = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id=?', [observedSession.id]);
+    if (provenance?.creator) throw new Error('This SCA Legacy cup has no trusted local assignment. Its local data was not changed.');
   }
-
-  const cupTotalRow = await db.getFirstAsync(
-    `
-      SELECT COUNT(*) AS count
-      FROM samples
-      WHERE session_id = ?
-    `,
-    [session.id]
-  );
-
-  return {
-    sessionId: session.id,
-    sessionUUID: session.sessionUUID,
-    sessionDisplayId: session.sessionDisplayId,
-    sessionName: session.sessionName,
-    sessionType: session.sessionType,
-    sessionStatus: session.status,
-    sessionDate: session.sessionDate,
-    sampleId: sample.id,
-    cupUUID: sample.cupUUID,
-    cupNumber: sample.cupNumber,
-    cuppingForm: sample.cuppingForm,
-    cuppingMode: sample.cuppingMode,
-    sampleNumber: sample.sampleNumber,
-    coffeeNameOrigin: sample.coffeeNameOrigin,
-    coffeeProcess: sample.process,
-    cupIndex: Number(sample.cupIndex) || 0,
-    cupTotal: Number(session.samplesInSession) || Number(cupTotalRow?.count) || 1,
-  };
+  if (observedSession) await assertAssessmentReadyWithDb(db, observedSession.id);
+  let output, committed;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    let session = await findSessionBySessionUUIDWithDb(txn, sessionUUID);
+    if (observedSession && session?.id !== observedSession.id) throw new Error('This local session was removed or changed while scanning. Scan again to import a new local copy.');
+    if (observedContext) {
+      const currentRevision = await revisionWithDb(txn, session.id, actor);
+      if (!currentRevision.matches || canonicalize({session:{...session},revision:currentRevision.revision,hash:currentRevision.hash}) !== observedContext) tastingFail('tasting:stale_membership');
+    }
+    if (session) {
+      if (!isPinnedForm(session,f)) throw new Error('This cup refers to an older or unsupported prototype session. Its local data was not changed.');
+      if (!isActiveFormPin(session,f) && !isPrototypeCvaPin(session)) throw new Error('This cup refers to a read-only historical form version. Its saved data was not changed.');
+      await assertAssessmentReadyWithDb(txn,session.id);
+      if (f === 2 && session.cuppingMode !== 'open') throw new Error('SCA Legacy requires its trusted Open mode. No local record was changed.');
+    } else {
+      session = await importSessionWithDb(txn,{sessionUUID,cuppingForm:f,cuppingMode:tagMode,
+        sessionName:metadata?.sessionName ?? metadata?.e,sessionType:metadata?.sessionType ?? metadata?.t,
+        sessionDate:metadata?.sessionDate ?? metadata?.d,samplesInSession:metadata?.samplesInSession ?? metadata?.i,status:'new'});
+    }
+    const current = await getSessionByIdWithDb(txn,session.id);
+    if (current.samples.some(row=>row.cuppingForm!==f || row.cuppingMode!==tagMode)) throw new Error('The cup form or cupping mode conflicts with stored session samples. No local record was changed.');
+    if (current.status === 'complete' && !current.samples.some(row=>normalizeCupUuid(row.cupUUID)===normalizedCupUUID)) throw new Error('This historical completed session is read-only. No local record was changed.');
+    const sample = await importSampleWithDb(txn,{sessionId:session.id,cupUUID:normalizedCupUUID,
+      coffeeNameOrigin:metadata?.coffeeName ?? metadata?.n,process:metadata?.coffeeProcess ?? metadata?.p,
+      cupNumber:rawCupCount,cuppingForm:f,cuppingMode:tagMode,sampleNumber:position,
+      expectedExistingSampleId:observedSession ? observedSample?.id ?? null : undefined,capturedActor:actor});
+    const saved = await getSessionByIdWithDb(txn,session.id);
+    const row = saved.samples.find(entry=>entry.id===sample.id);
+    if (!row) tastingFail('tasting:stale_membership');
+    output={sessionId:saved.id,sessionUUID:saved.sessionUUID,sessionDisplayId:saved.sessionDisplayId,
+      sessionName:saved.sessionName,sessionType:saved.sessionType,sessionStatus:saved.status,sessionDate:saved.sessionDate,
+      sampleId:row.id,cupUUID:row.cupUUID,cupNumber:row.cupNumber,cuppingForm:row.cuppingForm,cuppingMode:row.cuppingMode,
+      sampleNumber:row.sampleNumber,coffeeNameOrigin:row.coffeeNameOrigin,coffeeProcess:row.process,
+      cupIndex:saved.samples.findIndex(entry=>entry.id===row.id),cupTotal:saved.samples.length};
+    committed=await revisionWithDb(txn,saved.id,actor);
+    await requireSameTastingActor(actor);
+  });
+  await requireSameTastingActor(actor);
+  await db.withExclusiveTransactionAsync(async txn=>{
+    await requireSameTastingActor(actor);
+    const current=await revisionWithDb(txn,output.sessionId,actor);
+    const sample=await txn.getFirstAsync('SELECT id FROM samples WHERE id=? AND session_id=?',[output.sampleId,output.sessionId]);
+    if (!sample || !current.matches || current.revision!==committed.revision || current.hash!==committed.hash) tastingFail('tasting:ack_changed');
+    await requireSameTastingActor(actor);
+  });
+  return output;
 }
 
 export async function deleteSessionById(sessionId) {

@@ -74,7 +74,7 @@ function screen(props) {
     react,
     'react-native': { AccessibilityInfo: { announceForAccessibility() {} }, Alert: { alert() {} }, Platform: { OS: 'ios' },
       Pressable: 'Pressable', ScrollView: 'ScrollView', View: 'View', KeyboardAvoidingView: 'KeyboardAvoidingView',
-      PanResponder: { create: () => ({ panHandlers: {} }) }, StyleSheet: { create: value => value },
+      PanResponder: { create: options => ({ panHandlers: options }) }, StyleSheet: { create: value => value },
       useWindowDimensions: () => ({ width: 375 }) },
     '../../../data/sessionRepository': repo,
     '../data/cvaResponse': tools,

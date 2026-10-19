@@ -55,6 +55,7 @@ import {
 import {
   assertSessionReferenceAvailable,
   deleteSessionById,
+  removeParticipantSample,
   findPendingSessionByCupUUID,
   getLocalTastingPresentation,
   getSessionSampleFinalStatus,
@@ -188,6 +189,10 @@ export function CuppingSessionDetailsScreen({
   const [sessionFormAnchor, setSessionFormAnchor] = useState(null);
 
   const [samples, setSamples] = useState([]);
+  const [participantRemoval, setParticipantRemoval] = useState(null);
+  const participantRemovalRef = useRef(null);
+  const participantRemovalBusyRef = useRef(null);
+  const [isRemovingParticipantSample, setIsRemovingParticipantSample] = useState(false);
 
   const [isAddSheetVisible, setIsAddSheetVisible] = useState(false);
   const [sheetCoffeeNameOrigin, setSheetCoffeeNameOrigin] = useState("");
@@ -279,6 +284,9 @@ export function CuppingSessionDetailsScreen({
     pendingSetupExitRef.current = null;
     saveOperationRef.current = null;
     completionBusyRef.current = null;
+    participantRemovalRef.current = null;
+    setParticipantRemoval(null);
+    setIsRemovingParticipantSample(false);
     setSetupExitMessage("");
     setIsSaving(false);
     setIsCompletingSession(false);
@@ -292,7 +300,7 @@ export function CuppingSessionDetailsScreen({
 
   const requestSetupExit = (action) => {
     const pendingSetupWork = saveOperationRef.current || isNfcWriting || isCheckingCup ||
-      isCompletingSession || isDeleting || verifyingSampleId || rewritingSampleId;
+      isCompletingSession || isDeleting || participantRemovalBusyRef.current || isRemovingParticipantSample || verifyingSampleId || rewritingSampleId;
     if (!setupContinuationRef.current && !pendingSetupWork && !isSessionDirty) return action?.();
     if (pendingSetupWork) {
       setScanStatusMessage("Please wait for saving or cup setup to finish before leaving.");
@@ -419,6 +427,7 @@ export function CuppingSessionDetailsScreen({
               }),
               cuppingMode: normalizeCuppingModeKey(sample.cuppingMode),
               identityHidden: sample.identityHidden,
+              localRemoval: sample.localRemoval,
             })
           )
         );
@@ -558,9 +567,48 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleRemoveSample = (sampleId) => {
+    const permission = samples.find(sample=>sample.id===sampleId)?.localRemoval;
+    if (permission?.canRemove && permission.removalToken && !participantRemovalBusyRef.current && savedSessionIdRef.current === sessionId && tastingPresentation?.session?.id === sessionId) {
+      const candidate = { sessionId, sampleId, token:permission.removalToken, label:permission.label, epoch:setupEpochRef.current };
+      participantRemovalRef.current = candidate;
+      setParticipantRemoval(candidate);
+      return;
+    }
     if (!canEditSessionSetup) return;
     setIsSessionDirty(true);
     setSamples((prev) => prev.filter((sample) => sample.id !== sampleId));
+  };
+
+  const dismissParticipantRemoval = (expected = participantRemovalRef.current, settled = false) => {
+    if (participantRemovalRef.current !== expected || participantRemovalBusyRef.current && !settled) return;
+    participantRemovalRef.current = null;
+    setParticipantRemoval(null);
+  };
+  const confirmParticipantRemoval = async (expected = participantRemovalRef.current) => {
+    const candidate = participantRemovalRef.current;
+    if (!candidate || candidate !== expected || participantRemovalBusyRef.current || candidate.sessionId !== sessionId || savedSessionIdRef.current !== sessionId || candidate.epoch !== setupEpochRef.current) return;
+    participantRemovalBusyRef.current = candidate;
+    setIsRemovingParticipantSample(true);
+    try {
+      const result = await removeParticipantSample({sessionId:candidate.sessionId,sampleId:candidate.sampleId,expectedRemovalToken:candidate.token});
+      if (candidate.epoch !== setupEpochRef.current || participantRemovalRef.current !== candidate) return;
+      setTastingPresentation(result.presentation);
+      setSamples(result.presentation.session.samples);
+      setSessionStatus(result.presentation.session.status);
+      setSetupAccess({sessionId:candidate.sessionId,...result.presentation.tasting});
+      setSampleStatusById(result.statuses);
+      setIsSessionDirty(false);
+      dismissParticipantRemoval(candidate, true);
+      setPresentationRevision(value=>value+1);
+    } catch {
+      if (candidate.epoch !== setupEpochRef.current || participantRemovalRef.current !== candidate) return;
+      dismissParticipantRemoval(candidate, true);
+      setScanStatusMessage('Could not remove this local sample. Reopen the session and try again.');
+      setPresentationRevision(value=>value+1);
+    } finally {
+      if (participantRemovalBusyRef.current === candidate) participantRemovalBusyRef.current = null;
+      if (candidate.epoch === setupEpochRef.current) setIsRemovingParticipantSample(false);
+    }
   };
 
   const setSampleVerificationStatus = (sampleId, verificationStatus) => {
@@ -1385,7 +1433,7 @@ export function CuppingSessionDetailsScreen({
 
   const showScanFooter = sessionStatusBadgeLabel === "Pending" && !isSessionDirty;
   const showInProgressFooter = canCompleteSession;
-  const footerDisabled = isSaving || isCompletingSession || isDeleting || isNfcWriting;
+  const footerDisabled = isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample;
 
   return (
     <View style={styles.screen}>
@@ -1477,6 +1525,8 @@ export function CuppingSessionDetailsScreen({
 
           {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
             <LegacySampleCard key={sample.id} sample={sessionId ? visibleIdentity.samples[index] : sample} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
+              onRemove={handleRemoveSample} canRemove={Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample}
+              showRemove={Boolean(sample.localRemoval?.canRemove)}
               onPress={sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
                 ? () => requestSetupExit(() => onOpenSample(sample, index, samples.length, { sessionId: savedSessionIdRef.current, isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) }))
                 : undefined} />
@@ -1487,8 +1537,9 @@ export function CuppingSessionDetailsScreen({
               index={index}
               scale={scale}
               onRemove={handleRemoveSample}
-              canRemove={samples.length > 0 && canEditSessionSetup}
-              showRemove={canEditSessionSetup}
+              canRemove={!isRemovingParticipantSample && (sample.localRemoval?.canRemove || samples.length > 0 && canEditSessionSetup)}
+              showRemove={canEditSessionSetup || Boolean(sample.localRemoval?.canRemove)}
+              participantLocalRemoval={Boolean(sample.localRemoval?.canRemove)}
               status={sampleStatusById?.[sample.id]}
               defaultExpanded={isSessionComplete}
               onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : handleOpenEditSheet}
@@ -1528,7 +1579,7 @@ export function CuppingSessionDetailsScreen({
         {scanStatusMessage ? <Text style={styles.scanStatusText}>{scanStatusMessage}</Text> : null}
         {sessionId && tastingPresentation?.session?.id === sessionId && isSessionFormSupported ?
           <LocalTastingActions sessionId={sessionId} tasting={tastingPresentation.tasting}
-            disabled={isSessionDirty || isSaving || isNfcWriting}
+            disabled={isSessionDirty || isSaving || isNfcWriting || isRemovingParticipantSample}
             onCompleted={() => setPresentationRevision(value => value + 1)} /> : null}
 
       </ScreenContainer>
@@ -1611,6 +1662,12 @@ export function CuppingSessionDetailsScreen({
         secondaryLabel="Leave"
         onSecondary={leaveSetup}
       />
+
+      <WarningDialog visible={Boolean(participantRemoval) && participantRemoval.sessionId === sessionId && tastingPresentation?.session?.id === sessionId && participantRemoval.epoch === setupEpochRef.current}
+        title="Remove local sample?"
+        message={`Delete ${participantRemoval?.label || 'this sample'} and its saved scores and notes from this phone? The physical cup and creator's copy will not change.`}
+        okLabel="Cancel" onOk={()=>dismissParticipantRemoval(participantRemoval)} onDismiss={()=>dismissParticipantRemoval(participantRemoval)}
+        secondaryLabel="Delete" onSecondary={()=>confirmParticipantRemoval(participantRemoval)} />
 
       <WarningDialog
         visible={isOverwriteDialogVisible}

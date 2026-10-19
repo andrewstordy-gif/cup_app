@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import AntDesign from "@expo/vector-icons/AntDesign";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { AppIcon } from "../../../components/ui/AppIcon";
+import { IconButton } from "../../../components/ui/IconButton";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
@@ -95,6 +96,7 @@ export function CoffeeSampleCard({
   onRemove,
   canRemove,
   showRemove = true,
+  participantLocalRemoval = false,
   status,
   onOpenSample,
   onEditSample,
@@ -116,7 +118,7 @@ export function CoffeeSampleCard({
     ? makeScores(CUPPING_SCORE_FIELDS.map((field) => scoresByField[field] ?? null))
     : EMPTY_SCORES;
   const isLocked = isComplete;
-  const removeDisabled = !canRemove || isLocked;
+  const removeDisabled = !canRemove || (isLocked && !participantLocalRemoval);
   const displaySampleNumber = resolveSampleNumber(sample.sampleNumber, index);
   const canOpenSample = Boolean(sample.cupUUID && typeof onOpenSample === "function");
   const editDisabled = isLocked || typeof onEditSample !== "function";
@@ -233,16 +235,12 @@ export function CoffeeSampleCard({
                 </Pressable>
               ) : null}
             </View>
-            {showRemove ? <Pressable
+            {showRemove ? <IconButton name="close"
               onPress={handleRemovePress}
               disabled={removeDisabled}
-              style={[styles.removeIconButton, removeDisabled && styles.removeIconButtonDisabled]}
-              accessibilityRole="button"
               accessibilityLabel={`Remove sample ${displaySampleNumber}`}
-              hitSlop={12}
-            >
-              <AntDesign name="close" size={18} color={removeDisabled ? colors.muted : colors.inkSoft} />
-            </Pressable> : null}
+              color={removeDisabled ? colors.muted : colors.inkSoft}
+            /> : null}
           </View>
 
           <ScoreRow scores={scoreItems} totalScore={totalScore} scale={scale} />
