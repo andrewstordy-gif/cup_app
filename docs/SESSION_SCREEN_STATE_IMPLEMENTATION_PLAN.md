@@ -2,9 +2,17 @@
 
 Date: 18 October 2026
 
-Status: proposed implementation sequence; documentation approved for preparation, application changes not yet authorised.
+Status: approved sequence with partial isolated implementation. Runtime authority and exact validation remain in individual task records; this plan is not blanket implementation approval.
 
 Task: [R1-059](tasks/R1-059.md)
+
+## Progress and next slice as of 19 October 2026
+
+Stages1–2 have isolated implementation and software evidence in R1-060/R1-061, with subsequent phone candidates and the DRAFT-until-explicit-Save correction R1-063. Stage3 is partly implemented: changed Save invalidates completion/reveal, and scanned sample imports use local membership. Stage5's all-state whole-local-session delete crosses were corrected and user-tested in R1-065. These are not evidence that every stage or the whole approved map is complete; none is a main/pilot integration claim.
+
+Next recommended slice is the remaining **participant local sample lifecycle** in stage3: separate local-only removal from creator physical removal; warn before removing saved results; retain other samples; add/remove after completion returns IN PROGRESS and re-hides identities; removing the last sample retains a visible uncompletable session with Scan Cup. Verify existing scan-add/rescan behavior, CVA and Legacy, saved note-only changes and discard-without-save. The current removal API remains creator-owned/pre-start, so repository permission/data boundaries and tests must precede enabling participant controls. Keep physical writes and new UI controls out of this slice. R1-066 separately tracks the blank saved revision versus semantic tasting-start projection gap.
+
+Record [R1-068](tasks/R1-068.md) for the reported cup-reuse conflict after local CVA completion. Address it with stage4's physical clear/verification/reassignment work, rather than bypassing the conflict guard during participant removal work. Stage4 still requires canonical unassignment/count-consistency design and real-device verification; stage6 still requires actual service/outbox prerequisites. Do not imply a functioning upload from a control or status mock.
 
 ## Scope and authority
 
