@@ -1004,6 +1004,9 @@ async function assertPinnedSessionWithDb(db, sessionId) {
      FROM sessions WHERE id = ? LIMIT 1`,
     [sessionId]
   );
+  if (isCanonicalCvaReadPin(row) && !isActiveFormPin(row, 1)) {
+    throw new Error('This historical CVA session is read-only. No record was changed.');
+  }
   if (!isPinnedForm(row, row?.cuppingForm) || !['new', 'pending', 'in_progress', 'complete'].includes(row.status) || (row.cuppingForm === 2 && row.cuppingMode !== 'open')) {
     throw new Error("This older or unsupported prototype session is read-only. No record was changed.");
   }

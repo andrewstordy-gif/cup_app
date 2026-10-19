@@ -56,7 +56,7 @@ async function main(){
     const reopened=await ui.open(props);assert.equal((await ui.repo.getCvaResponse(props.sessionId,props.sampleId)).result.display_score,'69.50');reopened.ui.close();
     const p=await ui.repo.getLocalTastingPresentation(props.sessionId);assert.equal((await ui.repo.completeLocalTasting(props.sessionId,{expectedContextToken:p.tasting.contextToken})).status,'complete');
   }
-  const env=stateFixture(),id='historical-v2',sample=await env.create(id);
+  const env=stateFixture(),id='abcdefghijklmn',sample=await env.create(id);
   env.sqlite.prepare('UPDATE samples SET cup_number=5 WHERE id=?').run(sample);
   env.sqlite.prepare('UPDATE sessions SET form_key=?,form_version=?,form_hash=? WHERE id=?').run(oldPin.form_key,oldPin.form_version,oldPin.form_hash,id);
   const oldResponse={...defect,non_uniform_cups:[3]},oldResult=score(oldResponse,5,oldTrusted),now='2026-10-19T08:00:00.000Z';
@@ -75,7 +75,17 @@ async function main(){
   await assert.rejects(env.repo.getOwnedSessionSetup(id));
   await assert.rejects(env.repo.adoptSavedTasting({sessionId:id,sampleId:sample,expectedSourceToken:'forged'}));
   await assert.rejects(env.repo.completeLocalTasting(id,{expectedContextToken:presentation.tasting.contextToken}));
+  for(const command of ['activateSession','resetSessionToPending','manuallyMarkSessionComplete','markSessionCompleteIfAllSamplesComplete'])await assert.rejects(env.repo[command](id),/read-only/);
+  await assert.rejects(env.repo.resolveActiveSampleFromCupMetadata({cupUUID:`TAG-${sample}`,metadata:{u:id,f:1,m:'b',e:'Visible session',t:4,d:261019,n:'Secret coffee',p:1,y:5,z:7,i:1}}),/historical form version/);
   assert.equal(snapshot(),before,'historical reads and denied writes retain every stored byte/pin/result/history');
+  const unfinished=stateFixture(),unfinishedId='unfinished-old',unfinishedSample=await unfinished.create(unfinishedId);
+  unfinished.sqlite.prepare('UPDATE sessions SET form_key=?,form_version=?,form_hash=? WHERE id=?').run(oldPin.form_key,oldPin.form_version,oldPin.form_hash,unfinishedId);
+  for(const status of ['new','pending','in_progress','complete']){
+    unfinished.sqlite.prepare('UPDATE sessions SET status=? WHERE id=?').run(status,unfinishedId);
+    const previous=JSON.stringify(unfinished.sqlite.prepare('SELECT * FROM sessions').all());
+    for(const command of ['activateSession','resetSessionToPending','manuallyMarkSessionComplete','markSessionCompleteIfAllSamplesComplete'])await assert.rejects(unfinished.repo[command](unfinishedId),/read-only/);
+    assert.equal(JSON.stringify(unfinished.sqlite.prepare('SELECT * FROM sessions').all()),previous);
+  }
   const oldProps=await ui.fixture(5);
   ui.db.prepare('UPDATE sessions SET form_key=?,form_version=?,form_hash=? WHERE id=?').run(oldPin.form_key,oldPin.form_version,oldPin.form_hash,oldProps.sessionId);
   const oldDraft={...final(5),ratings:{},non_uniform_cups:null};
