@@ -100,7 +100,7 @@ async function main() {
   response = changeCvaMask(response, 'otherBean', [2], 2);
   response = changeCvaMask(response, 'baked', [1], 2);
   const unresolved = await repo.saveCvaResponse({ ...input, response });
-  assert.equal(unresolved.complete, false); assert.equal(unresolved.result, null);
+  assert.equal(unresolved.complete, true); assert.equal(unresolved.result.display_score, '59.00');
   response.evenly_defective_all_cups = true;
   const all = await repo.saveCvaResponse({ ...input, expectedRevision: 1, response });
   assert.equal(all.result.display_score, '59.00');

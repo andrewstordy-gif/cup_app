@@ -2,6 +2,7 @@ const { canonicalize, sha256 } = require('./canonical');
 const cva = require('./manifests/cva.json');
 const historicalCvaV1 = require('./manifests/cva-v1.json');
 const historicalCvaV11 = require('./manifests/cva-v1.1.json');
+const historicalCvaV2 = require('./manifests/cva-v2.json');
 const legacy = require('./manifests/legacy.json');
 
 const PROFILE = 'ndef4-r1';
@@ -10,6 +11,8 @@ const HISTORICAL_CVA_V1 = Object.freeze({
   form_hash: '0a840b335b4af50d18db3cf210d503b870285c1706710ff803e7633103ad310d',
 });
 const ADAPTED_LABEL = 'Adapted — five-cup-equivalent Cup App score';
+const HISTORICAL_CVA_V2 = Object.freeze({ form_key: 'sca_cva_affective_104_2024', form_version: '2.0.0',
+  form_hash: '74c34bdb55364410f9ba828940b5453984188c4ac5a8cc314b567c86c52a581f' });
 const HISTORICAL_CVA_V11 = Object.freeze({
   form_key: 'sca_cva_affective_104_2024', form_version: '1.1.0',
   form_hash: '2a9e341fb17664559875a08235a01f88571a3833682ead2a1de09558ba6bf0bb',
@@ -28,7 +31,7 @@ const HISTORICAL_LEGACY_V3 = Object.freeze({
 });
 const EXTENDED_QUALITY_NOTE = 'Includes Cup App-expanded quality marks outside the published 2009 6.00–9.75 table';
 const REGISTRY = Object.freeze([
-  Object.freeze({ profile: PROFILE, f: 1, form_key: 'sca_cva_affective_104_2024', form_version: '2.0.0', form_hash: '74c34bdb55364410f9ba828940b5453984188c4ac5a8cc314b567c86c52a581f' }),
+  Object.freeze({ profile: PROFILE, f: 1, form_key: 'sca_cva_affective_104_2024', form_version: '3.0.0', form_hash: '38d02095523c13def4dc1d29bb25cbeaebb4bcfd1d94ade60ad278642b8b6051' }),
   Object.freeze({ profile: PROFILE, f: 2, form_key: 'scaa_legacy_2009a_cupapp', form_version: '4.0.0', form_hash: '977ae56dedaa331920d40f9c62fe77a8ce67b3dac2d19db86a252746a56061bf' }),
 ]);
 const MANIFESTS = Object.freeze({ 1: cva, 2: legacy });
@@ -43,6 +46,7 @@ function freezeDeep(value) {
 freezeDeep(cva);
 freezeDeep(historicalCvaV1);
 freezeDeep(historicalCvaV11);
+freezeDeep(historicalCvaV2);
 freezeDeep(legacy);
 
 function resolveForm(profile, f, registry = REGISTRY) {
@@ -67,6 +71,11 @@ function resolvePinnedForm(profile, f, identity, registry = REGISTRY) {
   const active = resolveForm(profile, f, registry);
   if (active.ok && plain(identity) && Object.keys(identity).length === 3 &&
       Object.keys(active.identity).every(key => identity[key] === active.identity[key])) return active;
+  if (profile === PROFILE && f === 1 && plain(identity) && Object.keys(identity).length === 3 &&
+      Object.keys(HISTORICAL_CVA_V2).every(key => identity[key] === HISTORICAL_CVA_V2[key]) &&
+      sha256(canonicalize(historicalCvaV2)) === HISTORICAL_CVA_V2.form_hash) {
+    return { ok: true, identity: { ...HISTORICAL_CVA_V2 }, manifest: historicalCvaV2, historical: true };
+  }
   if (profile === PROFILE && f === 1 && plain(identity) && Object.keys(identity).length === 3 &&
       Object.keys(HISTORICAL_CVA_V11).every(key => identity[key] === HISTORICAL_CVA_V11[key]) &&
       sha256(canonicalize(historicalCvaV11)) === HISTORICAL_CVA_V11.form_hash) {
@@ -148,7 +157,7 @@ function checkOptionalInteger(value, definition, errors) {
 }
 
 function validateCva(response, manifest, n, errors, complete) {
-  if (manifest.form_version === '2.0.0') {
+  if (['2.0.0', '3.0.0'].includes(manifest.form_version)) {
     validateCvaV2(response, manifest, n, errors, complete);
     return;
   }
@@ -208,7 +217,7 @@ function validateCvaV2(response, manifest, n, errors, complete) {
   checkDefectTypeMasks(response.roast_defect_type_masks, field(manifest, 'roast_defect_type_masks'), 'roast_defect_type_masks', n, errors);
   const even = response.evenly_defective_all_cups;
   if (even == null) {
-    if (complete) errors.push('evenly_defective_all_cups:unassessed');
+    if (complete && manifest.form_version === '2.0.0') errors.push('evenly_defective_all_cups:unassessed');
   } else if (typeof even !== 'boolean') errors.push('evenly_defective_all_cups:invalid_boolean');
   if (!complete || errors.length) return;
   const defective = response.defective_cups;
@@ -217,6 +226,7 @@ function validateCvaV2(response, manifest, n, errors, complete) {
     errors.push('defective_cups:must_match_source_type_masks');
   }
   if (n === 1 && uniform.length !== 0) errors.push('non_uniform_cups:one_cup_must_be_empty');
+  if (manifest.form_version === '3.0.0') return;
   if (even === true && defective.length !== n) errors.push('evenly_defective_all_cups:not_all_defective');
   if (n === 1 && defective.length === 1 && even !== true) errors.push('evenly_defective_all_cups:one_cup_exception_required');
   if (even === false && defective.some(cup => !uniform.includes(cup))) errors.push('defective_cups:not_non_uniform');
@@ -297,7 +307,7 @@ function validateResponse(input, expectedSession, registry = REGISTRY) {
   if (!plain(response)) errors.push('response:invalid_object');
   if (errors.length) return { ok: false, errors };
   const manifest = resolved.manifest;
-  if (f === 1 && manifest.form_version === '2.0.0') {
+  if (f === 1 && ['2.0.0', '3.0.0'].includes(manifest.form_version)) {
     if (Object.keys(input).some(key => !['profile', 'f', 'identity', 'cup_count', 'response', 'complete'].includes(key))) errors.push('response_envelope:unsupported_field');
     if (typeof complete !== 'boolean') errors.push('complete:invalid_boolean');
   }
@@ -362,7 +372,9 @@ function scoreResponse(input, expectedSession) {
     };
   }
   const adapted = n !== 5;
-  const label = adapted ? ADAPTED_LABEL : (f === 1 ? 'SCA-104 Affective score' : 'SCAA Legacy five-cup score');
+  const label = f === 1 && identity.form_version === '3.0.0'
+    ? (adapted ? cva.scoring.other_cup_label : cva.scoring.five_cup_label)
+    : adapted ? ADAPTED_LABEL : (f === 1 ? 'SCA-104 Affective score' : 'SCAA Legacy five-cup score');
   const result = { ok: true, identity: { ...identity }, cup_count: n, adapted, label, ...value };
   // The pure export projection repeats identity and adaptation provenance;
   // later persistence/network adapters must use an allowlist of their own.

@@ -107,6 +107,11 @@ function isActiveFormPin(session, f) {
     session.formHash === active.form_hash;
 }
 
+// Canonical v2 remains readable under its frozen rules, never writable as v3.
+function isCanonicalCvaReadPin(session) {
+  return ['2.0.0','3.0.0'].includes(session?.formVersion) && isPinnedForm(session, 1);
+}
+
 const PROTOTYPE_CVA_PIN = {
   form_key: 'sca_cva_affective_104_2024', form_version: '1.1.0',
   form_hash: '2a9e341fb17664559875a08235a01f88571a3833682ead2a1de09558ba6bf0bb',
@@ -177,7 +182,7 @@ async function withTastingResponseAccess(db, sessionId, sampleId, form, saved, c
   const presentation = await getLocalTastingPresentationWithDb(db, sessionId, 'tasting', actor);
   const sample = presentation.session.samples.find(row => row.id === sampleId);
   if (actor) await requireSameTastingActor(actor);
-  return { ...saved, access: { state: access.state, canWrite: access.canWrite, canAdopt: access.canAdopt, sourceToken: access.sourceToken },
+  return { ...saved, access: { state: access.state, canWrite: !saved.historicalReadOnly && access.canWrite, canAdopt: !saved.historicalReadOnly && access.canAdopt, sourceToken: saved.historicalReadOnly ? null : access.sourceToken },
     identity: { visible: !presentation.identityHidden, name: sample?.coffeeNameOrigin || '', process: sample?.process || '' },
     tasting: presentation.tasting };
 }
@@ -186,7 +191,7 @@ async function canonicalCvaForSample(db, sampleId) {
   const row = await db.getFirstAsync(`SELECT s.id, s.cupping_form AS cuppingForm,
     s.form_key AS formKey, s.form_version AS formVersion, s.form_hash AS formHash
     FROM samples sm JOIN sessions s ON s.id = sm.session_id WHERE sm.id = ? LIMIT 1`, [sampleId]);
-  return row && isActiveFormPin(row, 1) ? readCanonicalCva(db, row.id, sampleId) : null;
+  return row && isCanonicalCvaReadPin(row) ? readCanonicalCva(db, row.id, sampleId) : null;
 }
 
 async function assertActiveCvaSampleWithDb(db, sessionId, sampleId) {
@@ -805,7 +810,8 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const isLocalCreator = validActor(actor) && creator?.creator === actor;
   const state = await tastingStateWithDb(db, sessionId, actor);
   const samples = raw.samples || [];
-  const supported = (isActiveFormPin(raw, 1) || isActiveFormPin(raw, 2)) &&
+  const activePin = isActiveFormPin(raw, 1) || isActiveFormPin(raw, 2);
+  const supported = (activePin || isCanonicalCvaReadPin(raw)) &&
     ['new', 'pending', 'in_progress', 'complete'].includes(raw.status) &&
     samples.every(sample => sample.cuppingForm === raw.cuppingForm && Number.isInteger(sample.cupNumber) && sample.cupNumber >= 1 && sample.cupNumber <= 8);
   const modes = samples.map(sample => sample.cuppingMode);
@@ -816,7 +822,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   // An empty, unassigned CVA draft chooses mode when its first sample is added.
   // NULL here is not the same as malformed non-null or conflicting assigned mode.
   const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked);
-  const canManageSetup = Boolean(supported && setupModeValid && isLocalCreator && !state.started && raw.status !== 'complete');
+  const canManageSetup = Boolean(activePin && supported && setupModeValid && isLocalCreator && !state.started && raw.status !== 'complete');
   const show = Boolean(supported && validMode && (open || state.revealed || purpose === 'setup' && canManageSetup));
   const projected = {
     id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
@@ -832,7 +838,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     process: show ? sample.process : null, identityHidden: !show,
   })) };
   return { session: projected, identityHidden: !show,
-    tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete' && !(creator?.creator && raw.status === 'new')),
+    tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(activePin && validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete' && !(creator?.creator && raw.status === 'new')),
       canManageSetup, isLocalCreator } };
 }
 
@@ -1686,7 +1692,7 @@ async function getSessionSampleFinalStatusWithDb(db, sessionId) {
   }
 
   const session = await getSessionByIdWithDb(db, normalizedSessionId);
-  if (isActiveFormPin(session, 1)) return canonicalCvaStatuses(db, normalizedSessionId);
+  if (isCanonicalCvaReadPin(session)) return canonicalCvaStatuses(db, normalizedSessionId);
   if (isPinnedForm(session, 2)) {
     trustedLegacySession(session);
     const rows = await db.getAllAsync(

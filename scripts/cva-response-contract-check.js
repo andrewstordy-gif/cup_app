@@ -7,14 +7,14 @@ const { createCvaDraft, changeCvaMask, toggleCvaDefectAssessment, inspectCvaResp
 const { cvaGuidance } = require('../src/features/cupping/data/cvaResponse');
 const trusted = { profile: PROFILE, f: 1, identity: resolveForm(PROFILE, 1).identity };
 const hash = value => crypto.createHash('sha256').update(canonicalize(value)).digest('hex');
-assert.equal(trusted.identity.form_version, '2.0.0');
+assert.equal(trusted.identity.form_version, '3.0.0');
 for (const [file, expected] of [['cva-v1.json', '0a840b335b4af50d18db3cf210d503b870285c1706710ff803e7633103ad310d'],
   ['cva-v1.1.json', '2a9e341fb17664559875a08235a01f88571a3833682ead2a1de09558ba6bf0bb']]) {
   const manifest = require('../src/features/forms/contract/manifests/' + file);
   assert.equal(hash(manifest), expected);
   assert.equal(resolvePinnedForm(PROFILE, 1, { form_key: manifest.form_key, form_version: manifest.form_version, form_hash: expected }).ok, true);
 }
-assert.equal(fs.readFileSync(require.resolve('../src/features/forms/contract/fixtures/cva-v2.canonical.json'), 'utf8'), canonicalize(resolveForm(PROFILE, 1).manifest) + '\n');
+assert.equal(fs.readFileSync(require.resolve('../src/features/forms/contract/fixtures/cva-v3.canonical.json'), 'utf8'), canonicalize(resolveForm(PROFILE, 1).manifest) + '\n');
 assert.equal(hash(resolveForm(PROFILE, 1).manifest), trusted.identity.form_hash);
 const final = n => ({ ...createCvaDraft(n), ratings: Object.fromEntries(Object.values(RATINGS).map(key => [key, 5])), non_uniform_cups: [] });
 for (let n = 1; n <= 8; n++) {
@@ -30,7 +30,7 @@ for (let n = 1; n <= 8; n++) {
   const all = { ...source, defective_cups: Array.from({ length: n }, (_, i) => i + 1),
     defect_type_masks: { phenolic: Array.from({ length: n }, (_, i) => i + 1) }, non_uniform_cups: [], evenly_defective_all_cups: null };
   assert.equal(inspectCvaResponse(all, trusted, n).draft.ok, true);
-  assert.equal(inspectCvaResponse(all, trusted, n).final.ok, false);
+  assert.equal(inspectCvaResponse(all, trusted, n).final.ok, true);
   all.evenly_defective_all_cups = true;
   assert.equal(inspectCvaResponse(all, trusted, n).result.display_score, '59.00');
 }

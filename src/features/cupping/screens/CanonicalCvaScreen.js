@@ -188,12 +188,13 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, cupIndex
   const inspection = inspectCvaResponse(response, saved.trusted, n);
   const guidance = cvaGuidance(inspection.final.errors, response, saved.n);
   const nonUniform = response.non_uniform_cups;
+  const independentDeductions = saved.trusted.identity.form_version === '3.0.0';
   const sourceCups = sourceUnion(response.defect_type_masks);
   // Never fill missing historical evidence just because the new-response default changed.
   const noSourceRecorded = sourceCups.length === 0 && Array.isArray(response.defective_cups) &&
-    response.defective_cups.length === 0 && response.defect_type_masks != null && response.evenly_defective_all_cups === false;
+    response.defective_cups.length === 0 && response.defect_type_masks != null && (independentDeductions || response.evenly_defective_all_cups === false);
   const needsNoSourceAssessment = sourceCups.length === 0 && !noSourceRecorded;
-  const showEven = n > 1 && sourceCups.length === n;
+  const showEven = !independentDeductions && n > 1 && sourceCups.length === n;
   const finalResult = !dirty && saved.complete ? saved.result : null;
   const notes = (key, label) => <CaptureNotes label={`${label} notes`} showLabel={key !== 'fragrance_aroma'} value={response.affective_notes?.[key]}
     disabled={disabled} scrollRef={scroll} onChange={text => update(previous => ({ ...previous,
@@ -220,6 +221,7 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, cupIndex
         onLayout={() => { layoutReady.current = true; scrollToInitialTarget(); }}
         contentContainerStyle={{ paddingHorizontal: 26 * scale, paddingBottom: spacing.lg * scale }}>
         <View style={{ paddingVertical: spacing.md * scale }}><AssessmentFormIntro form={1} cuppingMode={cuppingMode} cupCount={n} /></View>
+        {saved.historicalReadOnly ? <Text style={styles.hint}>Historical CVA version 2.0.0 — read-only. Saved assessments retain their original scoring rules. Start a new session to use independent deductions.</Text> : null}
         <LocalTastingActions showCompletion={false} sessionId={sessionId} sampleId={sampleId} access={saved.access} tasting={saved.tasting}
           disabled={dirty || pending} onAdopted={value => { setSaved(value); setResponse(value.response || createCvaDraft(value.n)); setDirty(false); }}
           />
@@ -284,7 +286,7 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, cupIndex
         {message ? <Text accessibilityLiveRegion="polite" style={[styles.hint, error && styles.error]}>{message}</Text> : null}
         {guidance.length ? <View style={styles.section}><Text style={styles.hint}>Still needed: {guidance.join('; ')}.</Text>
           <Pressable style={styles.action} accessibilityRole="button" onPress={jumpToMissing}><Text style={styles.actionText}>Review first unfinished field</Text></Pressable></View> : null}
-        {finalResult ? <AssessmentResultSection formLabel="SCA CVA · Affective · version 2.0.0" provenance={finalResult.label}
+        {finalResult ? <AssessmentResultSection formLabel={`CVA · Affective · version ${saved.trusted.identity.form_version}${saved.historicalReadOnly ? ' · historical read-only' : ''}`} provenance={finalResult.label}
           rows={rows} expanded={breakdownExpanded} onToggle={() => setBreakdownExpanded(value => !value)} scale={scale} /> : null}
       </ScrollView>
     </KeyboardAvoidingView>

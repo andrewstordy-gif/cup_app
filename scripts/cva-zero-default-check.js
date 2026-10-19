@@ -175,7 +175,7 @@ async function main() {
     if (n > 1) {
       edited = tools.changeCvaMask(final(n), 'phenolic', Array.from({ length: n }, (_, i) => i + 1), n);
       assert.equal(edited.evenly_defective_all_cups, null);
-      assert.equal(tools.inspectCvaResponse(edited, trusted, n).final.ok, false);
+      assert.equal(tools.inspectCvaResponse(edited, trusted, n).final.ok, true);
       assert.equal(tools.inspectCvaResponse({ ...edited, evenly_defective_all_cups: true }, trusted, n).final.ok, true);
     }
   }
@@ -198,11 +198,11 @@ async function main() {
     assert.equal(rows(),before);assert.equal(pins(),beforePins);ui.close();
   }
   const variants = [];
-  for (const key of ['defective_cups', 'defect_type_masks', 'evenly_defective_all_cups']) {
+  for (const key of ['defective_cups', 'defect_type_masks']) {
     variants.push({ [key]: null }, { [key]: undefined });
   }
   variants.push({ defective_cups: null, defect_type_masks: null, evenly_defective_all_cups: null },
-    { evenly_defective_all_cups: true }, { defective_cups: [1] });
+    { defective_cups: [1] });
   for (const variant of variants) {
     const props = await fixture(5);
     const historical = { ...final(5), ...variant, other_bean_cups: [2], roast_defect_type_masks: { unevenRoast: [3] },
@@ -233,4 +233,5 @@ async function main() {
   console.log('CVA zero-default checks passed: actual screen/repository Save/reopen n=1–8, Uniformity select/clear/unassessed, default-only no-start and preserved historical null/absent/selected tuples.');
   db.close();
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { fixture, save, open, first, nodes, repo, db, tools, ratings, final, rows, pins };
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });

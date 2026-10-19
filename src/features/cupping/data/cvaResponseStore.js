@@ -1,5 +1,5 @@
 // Bounded prototype storage adapter, not the production participant/event store.
-const { PROFILE, resolveForm, validateResponse, scoreResponse } = require('../../forms/contract');
+const { PROFILE, resolveForm, resolvePinnedForm, validateResponse, scoreResponse } = require('../../forms/contract');
 const { canonicalize } = require('../../forms/contract/canonical');
 const { cvaEnvelope, RATINGS, cvaNoteGroups } = require('./cvaResponse');
 const active = () => resolveForm(PROFILE, 1).identity;
@@ -13,10 +13,11 @@ async function context(db, sessionId, sampleId) {
     sm.cupping_form AS sampleForm, sm.cup_number AS cupCount
     FROM sessions s JOIN samples sm ON sm.session_id = s.id WHERE s.id = ? AND sm.id = ? LIMIT 1`, [sessionId, sampleId]);
   const identity = { form_key: row?.formKey, form_version: row?.formVersion, form_hash: row?.formHash };
-  if (!row || row.sessionForm !== 1 || row.sampleForm !== 1 || !samePin(identity, active()) || identity.form_version !== '2.0.0') fail('cva:unsupported_session');
+  const resolved = resolvePinnedForm(PROFILE, 1, identity);
+  if (!row || row.sessionForm !== 1 || row.sampleForm !== 1 || !resolved.ok || !['2.0.0','3.0.0'].includes(identity.form_version)) fail('cva:unsupported_session');
   if (!Number.isInteger(row.cupCount) || row.cupCount < 1 || row.cupCount > 8) fail('cva:invalid_cup_count');
   if (!['new', 'pending', 'in_progress', 'complete'].includes(row.status)) fail('cva:unsupported_session_state');
-  return { trusted: { profile: PROFILE, f: 1, identity }, n: row.cupCount, sessionComplete: row.status === 'complete' };
+  return { trusted: { profile: PROFILE, f: 1, identity }, n: row.cupCount, sessionComplete: row.status === 'complete', historicalReadOnly: !samePin(identity, active()) };
 }
 
 async function latest(db, sessionId, sampleId) {
@@ -60,6 +61,7 @@ async function saveWithDb(db, { sessionId, sampleId, response, expectedRevision,
   let outcome;
   await db.withExclusiveTransactionAsync(async txn => {
     const current = await context(txn, sessionId, sampleId);
+    if (current.historicalReadOnly) fail('cva:historical_read_only');
     if (current.sessionComplete) fail('cva:session_complete');
     if (!samePin(expectedIdentity, current.trusted.identity) || expectedCupCount !== current.n) fail('cva:session_changed');
     const previous = await readWithDb(txn, sessionId, sampleId);
@@ -121,6 +123,8 @@ async function statusesWithDb(db, sessionId) {
 async function closeWithDb(db, sessionId) {
   let outcome;
   await db.withExclusiveTransactionAsync(async txn => {
+    const sample = await txn.getFirstAsync('SELECT id FROM samples WHERE session_id = ? LIMIT 1', [sessionId]);
+    if (sample && (await context(txn, sessionId, sample.id)).historicalReadOnly) fail('cva:historical_read_only');
     const statuses = await statusesWithDb(txn, sessionId);
     const values = Object.values(statuses);
     if (!values.length || values.some(value => !value.isComplete)) fail('cva:incomplete_session');

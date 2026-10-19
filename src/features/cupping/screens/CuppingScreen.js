@@ -28,6 +28,7 @@ import {
   saveCvaAssessmentAtomically,
 } from "../../../data/sessionRepository";
 import { formIdentity } from "../../forms/sessionFormRoute";
+import { PROFILE, resolvePinnedForm } from "../../forms/contract";
 import { DefectsSection } from "../components/DefectsSection";
 import { AssessmentCupSelector } from "../components/AssessmentCupSelector";
 import { AssessmentHeader } from "../components/AssessmentHeader";
@@ -645,8 +646,8 @@ export function CuppingScreen(props) {
   }, [props.sessionId]);
   if (!loaded) return <View><Text>Loading assessment…</Text></View>;
   if (loaded.error) return <View><Text>Could not load assessment.</Text></View>;
-  const pin = formIdentity(1);
-  if (loaded.session?.formVersion === '2.0.0' && loaded.session.formKey === pin.form_key && loaded.session.formHash === pin.form_hash) {
+  const identity = { form_key: loaded.session?.formKey, form_version: loaded.session?.formVersion, form_hash: loaded.session?.formHash };
+  if (['2.0.0','3.0.0'].includes(identity.form_version) && resolvePinnedForm(PROFILE,1,identity).ok) {
     return <CanonicalCvaScreen {...props} key={`${props.sessionId}:${props.sampleId}`} />;
   }
   return <PrototypeCuppingScreen {...props} />;
