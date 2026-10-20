@@ -994,8 +994,8 @@ export function CuppingSessionDetailsScreen({
             sessionDisplayId, sessionDate, sessionName: effectiveSessionName, sessionType: effectiveSessionType,
             samplesInSession, status: sessionStatus, samples: nextSamples, intent: 'setup' },
         });
+        if (setupEpoch === setupEpochRef.current) pendingAdditionRef.current = pending;
         if (setupEpoch !== setupEpochRef.current || additionOperation.cancelled) throw new Error('Session setup changed. No cup was written.');
-        pendingAdditionRef.current = pending;
         return {
           metadataOnly: isNtagCup,
           records: isNtagCup
@@ -1417,7 +1417,7 @@ export function CuppingSessionDetailsScreen({
         if (current()) {
           setCheckSampleStatus("pending");
           setPendingSaveError(pendingAdditionRef.current?.phase === 'verified'
-            ? "The cup was verified, but the sample could not be saved. Retry saving; no re-write is needed."
+            ? "The cup was verified, but saving could not be confirmed. Retry or reopen the session; no re-write is needed."
             : "The verification result could not be saved. Scan the same cup again to retry.");
         }
       } finally {

@@ -122,9 +122,13 @@ export async function markPendingSampleAdditionVerified({sessionId,operationId,p
 }
 
 export async function commitPendingSampleAddition({sessionId,operationId}) {
+  const actor=await getLocalProfileIdentity();
   const pending=await getPendingSampleAddition(sessionId);
+  await requireSameTastingActor(actor);
   if(!pending || pending.operationId!==operationId || pending.phase!=='verified')throw new Error('Pending cup check changed. No sample was added.');
-  return saveSessionWithSamples({...pending.saveInput,pendingSampleOperationId:operationId});
+  const saved=await saveSessionWithSamples({...pending.saveInput,pendingSampleOperationId:operationId});
+  await requireSameTastingActor(actor);
+  return saved;
 }
 
 async function ownedMutation(sessionId, operation) {
@@ -539,10 +543,12 @@ export async function saveSessionWithSamples({
   const creatorId = existingSessionId ? null : await getOrCreateLocalProfileIdentity();
   await db.withExclusiveTransactionAsync(async txn => {
     const db = txn;
+    let pendingActor = null;
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
     const pendingRow = await pendingRowWithDb(db, sessionId);
     if (pendingRow) {
       const actor = await getLocalProfileIdentity();
+      pendingActor = actor;
       const pending = decodePending(pendingRow,actor,await getSessionByIdWithDb(db,sessionId));
       const request = pendingSaveInput({sessionUUID,existingSessionId,cuppingForm,cuppingMode,sessionDisplayId,
         sessionName,sessionType,samplesInSession,status,sessionDate,samples,intent});
@@ -706,12 +712,13 @@ export async function saveSessionWithSamples({
 
     await recomputeSessionProgressStatusWithDb(db, sessionId);
     if (pendingSampleOperationId) {
-      const actor = await getLocalProfileIdentity();
+      const actor = pendingActor;
       await assertLocalCreatorWithDb(db,sessionId);
       const row = await pendingRowWithDb(db,sessionId);
       if (!row || row.actor_id !== actor || row.operation_id !== pendingSampleOperationId) throw new Error('Pending cup check changed. No sample was added.');
       await requireSameTastingActor(actor);
       await db.runAsync('DELETE FROM local_pending_sample_additions WHERE session_id=? AND operation_id=?', [sessionId,pendingSampleOperationId]);
+      await requireSameTastingActor(actor);
     }
   });
 

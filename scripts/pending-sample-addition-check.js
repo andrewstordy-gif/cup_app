@@ -49,7 +49,17 @@ async function main() {
   assert.equal((await env.repo.getOwnedSessionSetup('session')).samples.length,0);
   assert.equal((await env.repo.getPendingSampleAddition('session')).phase,'verified','local commit failure retains verified evidence');
   env.restart();
-  await env.repo.commitPendingSampleAddition({sessionId:'session',operationId:pending.operationId});
+  const originalTransaction=env.bridge.withExclusiveTransactionAsync;
+  env.bridge.withExclusiveTransactionAsync=callback=>originalTransaction(async txn=>callback({...txn,
+    runAsync:async(sql,args)=>{const result=await txn.runAsync(sql,args);if(sql.startsWith('DELETE FROM local_pending_sample_additions'))env.actor(env.actorB);return result;},
+  }));
+  await assert.rejects(env.repo.commitPendingSampleAddition({sessionId:'session',operationId:pending.operationId}),/actor_changed/);
+  env.actor(env.actorA);env.bridge.withExclusiveTransactionAsync=originalTransaction;
+  assert.equal((await env.repo.getOwnedSessionSetup('session')).samples.length,0,'actor change during delete rolls back membership');
+  assert.equal((await env.repo.getPendingSampleAddition('session')).phase,'verified');
+  env.afterCommit(()=>env.afterCommit(()=>env.actor(env.actorB)));
+  await assert.rejects(env.repo.commitPendingSampleAddition({sessionId:'session',operationId:pending.operationId}),/actor_changed/);
+  env.actor(env.actorA);
   assert.equal((await env.repo.getOwnedSessionSetup('session')).samples.length,1);
   assert.equal(await env.repo.getPendingSampleAddition('session'),null);
   await assert.rejects(env.repo.commitPendingSampleAddition({sessionId:'session',operationId:pending.operationId}),/changed/);

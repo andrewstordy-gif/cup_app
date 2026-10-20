@@ -95,6 +95,14 @@ async function main(){
     assert.equal((await env.repo.getOwnedSessionSetup(h.sessionUUID)).samples.length,1);
     assert(await env.repo.getPendingSampleAddition(h.sessionUUID));
   }
+  const closeEnv=fixture(),closed=harness(closeEnv),originalStage=closeEnv.repo.stagePendingSampleAddition;
+  closeEnv.repo.stagePendingSampleAddition=async input=>{const pending=await originalStage(input);closed.run('handleCloseAddSheet');return pending;};
+  await closed.run('handleScanCup');
+  assert.equal(closed.writes.length,0,'closing during staging cancels the physical write');
+  assert(closed.pendingAdditionRef.current,'cancelled staging retains access to durable intent');
+  closed.sheetCoffeeNameOrigin='';closed.run('handleOpenAddSheet');
+  assert.equal(closed.sheetCoffeeNameOrigin,'Test coffee');
+  await closed.run('handleScanCup');assert(closed.checkingSampleId);assert.equal(closed.writes.length,0);
   const quickEnv=fixture(),quick=harness(quickEnv);let handedOff=0;
   quick.isQuickStartSession=true;quick.quickStartSessionTypeValue=7;quick.onQuickStartSampleReady=()=>{handedOff++;};
   await quick.run('handleScanCup');assert.equal(handedOff,0);await quick.run('handleScanToCheckCup');assert.equal(handedOff,0);
