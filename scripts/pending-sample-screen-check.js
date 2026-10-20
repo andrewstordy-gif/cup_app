@@ -36,7 +36,7 @@ function harness(env,form=1,id='phone-add') {
       formState:{sessionUUID:h.sessionUUID,sessionName:h.sessionName,sessionType:h.sessionType,sessionDate:h.sessionDate,sessionDisplayId:h.sessionDisplayId,
         cuppingForm:form,cuppingMode:h.sessionMode,samplesInSession:h.samplesInSession,status:h.sessionStatus,samples:h.samples},
       setupWarningSnapshot:h.setupWarningSnapshot||(()=>({})),requestSetupExit:callback=>callback(),onQuickStartSampleReady:h.onQuickStartSampleReady,
-      readAndWriteNdefMinimal:async callback=>{const output=await callback({tag:{id:h.tagId},parsed:{text4:h.physicalPayload||{}}});h.writes.push(output.records);h.physicalPayload=output.records.text4;return {result:output.result};},
+      readAndWriteNdefMinimal:async callback=>{const output=await callback({tag:{id:h.tagId},parsed:{text4:h.physicalPayload||{}}});h.writes.push(output.records);if(h.writeFailure)throw new Error('NFC write failed.');h.physicalPayload=output.records.text4;return {result:output.result};},
       readNdefMinimal:async()=>{h.reads++;if(h.readWait)await h.readWait;return {tag:{id:h.tagId},parsed:{text4:h.physicalPayload||{}}};},
       setSampleVerificationStatus:()=>{},
     };
@@ -102,7 +102,26 @@ async function main(){
   assert(closed.pendingAdditionRef.current,'cancelled staging retains access to durable intent');
   closed.sheetCoffeeNameOrigin='';closed.run('handleOpenAddSheet');
   assert.equal(closed.sheetCoffeeNameOrigin,'Test coffee');
-  await closed.run('handleScanCup');assert(closed.checkingSampleId);assert.equal(closed.writes.length,0);
+  closeEnv.repo.stagePendingSampleAddition=originalStage;
+  await closed.run('handleScanCup');assert(closed.checkingSampleId);assert.equal(closed.writes.length,1,'no successful write yet, explicit retry writes before check');
+  for(const form of [1,2]){
+    const env=fixture(),failed=harness(env,form);failed.writeFailure=true;
+    await failed.run('handleScanCup');const sampleId=failed.pendingAdditionRef.current.candidate.id;
+    assert.equal(failed.isAddSheetVisible,true);assert.equal(failed.checkingSampleId,null);assert.equal(failed.sheetCoffeeNameOrigin,'Test coffee');
+    assert.equal((await env.repo.getPendingSampleAddition(failed.sessionUUID)).writeCompleted,false);
+    await failed.run('handleScanCup');assert.equal(failed.writes.length,2,'failed first write retries writer, not check');
+    assert.equal(failed.checkingSampleId,null);assert.equal(failed.samples.length,0);
+    const recovered=harness(env,form,failed.sessionUUID);recovered.savedSessionIdRef.current=failed.sessionUUID;
+    recovered.pendingAdditionRef.current=await env.repo.getPendingSampleAddition(failed.sessionUUID);
+    recovered.run('restorePendingAdditionFields',recovered.pendingAdditionRef.current);
+    await recovered.run('handleScanCup');assert.equal(recovered.writes.length,1);assert(recovered.checkingSampleId);
+    assert.equal(recovered.pendingAdditionRef.current.candidate.id,sampleId);assert.equal(recovered.pendingAdditionRef.current.writeCompleted,true);
+    await recovered.run('handleScanToCheckCup');assert.equal(recovered.samples.length,1);assert.equal(recovered.samples[0].id,sampleId);
+    const markFail=harness(fixture(),form);markFail.env.failAt('UPDATE local_pending_sample_additions SET content_json');
+    await markFail.run('handleScanCup');assert.equal(markFail.isAddSheetVisible,true);assert.equal(markFail.checkingSampleId,null);
+    assert.equal(markFail.pendingAdditionRef.current.writeCompleted,false);markFail.env.failAt(null);
+    await markFail.run('handleScanCup');assert.equal(markFail.writes.length,2);assert(markFail.checkingSampleId);
+  }
   const quickEnv=fixture(),quick=harness(quickEnv);let handedOff=0;
   quick.isQuickStartSession=true;quick.quickStartSessionTypeValue=7;quick.onQuickStartSampleReady=()=>{handedOff++;};
   await quick.run('handleScanCup');assert.equal(handedOff,0);await quick.run('handleScanToCheckCup');assert.equal(handedOff,0);

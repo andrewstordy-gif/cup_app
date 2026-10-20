@@ -112,6 +112,17 @@ export async function stagePendingSampleAddition({sessionId,expectedOperationId=
   });
 }
 
+export async function markPendingSampleAdditionWritten({sessionId,operationId}) {
+  return withPendingSetup(sessionId,async(db,actor,setup)=>{
+    const pending=decodePending(await pendingRowWithDb(db,sessionId),actor,setup);
+    if(!pending || pending.operationId!==operationId || pending.phase!=='check')throw new Error('Pending cup write changed. No sample was added.');
+    const json=canonicalize({candidate:pending.candidate,saveInput:pending.saveInput,payload:pending.payload,writeCompleted:true});
+    await db.runAsync('UPDATE local_pending_sample_additions SET content_json=?,content_hash=? WHERE session_id=? AND operation_id=?',
+      [json,sha256(json),sessionId,operationId]);
+    return decodePending(await pendingRowWithDb(db,sessionId),actor,setup);
+  });
+}
+
 export async function markPendingSampleAdditionVerified({sessionId,operationId,payload}) {
   return withPendingSetup(sessionId,async(db,actor,setup)=>{
     const pending=decodePending(await pendingRowWithDb(db,sessionId),actor,setup);

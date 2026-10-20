@@ -64,6 +64,7 @@ import {
   getSessionSetupAccess,
   getPendingSampleAddition,
   stagePendingSampleAddition,
+  markPendingSampleAdditionWritten,
   markPendingSampleAdditionVerified,
   commitPendingSampleAddition,
 } from "../../../data/sessionRepository";
@@ -842,7 +843,7 @@ export function CuppingSessionDetailsScreen({
     if (!validateAddSheet()) {
       return;
     }
-    if (pendingAdditionRef.current && pendingFieldsUnchanged(pendingAdditionRef.current)) {
+    if (pendingAdditionRef.current && pendingAdditionRef.current.writeCompleted !== false && pendingFieldsUnchanged(pendingAdditionRef.current)) {
       if (isQuickStartSession && samples.length === 0 && typeof onQuickStartSampleReady === 'function') {
         pendingQuickStartReadyRef.current = { sessionId: sessionUUID, sample: pendingAdditionRef.current.candidate };
       }
@@ -1020,6 +1021,12 @@ export function CuppingSessionDetailsScreen({
         setPresentationRevision(value => value + 1);
         return;
       }
+      const writtenPending = await markPendingSampleAdditionWritten({
+        sessionId: savedSessionIdRef.current,
+        operationId: pendingAdditionRef.current.operationId,
+      });
+      if (setupEpoch === setupEpochRef.current) pendingAdditionRef.current = writtenPending;
+      if (setupEpoch !== setupEpochRef.current || additionOperation.cancelled) return;
       const {
         duplicateIndex,
         normalizedDetectedCupUUID,

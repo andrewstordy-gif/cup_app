@@ -44,6 +44,7 @@ function decodePending(row, actor, setup) {
   let content;
   try { content=JSON.parse(row.content_json); if(canonicalize(content)!==row.content_json)fail(); } catch { fail(); }
   if (!content?.candidate || !content?.saveInput || !content?.payload ||
+      (content.writeCompleted !== undefined && typeof content.writeCompleted !== 'boolean') ||
       content.saveInput.sessionUUID !== row.session_id || content.saveInput.existingSessionId !== row.session_id ||
       content.candidate.cupUUID !== row.cup_uuid || typeof content.candidate.id !== 'string' || !content.candidate.id ||
       !Array.isArray(content.saveInput.samples) || content.saveInput.samples.filter(s=>s.id===content.candidate.id).length!==1) fail();
@@ -60,7 +61,7 @@ async function stagePendingWithDb(db, {sessionId, actor, setup, operationId, exp
     decodePending(previous,actor,setup);
     if(previous.cup_uuid!==candidate.cupUUID || JSON.parse(previous.content_json).candidate.id!==candidate.id) fail();
   }
-  const json=canonicalize({candidate,saveInput,payload});
+  const json=canonicalize({candidate,saveInput,payload,writeCompleted:false});
   if(json.length>262144)throw new Error('Pending sample details are too large. No cup was written.');
   await db.runAsync(`INSERT INTO local_pending_sample_additions
     (session_id,operation_id,actor_id,cup_uuid,format_version,phase,base_hash,content_json,content_hash)

@@ -4,6 +4,7 @@ const os=require('node:os');
 const path=require('node:path');
 const load=require('./helpers/load-project-module');
 const {fixture}=require('./helpers/session-state-fixture');
+const {canonicalize,sha256}=require('../src/features/forms/contract/canonical');
 const root=path.resolve(__dirname,'..');
 const {buildCompactSessionMetadata,normalizePositiveInteger}=load(root,{
   '../../../utils/secureIdentifiers':{generateDomainId:()=> 'test-id',generateSessionReference:()=> 'test-session'},
@@ -36,6 +37,15 @@ async function main() {
   env.restart();
   let recovered=await env.repo.getPendingSampleAddition('session');
   assert.equal(recovered.candidate.coffeeNameOrigin,'Test coffee');assert.equal(recovered.phase,'check');
+  assert.equal(recovered.writeCompleted,false,'staged write is not a successful write after restart');
+  const oldContent={candidate:recovered.candidate,saveInput:recovered.saveInput,payload:recovered.payload};
+  const oldJson=canonicalize(oldContent);
+  env.sqlite.prepare('UPDATE local_pending_sample_additions SET content_json=?,content_hash=? WHERE session_id=?').run(oldJson,sha256(oldJson),'session');
+  assert.equal((await env.repo.getPendingSampleAddition('session')).writeCompleted,undefined,'older pending records retain uncertain-write/check recovery');
+  await assert.rejects(env.repo.markPendingSampleAdditionWritten({sessionId:'session',operationId:'stale'}),/changed/);
+  env.actor(env.actorB);await assert.rejects(env.repo.markPendingSampleAdditionWritten({sessionId:'session',operationId:pending.operationId}),/local profile/);env.actor(env.actorA);
+  recovered=await env.repo.markPendingSampleAdditionWritten({sessionId:'session',operationId:pending.operationId});
+  assert.equal(recovered.writeCompleted,true);env.restart();assert.equal((await env.repo.getPendingSampleAddition('session')).writeCompleted,true);
   assert.equal((await env.repo.getOwnedSessionSetup('session')).samples.length,0);
   env.actor(env.actorB);await assert.rejects(env.repo.getPendingSampleAddition('session'),/local profile/);env.actor(env.actorA);
   await assert.rejects(env.repo.markPendingSampleAdditionVerified({sessionId:'session',operationId:pending.operationId,payload:{...pending.payload,n:'Changed'}}),/changed/);
