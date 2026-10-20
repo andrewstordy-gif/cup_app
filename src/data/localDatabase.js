@@ -1,5 +1,6 @@
 import * as SQLite from "expo-sqlite";
 import { migrateFoundationWithDb } from './localSessionStateMigration';
+import { PENDING_SAMPLE_SCHEMA } from './pendingSampleAdditionStore';
 
 const DATABASE_NAME = "cup_user_test.db";
 
@@ -449,6 +450,7 @@ async function prepareSchema(db) {
     FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
   );`);
   await migrateFoundationWithDb(db);
+  await db.execAsync(PENDING_SAMPLE_SCHEMA);
 }
 
 async function runMigrations(db) {

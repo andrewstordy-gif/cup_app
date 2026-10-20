@@ -1,6 +1,8 @@
 import { getLocalDatabase } from "./localDatabase";
 import { getLocalProfileIdentity, getOrCreateLocalProfileIdentity } from "./userProfileRepository";
 import { generateDomainId } from "../utils/secureIdentifiers";
+import { assertNoPendingWithDb, decodePending, pendingRowWithDb, pendingSaveInput,
+  pendingSampleFields, stagePendingWithDb } from './pendingSampleAdditionStore';
 import { fail as tastingFail, validActor, contextToken, stateWithDb as tastingStateWithDb,
   assertUnstartedWithDb, startWithDb as startTastingWithDb, hasStartedWithDb,
   persistHistoryWithDb, historyWithDb, revisionWithDb, commitRevisionWithDb, semanticSource, hasScoreOrNote,
@@ -20,6 +22,8 @@ import {
   getSessionTypeLabel,
   normalizeCuppingModeKey,
   normalizePositiveInteger,
+  buildCompactSessionMetadata,
+  normalizeProcessKey,
 } from "../features/cupping/constants/sessionDetails";
 
 function generateId() {
@@ -58,11 +62,77 @@ export async function getOwnedSessionSetup(sessionId) {
   return result;
 }
 
+async function withPendingSetup(sessionId, operation) {
+  const db=await getLocalDatabase(), actor=await getLocalProfileIdentity();
+  let result;
+  await db.withExclusiveTransactionAsync(async txn=>{
+    await assertLocalCreatorWithDb(txn,sessionId);
+    await assertUnstartedWithDb(txn,sessionId);
+    const presentation=await getLocalTastingPresentationWithDb(txn,sessionId,'setup',actor);
+    if(!presentation.tasting.canManageSetup)throw new Error(SETUP_PERMISSION_ERROR);
+    const setup=await getSessionByIdWithDb(txn,sessionId);
+    result=await operation(txn,actor,setup);
+    await requireSameTastingActor(actor);
+  });
+  await requireSameTastingActor(actor);
+  return result;
+}
+
+export async function getPendingSampleAddition(sessionId) {
+  return withPendingSetup(sessionId,async(db,actor,setup)=>decodePending(await pendingRowWithDb(db,sessionId),actor,setup));
+}
+
+export async function stagePendingSampleAddition({sessionId,expectedOperationId=null,candidate,saveInput,payload}) {
+  return withPendingSetup(sessionId,async(db,actor,setup)=>{
+    const input=pendingSaveInput(saveInput), sample=pendingSampleFields(candidate);
+    if(input.sessionUUID!==sessionId || input.existingSessionId!==sessionId || input.intent!=='setup' ||
+        input.cuppingForm!==setup.cuppingForm || sample.cuppingForm!==setup.cuppingForm ||
+        !sample.cupUUID || normalizeCupUuid(sample.cupUUID)!==sample.cupUUID || !sample.coffeeNameOrigin?.trim() ||
+        !normalizeProcessKey(sample.process) ||
+        !Number.isInteger(sample.cupNumber) || sample.cupNumber<1 || sample.cupNumber>8 ||
+        !['blind','open'].includes(sample.cuppingMode) || (sample.cuppingForm===2 && sample.cuppingMode!=='open')) throw new Error('Pending sample details are invalid. No cup was written.');
+    const priorIndex=setup.samples.findIndex(s=>s.cupUUID===sample.cupUUID);
+    const identityConflict=await db.getFirstAsync('SELECT session_id FROM samples WHERE id=? AND session_id<>?',[sample.id,sessionId]);
+    if(identityConflict)throw new Error('Pending sample identity is already in use. No cup was written.');
+    if(priorIndex>=0 && setup.samples[priorIndex].id!==sample.id || priorIndex<0 && setup.samples.some(s=>s.id===sample.id)) throw new Error('Pending sample identity changed. No cup was written.');
+    const expected=setup.samples.map(pendingSampleFields);
+    if(priorIndex>=0)expected[priorIndex]=sample;else expected.push(sample);
+    if(canonicalize(input.samples)!==canonicalize(expected))throw new Error('Session samples changed before writing. No cup was written.');
+    const responses=await db.getAllAsync(input.cuppingForm===1
+      ? 'SELECT sm.cup_uuid AS cupUUID,sm.cup_number AS cupCount FROM samples sm JOIN cva_response_revisions r ON r.sample_id=sm.id WHERE sm.session_id=?'
+      : 'SELECT sm.cup_uuid AS cupUUID,sm.cup_number AS cupCount FROM samples sm JOIN legacy_responses r ON r.sample_id=sm.id WHERE sm.session_id=?',[sessionId]);
+    if(responses.some(prior=>!input.samples.some(next=>next.cupUUID===prior.cupUUID && next.cupNumber===Number(prior.cupCount))))throw new Error('A sample with a saved response cannot have its cup count changed. No cup was written.');
+    const metadata=buildCompactSessionMetadata({...sample,process:sample.process,sessionUUID:sessionId,
+      sessionName:input.sessionName,sessionType:input.sessionType,sessionDate:input.sessionDate,
+      samplesInSession:normalizePositiveInteger(input.samplesInSession,Math.max(setup.samples.length,sample.sampleNumber))});
+    if(canonicalize(metadata)!==canonicalize(payload))throw new Error('Pending cup payload changed. No cup was written.');
+    const conflict=await db.getFirstAsync('SELECT session_id FROM local_pending_sample_additions WHERE cup_uuid=? AND session_id<>?', [sample.cupUUID,sessionId]);
+    if(conflict)throw new Error('This cup has an unfinished assignment in another session. No cup was written.');
+    return stagePendingWithDb(db,{sessionId,actor,setup,operationId:generateId(),expectedOperationId,candidate:sample,saveInput:input,payload});
+  });
+}
+
+export async function markPendingSampleAdditionVerified({sessionId,operationId,payload}) {
+  return withPendingSetup(sessionId,async(db,actor,setup)=>{
+    const pending=decodePending(await pendingRowWithDb(db,sessionId),actor,setup);
+    if(!pending || pending.operationId!==operationId || canonicalize(pending.payload)!==canonicalize(payload))throw new Error('Pending cup check changed. No sample was added.');
+    await db.runAsync("UPDATE local_pending_sample_additions SET phase='verified' WHERE session_id=? AND operation_id=?",[sessionId,operationId]);
+    return {...pending,phase:'verified'};
+  });
+}
+
+export async function commitPendingSampleAddition({sessionId,operationId}) {
+  const pending=await getPendingSampleAddition(sessionId);
+  if(!pending || pending.operationId!==operationId || pending.phase!=='verified')throw new Error('Pending cup check changed. No sample was added.');
+  return saveSessionWithSamples({...pending.saveInput,pendingSampleOperationId:operationId});
+}
+
 async function ownedMutation(sessionId, operation) {
   const db = await getLocalDatabase();
   let result;
   await db.withExclusiveTransactionAsync(async txn => {
     await assertLocalCreatorWithDb(txn, sessionId);
+    await assertNoPendingWithDb(txn, sessionId);
     // Existing domain commands can reuse their transaction body without opening
     // a nested SQLite transaction. Every mutation remains on this guarded handle.
     const scoped = {
@@ -167,6 +237,7 @@ async function requireSameTastingActor(actor) {
 }
 
 async function assertAssessmentReadyWithDb(db, sessionId) {
+  await assertNoPendingWithDb(db, sessionId);
   const row = await db.getFirstAsync('SELECT status, local_creator_profile_id AS creator FROM sessions WHERE id = ?', [sessionId]);
   if (row?.status === 'new' && row.creator) throw new Error('Save this session before opening a tasting assessment.');
 }
@@ -419,6 +490,7 @@ export async function saveSessionWithSamples({
   sessionDate,
   samples,
   intent = 'save',
+  pendingSampleOperationId = null,
 }) {
   if (!['save', 'setup'].includes(intent)) throw new Error('Unsupported session save intent.');
   if (cuppingForm !== 1 && cuppingForm !== 2) {
@@ -468,6 +540,16 @@ export async function saveSessionWithSamples({
   await db.withExclusiveTransactionAsync(async txn => {
     const db = txn;
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
+    const pendingRow = await pendingRowWithDb(db, sessionId);
+    if (pendingRow) {
+      const actor = await getLocalProfileIdentity();
+      const pending = decodePending(pendingRow,actor,await getSessionByIdWithDb(db,sessionId));
+      const request = pendingSaveInput({sessionUUID,existingSessionId,cuppingForm,cuppingMode,sessionDisplayId,
+        sessionName,sessionType,samplesInSession,status,sessionDate,samples,intent});
+      if (!pendingSampleOperationId || pending.operationId !== pendingSampleOperationId || pending.phase !== 'verified' ||
+          canonicalize(request) !== canonicalize(pending.saveInput)) throw new Error('Finish the pending cup check from Add Sample before saving this session.');
+      await requireSameTastingActor(actor);
+    } else if (pendingSampleOperationId) throw new Error('Pending cup check is no longer available. No sample was added.');
     const existingSession = await db.getFirstAsync(
       "SELECT created_at, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash, cupping_mode AS cuppingMode, form_locked AS formLocked, status FROM sessions WHERE id = ?",
       [sessionId]
@@ -623,6 +705,14 @@ export async function saveSessionWithSamples({
     );
 
     await recomputeSessionProgressStatusWithDb(db, sessionId);
+    if (pendingSampleOperationId) {
+      const actor = await getLocalProfileIdentity();
+      await assertLocalCreatorWithDb(db,sessionId);
+      const row = await pendingRowWithDb(db,sessionId);
+      if (!row || row.actor_id !== actor || row.operation_id !== pendingSampleOperationId) throw new Error('Pending cup check changed. No sample was added.');
+      await requireSameTastingActor(actor);
+      await db.runAsync('DELETE FROM local_pending_sample_additions WHERE session_id=? AND operation_id=?', [sessionId,pendingSampleOperationId]);
+    }
   });
 
   return {
@@ -1283,6 +1373,9 @@ async function importSampleWithDb(db, {
   if (!normalizedSessionId || !normalizedCupUUID) {
     throw new Error("sessionId and cupUUID are required to upsert a sample.");
   }
+
+  await assertNoPendingWithDb(db,normalizedSessionId);
+  if(await db.getFirstAsync('SELECT session_id FROM local_pending_sample_additions WHERE cup_uuid=?',[normalizedCupUUID]))throw new Error('This cup has an unfinished assignment. Finish its pending check before tasting.');
 
   const nowIso = new Date().toISOString();
   const existing = await findSampleInSessionByCupUUIDWithDb(db, {

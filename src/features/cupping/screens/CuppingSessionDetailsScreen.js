@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Modal, Pressable, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import { BackHandler, Modal, Platform, Pressable, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
@@ -62,6 +62,10 @@ import {
   getSessionSampleFinalStatus,
   saveSessionWithSamples,
   getSessionSetupAccess,
+  getPendingSampleAddition,
+  stagePendingSampleAddition,
+  markPendingSampleAdditionVerified,
+  commitPendingSampleAddition,
 } from "../../../data/sessionRepository";
 
 const RECOVERED_SMART_CUP_TEXT3 = {
@@ -240,7 +244,12 @@ export function CuppingSessionDetailsScreen({
   const [isCheckingCup, setIsCheckingCup] = useState(false);
   const quickStartAddSheetOpenedRef = useRef(false);
   const pendingQuickStartReadyRef = useRef(null);
+  const pendingVerifiedQuickStartRef = useRef(null);
   const pendingCheckSampleOverridesRef = useRef({});
+  const pendingAdditionRef = useRef(null);
+  const pendingAdditionBusyRef = useRef(null);
+  const reopenPendingDrawerRef = useRef(false);
+  const [pendingSaveError, setPendingSaveError] = useState("");
   const quickStartSessionTypeValue = normalizeSessionTypeKey(quickStartSessionTypeKey);
   const isQuickStartSession = !sessionId && Boolean(quickStartSessionTypeValue);
   const sampleIdsKey = useMemo(
@@ -279,6 +288,11 @@ export function CuppingSessionDetailsScreen({
 
   useEffect(() => {
     setupEpochRef.current += 1;
+    if (pendingAdditionBusyRef.current) pendingAdditionBusyRef.current.cancelled = true;
+    pendingAdditionRef.current = null;
+    pendingVerifiedQuickStartRef.current = null;
+    reopenPendingDrawerRef.current = false;
+    setPendingSaveError("");
     setupContinuationRef.current = false;
     savedSetupSnapshotRef.current = null;
     savedSetupInputKeyRef.current = null;
@@ -293,6 +307,8 @@ export function CuppingSessionDetailsScreen({
     setIsCompletingSession(false);
     return () => {
       setupEpochRef.current += 1;
+      if (pendingAdditionBusyRef.current) pendingAdditionBusyRef.current.cancelled = true;
+      pendingVerifiedQuickStartRef.current = null;
       pendingSetupExitRef.current = null;
       saveOperationRef.current = null;
       completionBusyRef.current = null;
@@ -300,7 +316,7 @@ export function CuppingSessionDetailsScreen({
   }, [sessionId, quickStartSessionTypeValue]);
 
   const requestSetupExit = (action) => {
-    const pendingSetupWork = saveOperationRef.current || isNfcWriting || isCheckingCup ||
+    const pendingSetupWork = saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
       isCompletingSession || isDeleting || participantRemovalBusyRef.current || isRemovingParticipantSample || verifyingSampleId || rewritingSampleId;
     if (!setupContinuationRef.current && !pendingSetupWork && !isSessionDirty) return action?.();
     if (pendingSetupWork) {
@@ -321,12 +337,19 @@ export function CuppingSessionDetailsScreen({
     setSetupExitMessage("");
   };
   const leaveSetup = () => {
-    if (saveOperationRef.current || isNfcWriting || isCheckingCup ||
+    if (saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
         isCompletingSession || isDeleting || verifyingSampleId || rewritingSampleId) return;
     const pending = pendingSetupExitRef.current;
     stayInSetup();
     if (pending?.epoch === setupEpochRef.current) pending.action?.();
   };
+
+  useEffect(() => {
+    const ready = pendingVerifiedQuickStartRef.current;
+    if (!ready || isCheckingCup || pendingAdditionBusyRef.current || !samples.some(sample => sample.id === ready.sample.id)) return;
+    pendingVerifiedQuickStartRef.current = null;
+    requestSetupExit(() => onQuickStartSampleReady?.(ready));
+  }, [samples, isCheckingCup, requestSetupExit, onQuickStartSampleReady]);
 
   useEffect(() => {
     if (!setupContinuationRef.current && !saveOperationRef.current?.protectSetup && !isSessionDirty) return undefined;
@@ -433,6 +456,15 @@ export function CuppingSessionDetailsScreen({
           )
         );
         setSessionTypeAnchor(null);
+        if (access.canManageSetup) {
+          const pending = await getPendingSampleAddition(loaded.id);
+          if (isCancelled) return;
+          if (pending) {
+            pendingAdditionRef.current = pending;
+            restorePendingAdditionFields(pending);
+            setIsSessionDirty(true);
+          }
+        }
         setScanStatusMessage("Loaded saved session.");
       } catch (error) {
         void logAppError({
@@ -518,7 +550,7 @@ export function CuppingSessionDetailsScreen({
     ]
   );
   currentSetupInputKeyRef.current = JSON.stringify(formState);
-  const isSessionLocked = samples.length > 0 || Boolean(sessionForm?.formLocked);
+  const isSessionLocked = samples.length > 0 || Boolean(sessionForm?.formLocked) || Boolean(pendingAdditionRef.current);
   const selectedForm = sessionForm?.cuppingForm ?? sessionForm?.f;
   const isLegacy = selectedForm === 2;
   const isSessionFormSupported = isSessionFormReady(sessionId, sessionForm) && (!isLegacy || sessionMode === 'open');
@@ -625,9 +657,31 @@ export function CuppingSessionDetailsScreen({
     );
   };
 
+  const restorePendingAdditionFields = (pending) => {
+    const sample = pending.candidate;
+    setEditingSampleId(null);
+    setSheetCoffeeNameOrigin(sample.coffeeNameOrigin);
+    setSheetProcess(sample.process);
+    setSheetCupNumber(sample.cupNumber);
+    setIsSheetCupNumberDefault(false);
+    setSheetCuppingMode(sample.cuppingMode);
+    setIsSheetCuppingModeDefault(false);
+    setSessionName(pending.saveInput.sessionName);
+    setSessionType(pending.saveInput.sessionType);
+    setSheetErrors({});
+    setCupBlockedMessage("");
+  };
+  const pendingFieldsUnchanged = (pending) => pending.candidate.coffeeNameOrigin === sheetCoffeeNameOrigin.trim() &&
+    String(pending.candidate.process) === String(normalizeProcessKey(sheetProcess)) &&
+    pending.candidate.cupNumber === sheetCupNumber && pending.candidate.cuppingMode === normalizeCuppingModeKey(sheetCuppingMode);
   const handleOpenAddSheet = () => {
     if (!canEditSessionSetup) return;
-    if (saveOperationRef.current) return;
+    if (saveOperationRef.current || pendingAdditionBusyRef.current) return;
+    if (pendingAdditionRef.current) {
+      restorePendingAdditionFields(pendingAdditionRef.current);
+      setIsAddSheetVisible(true);
+      return;
+    }
     if (hideSavedIdentity) {
       setScanStatusMessage("Sample setup is unavailable here until a host-only view is available.");
       return;
@@ -664,6 +718,7 @@ export function CuppingSessionDetailsScreen({
   }, [isAddSheetVisible, isQuickStartSession, samples.length]);
 
   const handleCloseAddSheet = () => {
+    if (pendingAdditionBusyRef.current?.kind === 'write') pendingAdditionBusyRef.current.cancelled = true;
     setIsAddSheetVisible(false);
     setEditingSampleId(null);
     setSheetErrors({});
@@ -673,6 +728,7 @@ export function CuppingSessionDetailsScreen({
 
   const handleOpenEditSheet = (sample) => {
     if (!canEditSessionSetup) return;
+    if (pendingAdditionRef.current) { handleOpenAddSheet(); return; }
     if (hideSavedIdentity || !isSessionFormSupported || !sample || sampleStatusById?.[sample.id]?.isComplete) {
       return;
     }
@@ -769,6 +825,7 @@ export function CuppingSessionDetailsScreen({
 
   const handleScanCup = async () => {
     const setupEpoch = setupEpochRef.current;
+    if (pendingAdditionBusyRef.current || saveOperationRef.current) return;
     setCupBlockedMessage("");
     if (!canEditSessionSetup) {
       setScanStatusMessage("Session setup is read-only on this profile.");
@@ -785,6 +842,16 @@ export function CuppingSessionDetailsScreen({
     if (!validateAddSheet()) {
       return;
     }
+    if (pendingAdditionRef.current && pendingFieldsUnchanged(pendingAdditionRef.current)) {
+      if (isQuickStartSession && samples.length === 0 && typeof onQuickStartSampleReady === 'function') {
+        pendingQuickStartReadyRef.current = { sessionId: sessionUUID, sample: pendingAdditionRef.current.candidate };
+      }
+      setPendingSaveError("");
+      setIsAddSheetVisible(false);
+      setCheckingSampleId(pendingAdditionRef.current.candidate.id);
+      setCheckSampleStatus("pending");
+      return;
+    }
 
     const effectiveSessionName = isQuickStartSession ? sheetCoffeeNameOrigin.trim() : sessionName.trim();
     const effectiveSessionType = isQuickStartSession ? String(quickStartSessionTypeValue) : sessionType;
@@ -795,10 +862,12 @@ export function CuppingSessionDetailsScreen({
       return;
     }
 
+    const additionOperation = { epoch: setupEpoch, cancelled: false, kind: 'write' };
+    pendingAdditionBusyRef.current = additionOperation;
     setIsNfcWriting(true);
 
     try {
-      {
+      if (!pendingAdditionRef.current) {
         // Trust the locally pinned Open mode even before the first cup exists.
         const saved = await saveSessionWithSamples({ ...formState, sessionName: effectiveSessionName,
           sessionType: effectiveSessionType, existingSessionId: savedSessionIdRef.current, intent: 'setup' });
@@ -842,6 +911,9 @@ export function CuppingSessionDetailsScreen({
         }
 
         const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
+        if (pendingAdditionRef.current && pendingAdditionRef.current.candidate.cupUUID !== normalizedDetectedCupUUID) {
+          throw new Error('Scan the same cup for this unfinished sample. No cup was written.');
+        }
         const conflictingSession = await findPendingSessionByCupUUID({
           cupUUID: normalizedDetectedCupUUID,
           excludeSessionId: sessionUUID,
@@ -883,6 +955,7 @@ export function CuppingSessionDetailsScreen({
                 ...samples,
                 {
                   ...createSample({
+                    id: pendingAdditionRef.current?.candidate.id,
                     coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
                     process: String(normalizeProcessKey(sheetProcess)),
                     cupUUID: normalizedDetectedCupUUID,
@@ -910,6 +983,19 @@ export function CuppingSessionDetailsScreen({
                   : sample
               );
 
+        const candidate = duplicateIndex === -1 ? nextSamples[nextSamples.length - 1] : nextSamples[duplicateIndex];
+        const pending = await stagePendingSampleAddition({
+          sessionId: savedSessionIdRef.current,
+          expectedOperationId: pendingAdditionRef.current?.operationId ?? null,
+          candidate,
+          payload: sessionMetadata,
+          saveInput: { sessionUUID, existingSessionId: savedSessionIdRef.current,
+            cuppingForm: sessionForm?.cuppingForm ?? sessionForm?.f, cuppingMode: sessionMode,
+            sessionDisplayId, sessionDate, sessionName: effectiveSessionName, sessionType: effectiveSessionType,
+            samplesInSession, status: sessionStatus, samples: nextSamples, intent: 'setup' },
+        });
+        if (setupEpoch !== setupEpochRef.current || additionOperation.cancelled) throw new Error('Session setup changed. No cup was written.');
+        pendingAdditionRef.current = pending;
         return {
           metadataOnly: isNtagCup,
           records: isNtagCup
@@ -930,7 +1016,7 @@ export function CuppingSessionDetailsScreen({
           },
         };
       });
-      if (setupEpoch !== setupEpochRef.current || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) {
+      if (setupEpoch !== setupEpochRef.current || additionOperation.cancelled || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) {
         setPresentationRevision(value => value + 1);
         return;
       }
@@ -940,32 +1026,9 @@ export function CuppingSessionDetailsScreen({
         nextSamples,
       } = writeResult.result || {};
 
-      const saved = await saveSessionWithSamples({
-        sessionUUID,
-        cuppingForm: sessionForm?.cuppingForm ?? sessionForm?.f,
-        cuppingMode: sessionMode,
-        existingSessionId: savedSessionIdRef.current,
-        sessionDisplayId,
-        sessionDate,
-        sessionName: effectiveSessionName,
-        sessionType: effectiveSessionType,
-        samplesInSession,
-        status: sessionStatus,
-        samples: nextSamples,
-        intent: 'setup',
-      });
-      savedSessionIdRef.current = saved.sessionId;
-      if (setupEpoch === setupEpochRef.current) {
-        setSessionStatus(saved.status);
-        savedSetupSnapshotRef.current = setupWarningSnapshot({
-          cuppingForm: sessionForm?.cuppingForm ?? sessionForm?.f, samples: nextSamples,
-        }, sessionForm);
-        savedSetupInputKeyRef.current = JSON.stringify({ ...formState,
-          sessionName: effectiveSessionName, sessionType: effectiveSessionType, samples: nextSamples });
-      }
       setSessionName(effectiveSessionName);
-      setSamples(nextSamples);
       setIsSessionDirty(true);
+      setPendingSaveError("");
 
       const writtenSample =
         duplicateIndex !== -1
@@ -975,7 +1038,7 @@ export function CuppingSessionDetailsScreen({
       if (duplicateIndex !== -1) {
         setScanStatusMessage(`Cup UUID ${normalizedDetectedCupUUID} overwritten. Check the cup to confirm.`);
       } else {
-        setScanStatusMessage(`Cup ${normalizedDetectedCupUUID} linked. Check the cup to confirm.`);
+        setScanStatusMessage(`Cup ${normalizedDetectedCupUUID} written. Check the cup to add the sample.`);
       }
       if (
         isFirstQuickStartSample &&
@@ -1020,12 +1083,16 @@ export function CuppingSessionDetailsScreen({
         setScanStatusMessage(message);
       }
     } finally {
-      setIsNfcWriting(false);
+      if (pendingAdditionBusyRef.current === additionOperation) {
+        pendingAdditionBusyRef.current = null;
+        if (setupEpoch === setupEpochRef.current) setIsNfcWriting(false);
+      }
     }
   };
 
   const handleVerifySample = async (sampleId) => {
-    const sample = samples.find((entry) => entry.id === sampleId);
+    const pending = pendingAdditionRef.current?.candidate.id === sampleId ? pendingAdditionRef.current : null;
+    const sample = pending?.candidate || samples.find((entry) => entry.id === sampleId);
     if (!sample) {
       return false;
     }
@@ -1073,7 +1140,7 @@ export function CuppingSessionDetailsScreen({
         samplesInSession,
         Math.max(samples.length, expectedSampleNumber)
       );
-      const expectedMetadata = buildCompactSessionMetadata({
+      const expectedMetadata = pending?.payload || buildCompactSessionMetadata({
         coffeeNameOrigin: sampleForMetadata.coffeeNameOrigin,
         process: sampleForMetadata.process,
         cupNumber: sampleForMetadata.cupNumber,
@@ -1099,7 +1166,7 @@ export function CuppingSessionDetailsScreen({
           );
           return false;
         } else {
-          setSampleVerificationStatus(sampleId, "verified");
+          if (!pending) setSampleVerificationStatus(sampleId, "verified");
           setScanStatusMessage(`Cup ${expectedCupUUID} verified successfully.`);
           const { [sampleId]: _verifiedOverride, ...remainingOverrides } = pendingCheckSampleOverridesRef.current;
           pendingCheckSampleOverridesRef.current = remainingOverrides;
@@ -1144,7 +1211,8 @@ export function CuppingSessionDetailsScreen({
       setScanStatusMessage(UNSUPPORTED_MESSAGE);
       return false;
     }
-    const sample = samples.find((entry) => entry.id === sampleId);
+    const pending = pendingAdditionRef.current?.candidate.id === sampleId ? pendingAdditionRef.current : null;
+    const sample = pending?.candidate || samples.find((entry) => entry.id === sampleId);
     if (!sample) {
       return false;
     }
@@ -1156,7 +1224,7 @@ export function CuppingSessionDetailsScreen({
       samplesInSession,
       Math.max(samples.length, expectedSampleNumber)
     );
-    const expectedMetadata = buildCompactSessionMetadata({
+    const expectedMetadata = pending?.payload || buildCompactSessionMetadata({
       coffeeNameOrigin: sampleForMetadata.coffeeNameOrigin,
       process: sampleForMetadata.process,
       cupNumber: sampleForMetadata.cupNumber,
@@ -1177,6 +1245,10 @@ export function CuppingSessionDetailsScreen({
       setScanStatusMessage(`Scan cup ${expectedCupUUID} to rewrite its session data...`);
       await readAndWriteNdefMinimal(async (result) => {
         if (setupEpoch !== setupEpochRef.current || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup changed. No cup was written.');
+        if (pending) {
+          const current = await getPendingSampleAddition(pending.sessionId);
+          if (!current || current.operationId !== pending.operationId) throw new Error('Pending cup setup changed. No cup was written.');
+        }
         const parsed = result?.parsed || {};
         const tag = result?.tag;
         const tagClassification = classifyNfcTagReadResult(result);
@@ -1267,7 +1339,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const checkedSample = checkingSampleId
-    ? samples.find((entry) => entry.id === checkingSampleId)
+    ? pendingAdditionRef.current?.candidate.id === checkingSampleId ? pendingAdditionRef.current.candidate : samples.find((entry) => entry.id === checkingSampleId)
     : null;
   const checkedSampleIndex = checkedSample
     ? samples.findIndex((entry) => entry.id === checkedSample.id)
@@ -1277,6 +1349,16 @@ export function CuppingSessionDetailsScreen({
     : checkedSampleIndex + 1;
 
   const handleCloseCheckSample = () => {
+    if (pendingAdditionRef.current?.candidate.id === checkingSampleId) {
+      if (pendingAdditionBusyRef.current) return;
+      restorePendingAdditionFields(pendingAdditionRef.current);
+      setCheckingSampleId(null);
+      setCheckSampleStatus("pending");
+      setPendingSaveError("");
+      if (Platform.OS === 'ios') reopenPendingDrawerRef.current = true;
+      else setIsAddSheetVisible(true);
+      return;
+    }
     if (checkingSampleId) {
       const { [checkingSampleId]: _closedOverride, ...remainingOverrides } = pendingCheckSampleOverridesRef.current;
       pendingCheckSampleOverridesRef.current = remainingOverrides;
@@ -1289,6 +1371,61 @@ export function CuppingSessionDetailsScreen({
 
   const handleScanToCheckCup = async () => {
     if (!checkingSampleId) {
+      return;
+    }
+
+    const pending = pendingAdditionRef.current?.candidate.id === checkingSampleId ? pendingAdditionRef.current : null;
+    if (pending) {
+      if (pendingAdditionBusyRef.current) return;
+      const operation = { epoch: setupEpochRef.current, operationId: pending.operationId, kind: 'check', cancelled: false };
+      pendingAdditionBusyRef.current = operation;
+      const current = () => !operation.cancelled && operation.epoch === setupEpochRef.current && pendingAdditionRef.current?.operationId === operation.operationId;
+      setIsCheckingCup(true);
+      setPendingSaveError("");
+      try {
+        const verified = pending.phase === 'verified' || await handleVerifySample(checkingSampleId);
+        if (!current()) return;
+        if (!verified) { setCheckSampleStatus("mismatch"); return; }
+        if (pending.phase !== 'verified') {
+          const marked = await markPendingSampleAdditionVerified({sessionId:pending.sessionId,operationId:pending.operationId,payload:pending.payload});
+          if (!current()) return;
+          pendingAdditionRef.current = marked;
+        }
+        operation.kind = 'commit';
+        const saved = await commitPendingSampleAddition({sessionId:pending.sessionId,operationId:pending.operationId});
+        if (!current()) return;
+        const nextSamples = pending.saveInput.samples.map(sample => ({
+          ...samples.find(prior => prior.id === sample.id), ...sample,
+          ...(sample.id === pending.candidate.id ? { verificationStatus: 'verified' } : {}),
+        }));
+        savedSessionIdRef.current = saved.sessionId;
+        setSessionStatus(saved.status);
+        setSamples(nextSamples);
+        setSessionName(pending.saveInput.sessionName);
+        setIsSessionDirty(true);
+        savedSetupSnapshotRef.current = setupWarningSnapshot({cuppingForm:pending.saveInput.cuppingForm,samples:nextSamples},sessionForm);
+        savedSetupInputKeyRef.current = JSON.stringify({...formState, sessionName:pending.saveInput.sessionName,
+          sessionType:pending.saveInput.sessionType, samples:nextSamples});
+        pendingAdditionRef.current = null;
+        setCheckingSampleId(null);
+        setCheckSampleStatus("pending");
+        setScanStatusMessage("Cup verified and sample saved locally.");
+        const quickStart = pendingQuickStartReadyRef.current;
+        pendingQuickStartReadyRef.current = null;
+        if (quickStart && typeof onQuickStartSampleReady === 'function') pendingVerifiedQuickStartRef.current = quickStart;
+      } catch (error) {
+        if (current()) {
+          setCheckSampleStatus("pending");
+          setPendingSaveError(pendingAdditionRef.current?.phase === 'verified'
+            ? "The cup was verified, but the sample could not be saved. Retry saving; no re-write is needed."
+            : "The verification result could not be saved. Scan the same cup again to retry.");
+        }
+      } finally {
+        if (pendingAdditionBusyRef.current === operation) {
+          pendingAdditionBusyRef.current = null;
+          if (operation.epoch === setupEpochRef.current) setIsCheckingCup(false);
+        }
+      }
       return;
     }
 
@@ -1315,6 +1452,25 @@ export function CuppingSessionDetailsScreen({
     if (!checkingSampleId) {
       return;
     }
+    const pending = pendingAdditionRef.current?.candidate.id === checkingSampleId ? pendingAdditionRef.current : null;
+    if (pending) {
+      if (pendingAdditionBusyRef.current) return;
+      const operation = { epoch: setupEpochRef.current, operationId: pending.operationId, kind: 'rewrite', cancelled: false };
+      pendingAdditionBusyRef.current = operation;
+      setIsCheckingCup(true);
+      try {
+        const rewritten = await handleRewriteSample(checkingSampleId);
+        if (!operation.cancelled && operation.epoch === setupEpochRef.current && pendingAdditionRef.current?.operationId === operation.operationId) {
+          setCheckSampleStatus(rewritten ? "pending" : "mismatch");
+        }
+      } finally {
+        if (pendingAdditionBusyRef.current === operation) {
+          pendingAdditionBusyRef.current = null;
+          if (operation.epoch === setupEpochRef.current) setIsCheckingCup(false);
+        }
+      }
+      return;
+    }
 
     setIsCheckingCup(true);
     const rewritten = await handleRewriteSample(
@@ -1331,6 +1487,10 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleSave = async () => {
+    if (pendingAdditionRef.current || pendingAdditionBusyRef.current) {
+      setScanStatusMessage("Finish the pending cup check from Add Sample before saving.");
+      return;
+    }
     if (!canEditSessionSetup) return;
     if (!isSessionFormSupported) {
       setScanStatusMessage('Select a session form before saving.');
@@ -1642,6 +1802,12 @@ export function CuppingSessionDetailsScreen({
         transparent
         animationType="fade"
         onRequestClose={handleCloseCheckSample}
+        onDismiss={() => {
+          if (reopenPendingDrawerRef.current && pendingAdditionRef.current) {
+            reopenPendingDrawerRef.current = false;
+            setIsAddSheetVisible(true);
+          }
+        }}
       >
         <CheckSampleScreen
           sampleNumber={checkedSampleNumber}
@@ -1650,6 +1816,9 @@ export function CuppingSessionDetailsScreen({
           onScanToCheck={handleScanToCheckCup}
           onRewrite={handleRewriteFromCheckScreen}
           onClose={handleCloseCheckSample}
+          closeDisabled={Boolean(pendingAdditionRef.current) && isCheckingCup}
+          saveError={pendingSaveError}
+          retrySave={pendingAdditionRef.current?.phase === 'verified'}
         />
       </Modal>
 
@@ -1666,16 +1835,18 @@ export function CuppingSessionDetailsScreen({
         lockedCuppingMode={isLegacy}
         isCuppingModeDefault={isSheetCuppingModeDefault}
         errors={sheetErrors}
-        loading={isNfcWriting}
+        loading={isNfcWriting || Boolean(pendingAdditionRef.current) && isCheckingCup}
         statusMessage={scanStatusMessage}
         errorMessage={cupBlockedMessage}
-        onChangeCoffeeNameOrigin={setSheetCoffeeNameOrigin}
-        onChangeProcess={setSheetProcess}
+        onChangeCoffeeNameOrigin={value => { if (!pendingAdditionBusyRef.current) setSheetCoffeeNameOrigin(value); }}
+        onChangeProcess={value => { if (!pendingAdditionBusyRef.current) setSheetProcess(value); }}
         onSelectCupNumber={(value) => {
+          if (pendingAdditionBusyRef.current) return;
           setSheetCupNumber(value);
           setIsSheetCupNumberDefault(false);
         }}
         onSelectCuppingMode={(value) => {
+          if (pendingAdditionBusyRef.current) return;
           setSheetCuppingMode(value);
           setIsSheetCuppingModeDefault(false);
         }}

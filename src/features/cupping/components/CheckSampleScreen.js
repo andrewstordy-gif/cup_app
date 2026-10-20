@@ -14,6 +14,9 @@ export function CheckSampleScreen({
   onScanToCheck,
   onRewrite,
   onClose,
+  closeDisabled = false,
+  saveError = "",
+  retrySave = false,
 }) {
   const isMismatch = status === "mismatch";
   return (
@@ -24,20 +27,20 @@ export function CheckSampleScreen({
             <Text accessibilityRole="header" style={styles.title}>
               {isMismatch ? "Re-write Sample" : "Check Cup"}
             </Text>
-            <CloseButton accessibilityLabel="Close dialog" onPress={onClose} />
+            <CloseButton accessibilityLabel="Close dialog" onPress={onClose} disabled={closeDisabled} />
           </View>
           <Text style={styles.message}>
-            {isMismatch
+            {saveError || (retrySave ? "The cup is verified. Retry saving the sample; no re-write is needed." : isMismatch
               ? "Verification failed. Re-write the same cup, then check again."
-              : "Scan the same cup again to verify its details."}
+              : "Scan the same cup again to verify its details.")}
           </Text>
           <FullPageButton
-            label={isMismatch ? "RE-WRITE SAMPLE TO CUP" : "SCAN & CHECK CUP"}
+            label={retrySave ? "RETRY SAVE" : isMismatch ? "RE-WRITE SAMPLE TO CUP" : "SCAN & CHECK CUP"}
             onPress={isMismatch ? onRewrite : onScanToCheck}
             loading={loading}
             disabled={loading}
-            accessibilityLabel={isMismatch ? "Re-write sample" : "Scan to check cup"}
-            style={styles.scanButton}
+            accessibilityLabel={retrySave ? "Retry save verified sample" : isMismatch ? "Re-write sample" : "Scan to check cup"}
+            style={retrySave ? null : styles.scanButton}
           />
         </View>
       </ScrollView>

@@ -19,20 +19,16 @@ function find(node,predicate) {
   return null;
 }
 async function persistActualAdd(env,id,samples,form=1,status='new') {
-  const handler=find(ast,node=>node.type==='VariableDeclarator'&&node.id?.name==='handleScanCup').init;
-  const block=handler.body.body.find(node=>node.type==='TryStatement').block.body;
-  const start=block.findIndex(node=>node.type==='VariableDeclaration'&&node.declarations[0].id?.name==='saved');
-  assert.ok(start>=0);
-  const body=block.slice(start,start+3).map(node=>generate(node).code).join('\n');
-  const dependencies={sessionUUID:id,sessionForm:{cuppingForm:form},sessionMode:form===2?'open':null,
-    existingSessionId:id,savedSessionIdRef:{current:id},sessionDisplayId:'',sessionDate:'18 Oct 2026',
-    effectiveSessionName:'Creator draft',effectiveSessionType:'Training Session',samplesInSession:samples.length,
-    sessionStatus:status,nextSamples:samples,setupEpoch:1,setupEpochRef:{current:1},
-    savedSetupSnapshotRef:{current:null},savedSetupInputKeyRef:{current:null},
-    formState:{},setupWarningSnapshot:()=>({}),setSessionStatus:value=>{dependencies.ack=value;},
-    saveSessionWithSamples:env.repo.saveSessionWithSamples};
-  await new Function(...Object.keys(dependencies),`return(async()=>{${body}})();`)(...Object.values(dependencies));
-  assert.equal(dependencies.ack,'new','actual Add applies durable Draft acknowledgement');
+  const {harness,constants}=require('./pending-sample-screen-check');
+  const h=harness(env,form,id),candidate=samples.at(-1);
+  h.savedSessionIdRef.current=id;h.sessionStatus=status;h.samples=(await env.repo.getOwnedSessionSetup(id)).samples;
+  h.sheetCoffeeNameOrigin=candidate.coffeeNameOrigin;h.sheetProcess=candidate.process;h.sheetCupNumber=candidate.cupNumber;
+  h.sheetCuppingMode=candidate.cuppingMode;h.tagId=candidate.cupUUID;
+  h.createSample=data=>({...constants.createSample(data),id:candidate.id});
+  await h.run('handleScanCup');
+  assert(h.pendingAdditionRef.current,'write stages without adding');
+  await h.run('handleScanToCheckCup');
+  assert.equal(h.sessionStatus,'new','verified Add applies durable Draft acknowledgement');
 }
 async function main() {
   const handler=find(ast,node=>node.type==='VariableDeclarator'&&node.id?.name==='handleScanCup').init;
@@ -40,6 +36,7 @@ async function main() {
   let release; let applied=0;
   const epoch={current:1}, savedRef={current:'old-session'};
   const preparationDeps={formState:{samples:[]},effectiveSessionName:'Creator draft',effectiveSessionType:'Training Session',
+    pendingAdditionRef:{current:null},
     savedSessionIdRef:savedRef,setupEpoch:1,setupEpochRef:epoch,setSessionStatus:()=>{applied++;},
     saveSessionWithSamples:()=>new Promise(resolve=>{release=resolve;})};
   const pending=new Function(...Object.keys(preparationDeps),`return(async()=>{${generate(preparation).code}})();`)(...Object.values(preparationDeps));

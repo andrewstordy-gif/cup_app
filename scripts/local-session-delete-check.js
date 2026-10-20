@@ -18,6 +18,7 @@ function seedDependents(env,id,sample) {
   const tables=env.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all()
     .map(row=>row.name).filter(name=>env.sqlite.prepare(`PRAGMA table_info(${name})`).all().some(column=>column.name==='session_id'));
   const values={session_id:id,sample_id:sample,local_profile_id:env.actorA,schema_version:1,ever_started:0,ever_completed:0,
+    operation_id:`pending-${id}`,actor_id:env.actorA,cup_uuid:`PENDING-${id}`,format_version:1,phase:'check',
     saved_revision:1,revision:1,cup_count:1,is_complete:0,completed_at:'2026-10-18T12:00:00.000Z',identity_revealed_at:'2026-10-18T12:00:00.000Z'};
   for(const table of tables){
     const columns=env.sqlite.prepare(`PRAGMA table_info(${table})`).all().filter(column=>column.notnull&&column.dflt_value==null||column.pk);

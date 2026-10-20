@@ -70,6 +70,8 @@ function harness({ id = `session-${++counter}`, form = 1, saved = false, quick =
     formState: { sessionUUID: id, sessionName: 'Typed setup name', cuppingForm: form,
       cuppingMode: form === 2 ? 'open' : null, sessionDate: '16 Oct 2026', sessionType: null, samples: [] },
     savedSessionIdRef: ref(saved ? id : null), saveOperationRef: ref(null), setupEpochRef: ref(1),
+    pendingAdditionRef:ref(null),pendingAdditionBusyRef:ref(null),reopenPendingDrawerRef:ref(false),
+    pendingVerifiedQuickStartRef:ref(null),
     completionBusyRef: ref(null),
     participantRemovalRef: ref(null), participantRemovalBusyRef: ref(null), isRemovingParticipantSample: false,
     setupContinuationRef: ref(false), savedSetupSnapshotRef: ref(null), pendingSetupExitRef: ref(null),
@@ -84,6 +86,7 @@ function harness({ id = `session-${++counter}`, form = 1, saved = false, quick =
     setSessionStatus: value => { h.formState = { ...h.formState, status: value }; },
     setIsCompletingSession() {},
     setParticipantRemoval() {}, setIsRemovingParticipantSample() {},
+    setPendingSaveError() {},
     setScanStatusMessage: message => { h.message = message; },
     setSetupExitMessage: message => { h.dialog = message; },
     onSaveSuccess: id => h.navigations.push(id), onBackPress: () => { h.back += 1; },
@@ -100,20 +103,23 @@ function harness({ id = `session-${++counter}`, form = 1, saved = false, quick =
   return h;
 }
 
-// Execute the exact existing post-NFC local persistence/continuation statements.
-// The physical write itself is deliberately not simulated or claimed here.
+// Execute actual staged write/check/commit screen callbacks with mocked radio
+// and real SQLite. The former immediate-membership path is superseded.
 async function persistAddedSamples(h, nextSamples) {
-  const handler = declaration('handleScanCup');
-  const block = handler.body.body.find(node => node.type === 'TryStatement').block.body;
-  const start = block.findIndex(node => node.type === 'VariableDeclaration' && node.declarations[0].id?.name === 'saved');
-  assert.ok(start >= 0);
-  const body = block.slice(start, start + 3).map(node => generate(node).code).join('\n');
-  const dependencies = { ...h.dependencies(), sessionUUID: h.formState.sessionUUID,
-    sessionMode: h.formState.cuppingMode, sessionDisplayId: '', sessionDate: h.formState.sessionDate,
-    effectiveSessionName: h.formState.sessionName, effectiveSessionType: null,
-    samplesInSession: '', sessionStatus: 'new', nextSamples, setupEpoch: h.setupEpochRef.current };
-  await new Function(...Object.keys(dependencies), `return (async () => {${body}})();`)(...Object.values(dependencies));
-  h.formState = { ...h.formState, samples: nextSamples };
+  const {harness:pendingHarness,constants}=require('./pending-sample-screen-check');
+  const candidate=nextSamples.at(-1),p=pendingHarness({repo:repository},h.formState.cuppingForm,h.formState.sessionUUID);
+  p.sessionName=h.formState.sessionName;p.sessionType=h.formState.sessionType;p.sessionDate=h.formState.sessionDate;
+  p.sessionStatus=h.formState.status;p.savedSessionIdRef.current=h.savedSessionIdRef.current;
+  p.samples=h.formState.samples;p.sheetCoffeeNameOrigin=candidate.coffeeNameOrigin;p.sheetProcess=candidate.process;
+  p.sheetCupNumber=candidate.cupNumber;p.sheetCuppingMode=candidate.cuppingMode;p.tagId=candidate.cupUUID;
+  p.sessionForm=h.sessionForm;p.setupWarningSnapshot=setupWarningSnapshot;
+  p.createSample=data=>({...constants.createSample(data),id:candidate.id});
+  await p.run('handleScanCup');assert(p.pendingAdditionRef.current,'write stages candidate');
+  assert.equal((await repository.getSessionById(h.formState.sessionUUID)).samples.length,h.formState.samples.length,'write alone adds no membership');
+  await p.run('handleScanToCheckCup');assert.equal(p.pendingAdditionRef.current,null,'verified final commit consumes journal');
+  h.formState = { ...h.formState, status:p.sessionStatus, samples: p.samples };
+  h.savedSetupSnapshotRef.current=p.savedSetupSnapshotRef.current;
+  h.savedSetupInputKeyRef.current=JSON.stringify(h.formState);
   h.dirty = true;
 }
 function sample(index, mode = 'blind') {
