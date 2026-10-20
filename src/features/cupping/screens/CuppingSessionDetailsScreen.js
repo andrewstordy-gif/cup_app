@@ -29,6 +29,7 @@ import { CheckSampleScreen } from "../components/CheckSampleScreen";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
 import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
 import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
+import { SessionTitleSummary } from "../components/SessionTitleSummary";
 import { canShowSavedSessionIdentity, projectSavedSessionIdentity } from "./savedSessionIdentity";
 import {
   buildCompactSessionMetadata,
@@ -1434,6 +1435,7 @@ export function CuppingSessionDetailsScreen({
   const showScanFooter = sessionStatusBadgeLabel === "Pending" && !isSessionDirty;
   const showInProgressFooter = canCompleteSession;
   const footerDisabled = isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample;
+  const showCompactSessionTitle = ["Pending", "In Progress", "Complete"].includes(sessionStatusBadgeLabel);
 
   return (
     <View style={styles.screen}>
@@ -1446,6 +1448,23 @@ export function CuppingSessionDetailsScreen({
       />
 
       <ScreenContainer>
+        {showCompactSessionTitle ? (
+          <>
+            <SessionTitleSummary
+              name={sessionId ? visibleIdentity.sessionName : sessionName}
+              sessionType={sessionId ? visibleIdentity.sessionType : getSessionTypeLabel(sessionType)}
+              formLabel={isSessionFormLoading ? "Checking saved session form…" : isSessionFormSupported ? getCuppingFormLabel(selectedForm) : "Older or unsupported prototype form"}
+              dateLabel={sessionId ? visibleIdentity.sessionDate : sessionDate}
+              sessionCode={hideSavedIdentity ? "Session code unavailable" : sessionDisplayId}
+              status={sessionStatusBadgeLabel.toUpperCase()}
+            />
+            {isSessionFormLoading || !isSessionFormSupported ? (
+              <Text style={styles.metaValueMuted}>
+                {isSessionFormLoading ? "Tasting actions are unavailable until the session form is checked." : UNSUPPORTED_MESSAGE}
+              </Text>
+            ) : null}
+          </>
+        ) : (
         <View style={[styles.metaList, { gap: 14 * scale }]}>
           <View style={[styles.metaRow, { paddingBottom: 14 * scale }]}>
             <Text style={styles.metaLabel}>Session Name</Text>
@@ -1517,9 +1536,10 @@ export function CuppingSessionDetailsScreen({
             <SessionStatusBadge status={sessionStatusBadgeLabel} />
           </View>
         </View>
+        )}
 
         <View style={styles.samplesSection}>
-          <View style={[styles.samplesHeader, { marginTop: 32 * scale }]}>
+          <View style={[styles.samplesHeader, { marginTop: showCompactSessionTitle ? spacing.md : 32 * scale }]}>
             <Text style={styles.samplesHeading}>SAMPLES</Text>
           </View>
 

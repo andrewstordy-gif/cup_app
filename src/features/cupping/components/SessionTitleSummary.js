@@ -9,7 +9,7 @@ import { typography } from '../../../theme/typography';
 const SUMMARY_STATES = ['PENDING', 'IN PROGRESS', 'COMPLETE'];
 
 // Display-only: callers supply already-approved presentation strings.
-// Deliberately not imported by Session Details or app navigation during U1.
+// No state, actions, storage or navigation are owned by this component.
 export function SessionTitleSummary({
   name,
   sessionType,
