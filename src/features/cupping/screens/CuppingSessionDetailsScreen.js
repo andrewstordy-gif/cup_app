@@ -1639,8 +1639,8 @@ export function CuppingSessionDetailsScreen({
 
       <Modal
         visible={Boolean(checkingSampleId)}
-        animationType="slide"
-        presentationStyle="fullScreen"
+        transparent
+        animationType="fade"
         onRequestClose={handleCloseCheckSample}
       >
         <CheckSampleScreen
