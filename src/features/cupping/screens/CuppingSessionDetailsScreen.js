@@ -843,7 +843,7 @@ export function CuppingSessionDetailsScreen({
     if (!validateAddSheet()) {
       return;
     }
-    if (pendingAdditionRef.current && pendingAdditionRef.current.writeCompleted !== false && pendingFieldsUnchanged(pendingAdditionRef.current)) {
+    if (pendingAdditionRef.current?.phase === 'verified' && pendingFieldsUnchanged(pendingAdditionRef.current)) {
       if (isQuickStartSession && samples.length === 0 && typeof onQuickStartSampleReady === 'function') {
         pendingQuickStartReadyRef.current = { sessionId: sessionUUID, sample: pendingAdditionRef.current.candidate };
       }

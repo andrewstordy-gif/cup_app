@@ -67,17 +67,22 @@ async function main(){
     const dismiss=modal.attributes.find(a=>a.name?.name==='onDismiss').value.expression;
     const dep=h.dependencies();new Function(...Object.keys(dep),`return (${generate(dismiss).code});`)(...Object.values(dep))();
     assert.equal(h.isAddSheetVisible,true);h.platformOS='android';assert.equal(h.sheetCoffeeNameOrigin,'Test coffee');assert.equal(h.checkingSampleId,null);
-    await h.run('handleScanCup');assert.equal(h.writes.length,1,'unchanged retained drawer resumes check without rewrite');
+    await h.run('handleScanCup');assert.equal(h.writes.length,2,'explicit drawer retry writes again even when details are unchanged');
+    assert.equal(h.pendingAdditionRef.current.candidate.id,candidateId);assert.equal(h.samples.length,0);
     h.physicalPayload={...h.physicalPayload,n:'Mismatch'};
     await h.run('handleScanToCheckCup');assert.equal(h.checkSampleStatus,'mismatch');assert.equal(h.samples.length,0);
     h.run('handleCloseCheckSample');assert.equal(h.isAddSheetVisible,true);assert.equal(h.sheetProcess,'1');
-    await h.run('handleScanCup');await h.run('handleScanToCheckCup');assert.equal(h.checkSampleStatus,'mismatch');
-    await h.run('handleRewriteFromCheckScreen');assert.equal(h.checkSampleStatus,'pending');assert.equal(h.samples.length,0);assert.equal(h.writes.length,2);
+    h.sheetCoffeeNameOrigin='Edited coffee';
+    await h.run('handleScanCup');assert.equal(h.writes.length,3);assert.equal(h.physicalPayload.n,'Edited coffee');
+    assert.equal(h.samples.length,0);assert.equal((await env.repo.getOwnedSessionSetup(h.sessionUUID)).samples.length,0);
+    h.physicalPayload={...h.physicalPayload,n:'Mismatch'};
+    await h.run('handleScanToCheckCup');assert.equal(h.checkSampleStatus,'mismatch');
+    await h.run('handleRewriteFromCheckScreen');assert.equal(h.checkSampleStatus,'pending');assert.equal(h.samples.length,0);assert.equal(h.writes.length,4);
     env.failAt('INSERT INTO samples');await h.run('handleScanToCheckCup');env.failAt(null);
     assert.equal(h.samples.length,0);assert(h.pendingSaveError.includes('no re-write'));assert.equal(h.checkSampleStatus,'pending');
     assert.equal(h.pendingAdditionRef.current.phase,'verified');const reads=h.reads;
     await h.run('handleScanToCheckCup');assert.equal(h.reads,reads,'verified commit retry needs no further NFC read');
-    assert.equal(h.samples.length,1);assert.equal(h.samples[0].id,candidateId);assert.equal(h.checkingSampleId,null);
+    assert.equal(h.samples.length,1);assert.equal(h.samples[0].id,candidateId);assert.equal(h.samples[0].coffeeNameOrigin,'Edited coffee');assert.equal(h.checkingSampleId,null);
     await h.run('handleScanToCheckCup');assert.equal(h.samples.length,1);
     // Every subsequent addition stages a distinct sample and requires a check.
     h.run('handleOpenAddSheet');h.sheetCoffeeNameOrigin='Second coffee';h.sheetProcess='2';h.tagId='SECOND-TAG';
@@ -86,8 +91,10 @@ async function main(){
     const saved=await env.repo.getPendingSampleAddition(h.sessionUUID);
     const reopened=harness(env,form,h.sessionUUID);reopened.samples=h.samples;reopened.savedSessionIdRef.current=h.sessionUUID;reopened.sessionId=h.sessionUUID;
     reopened.pendingAdditionRef.current=saved;reopened.run('restorePendingAdditionFields',saved);reopened.isAddSheetVisible=false;
+    reopened.tagId=saved.candidate.cupUUID;
     reopened.run('handleOpenAddSheet');assert.equal(reopened.sheetCoffeeNameOrigin,'Second coffee');
-    await reopened.run('handleScanCup');assert.equal(reopened.writes.length,0,'reopen does not automatically write');
+    assert.equal(reopened.writes.length,0,'opening retained drawer does not automatically write');
+    await reopened.run('handleScanCup');assert.equal(reopened.writes.length,1,'explicit press after reopen writes before Check Cup');
     // A late successful read from an old screen cannot add a sample.
     reopened.physicalPayload=saved.payload;reopened.tagId=saved.candidate.cupUUID;
     let release;reopened.readWait=new Promise(resolve=>release=resolve);
