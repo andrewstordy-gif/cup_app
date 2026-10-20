@@ -3,7 +3,7 @@ import { BackHandler, Modal, Pressable, StyleSheet, TextInput, useWindowDimensio
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
 import { ScreenContainer } from "../../../components/layout/ScreenContainer";
-import { ScreenFooter } from "../../../components/ui/ScreenFooter";
+import { ScreenFooter, ScreenFooterDual } from "../../../components/ui/ScreenFooter";
 import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { AppIcon } from "../../../components/ui/AppIcon";
 import { WarningDialog } from "../../../components/ui/WarningDialog";
@@ -1614,6 +1614,18 @@ export function CuppingSessionDetailsScreen({
           disabled={footerDisabled || !isSessionFormSupported || typeof onScanCupForAssessment !== "function"}
           accessibilityLabel="Scan cup for assessment"
           buttonStyle={styles.scanFooterButton}
+        />
+      ) : sessionStatusBadgeLabel === "Draft" ? (
+        <ScreenFooterDual
+          primaryLabel="SAVE"
+          onPrimaryPress={handleSave}
+          primaryLoading={isSaving}
+          primaryDisabled={footerDisabled || !isSessionFormSupported}
+          primaryAccessibilityLabel="Save cupping session details"
+          secondaryLabel="LOCK SESSION"
+          secondaryDisabled
+          secondaryStyle={{ backgroundColor: colors.muted }}
+          secondaryTextStyle={{}}
         />
       ) : (
         <ScreenFooter
