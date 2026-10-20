@@ -467,10 +467,6 @@ Pressed states should be subtle:
 
 ## Implementation Guidance
 
-### U1 compact session title review — 20 October 2026
-
-Product Owner-approved read-only summary for PENDING, IN PROGRESS and COMPLETE (PRODUCT_SPEC6.9 on R1-079). In the isolated U1 component, use the screen-title token at weight600 for session name; secondary-body token at normal weight400 for type/form; caption token at normal weight400, no uppercase/letter spacing, for date/code; reuse SessionStatusBadge unchanged. These are component-local role overrides, not global token changes. Use existing spacing tokens, a quiet divider and natural wrapping. No disabled fields, dropdown arrows, setup-only helper or bold form name. DRAFT retains its original input layout. Upload icons/controls are a separate slice; U1 may display a supplied plain status label only.
-
 When adding or modifying a screen:
 
 1. Start with the Home and Cupping screens as references.

@@ -56,15 +56,11 @@ const styles = StyleSheet.create({
   },
   name: {
     ...typography.text_screen_title,
-    color: colors.ink,
-    fontWeight: '600',
     flexShrink: 1,
   },
   description: { gap: spacing.xs },
   detail: {
     ...typography.text_secondary_body,
-    color: colors.ink,
-    fontWeight: '400',
   },
   metadata: {
     flexDirection: 'row',
@@ -75,15 +71,10 @@ const styles = StyleSheet.create({
   },
   metadataText: {
     ...typography.text_caption,
-    color: colors.inkSoft,
-    fontWeight: '400',
-    textTransform: 'none',
-    letterSpacing: 0,
     flexShrink: 1,
   },
   uploadStatus: {
     ...typography.text_secondary_body,
-    fontWeight: '400',
     marginTop: spacing.xs,
   },
 });
