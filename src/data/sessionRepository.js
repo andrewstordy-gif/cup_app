@@ -967,7 +967,9 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   // NULL here is not the same as malformed non-null or conflicting assigned mode.
   const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked);
   const canManageSetup = Boolean(activePin && supported && setupModeValid && isLocalCreator && !state.started && raw.status !== 'complete');
-  const show = Boolean(supported && validMode && (open || state.revealed || purpose === 'setup' && canManageSetup));
+  const emptyCvaDraftSetup = purpose === 'setup' && canManageSetup && raw.status === 'new' &&
+    !samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked;
+  const show = Boolean(supported && (validMode && (open || state.revealed || purpose === 'setup' && canManageSetup) || emptyCvaDraftSetup));
   const localRemoval = {};
   if (activePin && validMode && validActor(actor) && creator?.creator === null) {
     for (const sample of samples) localRemoval[sample.id] = await participantRemovalContextWithDb(db, sessionId, sample.id, actor);
