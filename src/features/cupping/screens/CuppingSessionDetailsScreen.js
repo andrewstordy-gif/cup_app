@@ -936,9 +936,9 @@ export function CuppingSessionDetailsScreen({
         );
         if (duplicateIndex !== -1) throw new Error('This cup already has a sample in this session. Use another cup.');
         const sampleNumber = duplicateIndex === -1 ? samples.length + 1 : duplicateIndex + 1;
-        const sessionSampleCount = normalizePositiveInteger(
-          samplesInSession,
-          Math.max(samples.length, sampleNumber)
+        const sessionSampleCount = Math.max(
+          normalizePositiveInteger(samplesInSession, 0),
+          samples.length + 1
         );
         const isNtagCup =
           !isSmartCupHardware &&
@@ -1003,7 +1003,7 @@ export function CuppingSessionDetailsScreen({
           saveInput: { sessionUUID, existingSessionId: savedSessionIdRef.current,
             cuppingForm: sessionForm?.cuppingForm ?? sessionForm?.f, cuppingMode: sessionMode,
             sessionDisplayId, sessionDate, sessionName: effectiveSessionName, sessionType: effectiveSessionType,
-            samplesInSession, status: sessionStatus, samples: nextSamples, intent: 'setup' },
+            samplesInSession: sessionSampleCount, status: sessionStatus, samples: nextSamples, intent: 'setup' },
         });
         sessionMetadata = pending.payload;
         nextSamples = pending.saveInput.samples;
