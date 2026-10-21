@@ -7,6 +7,7 @@ import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 
 export function assessmentSampleNumber(sampleNumber, cupIndex) {
+  if (typeof sampleNumber === 'string' && sampleNumber.length === 2 && /^[A-Z0-9]{2}$/.test(sampleNumber)) return sampleNumber;
   const explicit = Number.parseInt(sampleNumber, 10);
   if (Number.isInteger(explicit) && explicit > 0) return explicit;
   const index = Number.parseInt(cupIndex, 10);
@@ -21,12 +22,12 @@ export function measuredTemperatureLabel(value) {
   return Number.isFinite(temperature) ? `${Math.round(temperature)} °C` : null;
 }
 
-export function AssessmentHeader({ sampleNumber, cupIndex, temperature, onBackPress, hideBack = false, scale = 1 }) {
+export function AssessmentHeader({ sampleNumber, sampleCode, cupIndex, temperature, onBackPress, hideBack = false, scale = 1 }) {
   const temperatureLabel = measuredTemperatureLabel(temperature);
   return <Header variant="back" onBackPress={onBackPress} backAccessibilityLabel="Back to session"
     hideBack={hideBack} sideWidth={112}
-    titleContent={<Text style={styles.sampleNumber} accessibilityLabel={`Sample ${assessmentSampleNumber(sampleNumber, cupIndex)}`}>
-      {assessmentSampleNumber(sampleNumber, cupIndex)}
+    titleContent={<Text style={styles.sampleNumber} accessibilityLabel={`Sample ${sampleCode || assessmentSampleNumber(sampleNumber, cupIndex)}`}>
+      {sampleCode || assessmentSampleNumber(sampleNumber, cupIndex)}
     </Text>}
     rightContent={<View accessible style={[styles.temperatureRow, { gap: spacing.xs * scale }]}
       accessibilityLabel={temperatureLabel ? `Measured temperature ${temperatureLabel}` : 'Temperature unavailable'}>

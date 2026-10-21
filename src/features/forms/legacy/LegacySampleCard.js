@@ -9,7 +9,7 @@ import { typography } from '../../../theme/typography';
 // Legacy results have seven quality marks and three cup-wise checks, so the
 // CVA eight-box summary is deliberately not reused here.
 export function LegacySampleCard({ sample, index, status, scale = 1, onPress, onRemove, canRemove = false, showRemove = false }) {
-  const number = sample.sampleNumber || index + 1;
+  const number = sample.sampleCode || sample.sampleNumber || index + 1;
   const finalScore = status?.finalScore;
   const state = finalScore ? `Final score ${finalScore}` : status?.hasAnyFeedback ? 'Draft saved' : 'Not assessed';
   const name = sample.coffeeNameOrigin || 'Unnamed sample';

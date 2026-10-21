@@ -435,6 +435,7 @@ export function AppNavigator() {
           cupIndex: activeSample.cupIndex,
           cupTotal: activeSample.cupTotal,
           sampleNumber: activeSample.sampleNumber,
+          sampleCode: activeSample.sampleCode,
           cuppingMode: activeSample.cuppingMode || "blind",
           coffeeNameOrigin: activeSample.coffeeNameOrigin || "",
           process: activeSample.coffeeProcess || "",
@@ -494,7 +495,7 @@ export function AppNavigator() {
         throw new Error("Cup state is not ready for cupping assessment.");
       }
 
-      const cupUUID = resolveCupUuid(parsed);
+      const cupUUID = normalizeCupUuid(getNfcTagIdentifier(readResult?.tag));
       if (!cupUUID) {
         addFlowEvent(flowEvents, "UUID_MISSING");
         throw new Error("Could not read cup UUID from NDEF Text 2.");
@@ -562,6 +563,7 @@ export function AppNavigator() {
         cupIndex: activeSample.cupIndex,
         cupTotal: activeSample.cupTotal,
         sampleNumber: activeSample.sampleNumber,
+        sampleCode: activeSample.sampleCode,
         cuppingMode: activeSample.cuppingMode || "blind",
         coffeeNameOrigin: activeSample.coffeeNameOrigin || "",
         process: activeSample.coffeeProcess || "",
@@ -832,6 +834,7 @@ export function AppNavigator() {
       cupIndex: index,
       cupTotal: total,
       sampleNumber: Number(sample.sampleNumber) || index + 1,
+      sampleCode: sample.sampleCode,
       cuppingMode: sample.cuppingMode || "blind",
       coffeeNameOrigin: sample.coffeeNameOrigin || "",
       process: sample.process || "",
@@ -929,7 +932,7 @@ export function AppNavigator() {
           sampleId={selectedCupContext.sampleId} cupCount={selectedCupContext.defectsCupTotal}
           coffeeNameOrigin={selectedCupContext.coffeeNameOrigin}
           process={selectedCupContext.process} cuppingMode={selectedCupContext.cuppingMode}
-          sampleNumber={selectedCupContext.sampleNumber} cupIndex={selectedCupContext.cupIndex}
+          sampleNumber={selectedCupContext.sampleNumber} sampleCode={selectedCupContext.sampleCode} cupIndex={selectedCupContext.cupIndex}
           cupStatus={selectedCupContext.cupStatus} onScanPress={handleScanNextCupFromCupping}
           onBackPress={() => { setSelectedSessionId(selectedCupContext.sessionId); setRoute(cuppingReturnRoute); }} />
       );
@@ -948,6 +951,7 @@ export function AppNavigator() {
           cupIndex={selectedCupContext?.cupIndex}
           cupTotal={selectedCupContext?.cupTotal}
           sampleNumber={selectedCupContext?.sampleNumber}
+          sampleCode={selectedCupContext?.sampleCode}
           cuppingMode={selectedCupContext?.cuppingMode}
           coffeeNameOrigin={selectedCupContext?.coffeeNameOrigin}
           process={selectedCupContext?.process}

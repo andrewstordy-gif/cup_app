@@ -1,5 +1,43 @@
 # CUP App — Current NDEF Message Format
 
+## R1-103 isolated phone-test profile (21 October 2026)
+
+**Experimental branch only; not a production protocol rollout.** The separate
+R1-103 database/client uses the approved two-character sample-code contract:
+`z` is a required string matching `^[A-Z0-9]{2}$` (including `00`), `u` is the
+unchanged 14-character lowercase session reference, and `y` remains physical
+cup count 1–8. Shared identity is `(u,z)`, never the physical UID or local order.
+The numeric examples below document the unchanged original profile; this test
+client rejects numeric/malformed assignments rather than converting them.
+
+NTAG writes one English UTF-8 Text record; Smart Cup writes four ordered Text
+records: `{s:1}`, `{}`, the validated preserved compact settings (including
+optional `k`), and full compact metadata. Unknown fields, duplicate JSON keys,
+unsupported form/mode, malformed UTF-8 or CUP-shaped assignments fail closed.
+No repair, formatting or automatic tag clearing is added. Native supported-tag
+capacity and writable status are queried before dispatch; unavailable capacity
+fails without a write. Secure code reservation and immutable intent precede
+dispatch. Transport retries reuse frozen encoded bytes; explicit new writes
+and re-writes reserve fresh codes.
+
+The pending record retains exact emitted metadata JSON/UTF-8 bytes, canonical
+semantic SHA-256, physical hardware UID, kind and Smart Cup settings. Text
+record encoding is deterministic; telemetry is not replayed. Separate Check Cup
+compares hardware UID (not mutable NDEF2 telemetry UUID), kind/settings, READY
+state and all typed metadata including optional `i` presence/value. Only a
+current matching check plus atomic commit adds a creator member. Closing a
+dialog retains editable details; a retry may use another fresh/allowed cup.
+Verification and save-only recovery allocate no new code. Spent codes survive
+failed/superseded attempts and sample removal while that session exists.
+
+Test storage/profile/error logs are separately namespaced; there is no old-data
+migration or working-client change. Issuance from an imported/restored session
+without its complete local issuer ledger is denied. This does not decide a
+production whole-session tombstone/retention policy, transfer or clone recovery.
+Only new/fresh or manually cleared test tags should be used with this client;
+do not scan its string-code assignments with the old numeric client. Physical
+NFC/firmware conformance remains unverified until actual phone acceptance.
+
 > `docs/PRODUCT_SPEC.md` is the highest authority for product behaviour. This file is the normative application-side specification for the CUP NDEF protocol only where it does not conflict with the Product Specification. Protocol changes must update this document and the corresponding implementation/tests in the same change.
 
 Implementation-facing protocol note for agents working on the CUP app NFC integration.

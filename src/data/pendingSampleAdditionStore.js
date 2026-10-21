@@ -1,5 +1,6 @@
 // Transaction helpers only. No radio, UI, profile creation or database opening.
 const { canonicalize, sha256 } = require('../features/forms/contract/canonical');
+const { validCode, validateMetadata, validateSettings, wireProof } = require('./sampleCodeProfile');
 
 const PENDING_SAMPLE_SCHEMA = `CREATE TABLE IF NOT EXISTS local_pending_sample_additions (
   session_id TEXT PRIMARY KEY NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
@@ -17,7 +18,7 @@ const normalize = sql => String(sql).replace(/IF NOT EXISTS /gi,'').replace(/\s+
 // Native/test SQLite adapters may return null-prototype row objects.
 const setupFingerprint = setup => sha256(canonicalize(JSON.parse(JSON.stringify(setup))));
 const pendingSampleFields = sample => Object.fromEntries(
-  ['id','cupUUID','cupNumber','cuppingForm','cuppingMode','sampleNumber','coffeeNameOrigin','process'].map(key=>[key,sample[key]]));
+  ['id','cupUUID','cupNumber','cuppingForm','cuppingMode','sampleNumber','sampleCode','coffeeNameOrigin','process'].map(key=>[key,sample[key]]));
 function pendingSaveInput(input) {
   return { sessionUUID:input.sessionUUID, existingSessionId:input.existingSessionId,
     cuppingForm:input.cuppingForm,cuppingMode:input.cuppingMode ?? null,
@@ -48,20 +49,25 @@ function decodePending(row, actor, setup) {
       content.saveInput.sessionUUID !== row.session_id || content.saveInput.existingSessionId !== row.session_id ||
       content.candidate.cupUUID !== row.cup_uuid || typeof content.candidate.id !== 'string' || !content.candidate.id ||
       !Array.isArray(content.saveInput.samples) || content.saveInput.samples.filter(s=>s.id===content.candidate.id).length!==1) fail();
+  validateMetadata(content.payload);
+  const proof=wireProof(content.payload);
+  if(proof.wireMetadataJson!==content.wireMetadataJson||proof.semanticHash!==content.semanticHash||canonicalize(proof.wireMetadataBytes)!==canonicalize(content.wireMetadataBytes))fail();
+  if(!validCode(content.candidate.sampleCode)||content.candidate.sampleCode!==content.payload.z||!['smart','ntag'].includes(content.tagContext?.kind))fail();
+  if(content.tagContext.kind==='smart')validateSettings(content.tagContext.settings);
   if (canonicalize(pendingSaveInput(content.saveInput))!==canonicalize(content.saveInput) ||
       canonicalize(pendingSampleFields(content.candidate))!==canonicalize(content.candidate) ||
       canonicalize(content.saveInput.samples.find(s=>s.id===content.candidate.id))!==canonicalize(content.candidate)) fail();
   return { ...content, sessionId: row.session_id, operationId: row.operation_id, phase: row.phase };
 }
 
-async function stagePendingWithDb(db, {sessionId, actor, setup, operationId, expectedOperationId, candidate, saveInput, payload}) {
+async function stagePendingWithDb(db, {sessionId, actor, setup, operationId, expectedOperationId, candidate, saveInput, payload, tagContext}) {
   const previous=await pendingRowWithDb(db,sessionId);
   if ((previous?.operation_id ?? null)!==(expectedOperationId ?? null)) fail();
   if(previous) {
     decodePending(previous,actor,setup);
-    if(previous.cup_uuid!==candidate.cupUUID || JSON.parse(previous.content_json).candidate.id!==candidate.id) fail();
+    if(previous.phase==='verified') fail();
   }
-  const json=canonicalize({candidate,saveInput,payload,writeCompleted:false});
+  const json=canonicalize({candidate,saveInput,payload,tagContext,...wireProof(payload),writeCompleted:false});
   if(json.length>262144)throw new Error('Pending sample details are too large. No cup was written.');
   await db.runAsync(`INSERT INTO local_pending_sample_additions
     (session_id,operation_id,actor_id,cup_uuid,format_version,phase,base_hash,content_json,content_hash)

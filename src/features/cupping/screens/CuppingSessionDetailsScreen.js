@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { tagContext as readCodeTagContext, canonicalize } from '../../../data/sampleCodeProfile';
 import { BackHandler, Modal, Platform, Pressable, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
@@ -248,6 +249,7 @@ export function CuppingSessionDetailsScreen({
   const pendingVerifiedQuickStartRef = useRef(null);
   const pendingCheckSampleOverridesRef = useRef({});
   const pendingAdditionRef = useRef(null);
+  const verifiedObservationRef = useRef(null);
   const pendingAdditionBusyRef = useRef(null);
   const reopenPendingDrawerRef = useRef(false);
   const [pendingSaveError, setPendingSaveError] = useState("");
@@ -448,6 +450,7 @@ export function CuppingSessionDetailsScreen({
                 cupNumber: sample.cupNumber,
                 cuppingForm: sample.cuppingForm,
                 sampleNumber: sample.sampleNumber,
+                sampleCode: sample.sampleCode,
                 verificationStatus: sample.verificationStatus,
               }),
               cuppingMode: normalizeCuppingModeKey(sample.cuppingMode),
@@ -824,6 +827,12 @@ export function CuppingSessionDetailsScreen({
     setCheckSampleStatus("pending");
   };
 
+  const assertPendingCodeDispatch = async (operationId,epoch) => {
+    if(epoch!==setupEpochRef.current||pendingAdditionBusyRef.current?.cancelled)throw new Error('Session setup changed. No cup was written.');
+    const current=await getPendingSampleAddition(savedSessionIdRef.current);
+    if(epoch!==setupEpochRef.current||pendingAdditionBusyRef.current?.cancelled||current?.operationId!==operationId||current.phase!=='check')throw new Error('Pending sample changed. No cup was written.');
+  };
+
   const handleScanCup = async () => {
     const setupEpoch = setupEpochRef.current;
     if (pendingAdditionBusyRef.current || saveOperationRef.current) return;
@@ -891,6 +900,7 @@ export function CuppingSessionDetailsScreen({
           isSmartCupHardware &&
           tagClassification.type !== NFC_TAG_TYPES.SMART_CUP &&
           canRepairSmartCupNdefShape(tagClassification);
+        if (isRepairableSmartCup) throw new Error('Incomplete Smart Cup records are not supported by this test. No cup was written.');
         if (isSmartCupHardware && tagClassification.type !== NFC_TAG_TYPES.SMART_CUP && !isRepairableSmartCup) {
           throw new Error("Smart cup records could not be read. Please retry and hold the phone still.");
         }
@@ -901,7 +911,7 @@ export function CuppingSessionDetailsScreen({
             tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
         const detectedCupUUID =
           tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-            ? resolveCupUUIDFromReadResult({ parsed, tag })
+            ? getNfcTagIdentifier(tag)
             : isRepairableSmartCup
               ? getNfcTagIdentifier(tag)
             : canUseNtagIdentifier
@@ -912,9 +922,6 @@ export function CuppingSessionDetailsScreen({
         }
 
         const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
-        if (pendingAdditionRef.current && pendingAdditionRef.current.candidate.cupUUID !== normalizedDetectedCupUUID) {
-          throw new Error('Scan the same cup for this unfinished sample. No cup was written.');
-        }
         const conflictingSession = await findPendingSessionByCupUUID({
           cupUUID: normalizedDetectedCupUUID,
           excludeSessionId: sessionUUID,
@@ -927,6 +934,7 @@ export function CuppingSessionDetailsScreen({
         const duplicateIndex = samples.findIndex(
           (sample) => normalizeCupUuid(sample.cupUUID) === normalizedDetectedCupUUID
         );
+        if (duplicateIndex !== -1) throw new Error('This cup already has a sample in this session. Use another cup.');
         const sampleNumber = duplicateIndex === -1 ? samples.length + 1 : duplicateIndex + 1;
         const sessionSampleCount = normalizePositiveInteger(
           samplesInSession,
@@ -937,7 +945,7 @@ export function CuppingSessionDetailsScreen({
           (tagClassification.type === NFC_TAG_TYPES.NTAG_CUP ||
             tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
             tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
-        const sessionMetadata = buildCompactSessionMetadata({
+        let sessionMetadata = buildCompactSessionMetadata({
           coffeeNameOrigin: sheetCoffeeNameOrigin.trim(),
           process: normalizeProcessKey(sheetProcess),
           cupNumber: sheetCupNumber,
@@ -950,7 +958,7 @@ export function CuppingSessionDetailsScreen({
           sessionDate,
           sessionUUID,
         });
-        const nextSamples =
+        let nextSamples =
           duplicateIndex === -1
             ? [
                 ...samples,
@@ -986,6 +994,8 @@ export function CuppingSessionDetailsScreen({
 
         const candidate = duplicateIndex === -1 ? nextSamples[nextSamples.length - 1] : nextSamples[duplicateIndex];
         const pending = await stagePendingSampleAddition({
+          tagContext: readCodeTagContext(result),
+          observedMetadata: tagClassification.metadataPayload,
           sessionId: savedSessionIdRef.current,
           expectedOperationId: pendingAdditionRef.current?.operationId ?? null,
           candidate,
@@ -995,10 +1005,13 @@ export function CuppingSessionDetailsScreen({
             sessionDisplayId, sessionDate, sessionName: effectiveSessionName, sessionType: effectiveSessionType,
             samplesInSession, status: sessionStatus, samples: nextSamples, intent: 'setup' },
         });
+        sessionMetadata = pending.payload;
+        nextSamples = pending.saveInput.samples;
         if (setupEpoch === setupEpochRef.current) pendingAdditionRef.current = pending;
         if (setupEpoch !== setupEpochRef.current || additionOperation.cancelled) throw new Error('Session setup changed. No cup was written.');
         return {
           metadataOnly: isNtagCup,
+          beforeWrite: () => assertPendingCodeDispatch(pending.operationId,setupEpoch),
           records: isNtagCup
             ? { text4: sessionMetadata }
             : {
@@ -1007,7 +1020,7 @@ export function CuppingSessionDetailsScreen({
                   state: 1,
                 },
                 text2: {},
-                text3: {},
+                text3: tagClassification.type === NFC_TAG_TYPES.SMART_CUP ? parsed?.text3 : RECOVERED_SMART_CUP_TEXT3,
                 text4: sessionMetadata,
               },
           result: {
@@ -1098,6 +1111,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleVerifySample = async (sampleId) => {
+    verifiedObservationRef.current=null;
     const pending = pendingAdditionRef.current?.candidate.id === sampleId ? pendingAdditionRef.current : null;
     const sample = pending?.candidate || samples.find((entry) => entry.id === sampleId);
     if (!sample) {
@@ -1130,7 +1144,7 @@ export function CuppingSessionDetailsScreen({
           tagClassification.type === NFC_TAG_TYPES.GENERIC_NDEF_TAG ||
           tagClassification.type === NFC_TAG_TYPES.EMPTY_TAG);
       const detectedCupUUID = normalizeCupUuid(
-        isNtagCup || isRepairableSmartCup ? getNfcTagIdentifier(tag) : resolveCupUUIDFromReadResult({ parsed, tag })
+        getNfcTagIdentifier(tag)
       );
       const expectedCupUUID = normalizeCupUuid(sample.cupUUID);
 
@@ -1164,7 +1178,8 @@ export function CuppingSessionDetailsScreen({
         tagClassification.metadataPayload ||
         (parsed?.raw?.text4 ? JSON.parse(parsed.raw.text4) : parsed?.text4);
 
-      if (doesMetadataMatchExpected(actualMetadata, expectedMetadata)) {
+      const sameTagContext = !pending || canonicalize(readCodeTagContext(result)) === canonicalize(pending.tagContext);
+      if (sameTagContext && doesMetadataMatchExpected(actualMetadata, expectedMetadata)) {
         const cupState = parsed?.text1?.s ?? parsed?.text1?.state;
         if (!isNtagCup && cupState !== 1) {
           setSampleVerificationStatus(sampleId, "pending");
@@ -1174,6 +1189,7 @@ export function CuppingSessionDetailsScreen({
           return false;
         } else {
           if (!pending) setSampleVerificationStatus(sampleId, "verified");
+          if (pending) verifiedObservationRef.current={operationId:pending.operationId,payload:actualMetadata,physicalUID:detectedCupUUID,tagContext:readCodeTagContext(result)};
           setScanStatusMessage(`Cup ${expectedCupUUID} verified successfully.`);
           const { [sampleId]: _verifiedOverride, ...remainingOverrides } = pendingCheckSampleOverridesRef.current;
           pendingCheckSampleOverridesRef.current = remainingOverrides;
@@ -1231,7 +1247,7 @@ export function CuppingSessionDetailsScreen({
       samplesInSession,
       Math.max(samples.length, expectedSampleNumber)
     );
-    const expectedMetadata = pending?.payload || buildCompactSessionMetadata({
+    let expectedMetadata = pending?.payload || buildCompactSessionMetadata({
       coffeeNameOrigin: sampleForMetadata.coffeeNameOrigin,
       process: sampleForMetadata.process,
       cupNumber: sampleForMetadata.cupNumber,
@@ -1264,6 +1280,7 @@ export function CuppingSessionDetailsScreen({
           isSmartCupHardware &&
           tagClassification.type !== NFC_TAG_TYPES.SMART_CUP &&
           canRepairSmartCupNdefShape(tagClassification);
+        if (isRepairableSmartCup) throw new Error('Incomplete Smart Cup records are not supported by this test. No cup was written.');
         if (isSmartCupHardware && tagClassification.type !== NFC_TAG_TYPES.SMART_CUP && !isRepairableSmartCup) {
           throw new Error("Smart cup records could not be read. Please retry and hold the phone still.");
         }
@@ -1278,28 +1295,37 @@ export function CuppingSessionDetailsScreen({
           if (!detectedTagId || detectedTagId !== expectedCupUUID) {
             throw new Error(`Scanned cup ${detectedTagId || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
           }
+          if (!pending) throw new Error('Editing a committed code assignment is not enabled in this test.');
+          const staged = await stagePendingSampleAddition({sessionId:pending.sessionId,expectedOperationId:pending.operationId,candidate:pending.candidate,saveInput:pending.saveInput,tagContext:readCodeTagContext(result),observedMetadata:tagClassification.metadataPayload});
+          if(setupEpoch!==setupEpochRef.current)throw new Error('Session setup changed. No cup was written.');
+          pendingAdditionRef.current=staged;
+          expectedMetadata=staged.payload;
           return {
             metadataOnly: true,
+            beforeWrite: () => assertPendingCodeDispatch(staged.operationId,setupEpoch),
             records: { text4: expectedMetadata },
           };
         } else if (tagClassification.type === NFC_TAG_TYPES.SMART_CUP || isRepairableSmartCup) {
           const detectedCupUUID = normalizeCupUuid(
-            isRepairableSmartCup ? getNfcTagIdentifier(tag) : resolveCupUUIDFromReadResult({ parsed, tag })
+            getNfcTagIdentifier(tag)
           );
           if (!detectedCupUUID || detectedCupUUID !== expectedCupUUID) {
             throw new Error(`Scanned cup ${detectedCupUUID || "UNKNOWN"} does not match sample cup ${expectedCupUUID}.`);
           }
+          if (!pending) throw new Error('Editing a committed code assignment is not enabled in this test.');
+          const staged = await stagePendingSampleAddition({sessionId:pending.sessionId,expectedOperationId:pending.operationId,candidate:pending.candidate,saveInput:pending.saveInput,tagContext:readCodeTagContext(result),observedMetadata:tagClassification.metadataPayload});
+          if(setupEpoch!==setupEpochRef.current)throw new Error('Session setup changed. No cup was written.');
+          pendingAdditionRef.current=staged;
+          expectedMetadata=staged.payload;
           return {
             metadataOnly: false,
+            beforeWrite: () => assertPendingCodeDispatch(staged.operationId,setupEpoch),
             records: {
               text1:
                 tagClassification.type === NFC_TAG_TYPES.SMART_CUP
                   ? { ...parsed?.text1, state: 1 }
                   : { state: 1 },
-              text2:
-                tagClassification.type === NFC_TAG_TYPES.SMART_CUP
-                  ? parsed?.text2 || {}
-                  : buildRecoveredSmartCupText2(tag),
+              text2: {},
               text3:
                 tagClassification.type === NFC_TAG_TYPES.SMART_CUP
                   ? parsed?.text3 || {}
@@ -1311,6 +1337,12 @@ export function CuppingSessionDetailsScreen({
           throw new Error("NFC tag format is not recognised yet. Please scan the matching cup or NTAG sticker.");
         }
       });
+      if (pending) {
+        const written=await markPendingSampleAdditionWritten({sessionId:pending.sessionId,operationId:pendingAdditionRef.current.operationId});
+        if(setupEpoch!==setupEpochRef.current)return false;
+        pendingAdditionRef.current=written;
+        setCheckingSampleId(written.candidate.id);
+      }
       if (setupEpoch !== setupEpochRef.current || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) {
         setPresentationRevision(value => value + 1);
         return false;
@@ -1394,7 +1426,9 @@ export function CuppingSessionDetailsScreen({
         if (!current()) return;
         if (!verified) { setCheckSampleStatus("mismatch"); return; }
         if (pending.phase !== 'verified') {
-          const marked = await markPendingSampleAdditionVerified({sessionId:pending.sessionId,operationId:pending.operationId,payload:pending.payload});
+          const observation=verifiedObservationRef.current;
+          if(observation?.operationId!==pending.operationId)throw new Error('Cup check changed.');
+          const marked = await markPendingSampleAdditionVerified({sessionId:pending.sessionId,...observation});
           if (!current()) return;
           pendingAdditionRef.current = marked;
         }
@@ -1467,7 +1501,7 @@ export function CuppingSessionDetailsScreen({
       setIsCheckingCup(true);
       try {
         const rewritten = await handleRewriteSample(checkingSampleId);
-        if (!operation.cancelled && operation.epoch === setupEpochRef.current && pendingAdditionRef.current?.operationId === operation.operationId) {
+        if (!operation.cancelled && operation.epoch === setupEpochRef.current) {
           setCheckSampleStatus(rewritten ? "pending" : "mismatch");
         }
       } finally {

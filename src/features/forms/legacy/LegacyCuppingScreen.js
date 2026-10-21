@@ -151,7 +151,7 @@ function componentScore(value, n, oneCupUniformity = false) {
   return Array.isArray(value) ? (10 * value.length / n).toFixed(2) : '—';
 }
 
-export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameOrigin, process, cuppingMode, sampleNumber, cupIndex, cupStatus, onBackPress, onScanPress }) {
+export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameOrigin, process, cuppingMode, sampleNumber, sampleCode, cupIndex, cupStatus, onBackPress, onScanPress }) {
   const { width, fontScale } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const { choiceWidth: scoreChoiceWidth } = legacyScoreGridLayout({
@@ -357,7 +357,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     </VerticalObservationSection>}
   </View>;
   return <View style={styles.screen}>
-    <AssessmentHeader sampleNumber={sampleNumber} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} />
+    <AssessmentHeader sampleNumber={sampleNumber} sampleCode={sampleCode} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} />
     {showOpenIdentity ? <AssessmentSampleIdentity name={savedContext.identity.name}
       process={getProcessLabel(savedContext.identity.process) || savedContext.identity.process} scale={scale} /> : null}
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

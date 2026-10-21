@@ -1,5 +1,6 @@
 import NfcManager, { Ndef, NfcTech } from "react-native-nfc-manager";
 import { Platform } from "react-native";
+import { validCode, validateMetadata, encodeUtf8, decodeTextPayload } from '../data/sampleCodeProfile';
 
 let started = false;
 let nextNfcSessionAllowedAt = 0;
@@ -153,7 +154,7 @@ function decodeTextRecord(record) {
   }
 
   try {
-    return Ndef.text.decodePayload(record.payload);
+    return decodeTextPayload(record.payload);
   } catch {
     return null;
   }
@@ -312,6 +313,7 @@ function compactText3Payload(payload) {
     ...(maxCupTemp !== undefined ? { c: maxCupTemp } : {}),
     ...(maxTime !== undefined ? { x: maxTime } : {}),
     ...(ledBrightness !== undefined ? { l: ledBrightness } : {}),
+    ...(payload.k !== undefined ? { k: payload.k } : {}),
   };
 }
 
@@ -380,7 +382,7 @@ function buildExactTextRecord(text) {
     Ndef.TNF_WELL_KNOWN,
     Ndef.RTD_TEXT,
     [],
-    Ndef.text.encodePayload(text, "en"),
+    [2, 101, 110, ...encodeUtf8(text)],
   );
 }
 
@@ -752,9 +754,17 @@ export async function readAndWriteNdefMinimal(buildWritePayload, options = {}) {
 
     await delay(WRITE_SESSION_SETTLE_MS);
     const bytes = encodeBuiltRecords(builtRecords);
+    if (validCode(records?.text4?.z)) {
+      validateMetadata(records.text4);
+      if(typeof writePayload.beforeWrite!=='function')throw new Error('Current assignment context is unavailable. No cup was written.');
+      const status = await NfcManager.ndefHandler.getNdefStatus();
+      const capacity = status?.capacity ?? tag?.maxSize;
+      if (!Number.isSafeInteger(capacity) || capacity < bytes.length || status?.status !== 2) throw new Error('Tag capacity or writable status could not be confirmed. No cup was written.');
+    }
     let writeSucceeded = false;
     for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
       try {
+        if(validCode(records?.text4?.z))await writePayload.beforeWrite();
         await NfcManager.ndefHandler.writeNdefMessage(bytes);
         writeSucceeded = true;
         break;

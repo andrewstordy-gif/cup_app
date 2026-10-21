@@ -666,6 +666,7 @@ function PrototypeCuppingScreen({
   sessionId = null,
   sampleId = null,
   sampleNumber = null,
+  sampleCode = null,
   cuppingMode = "blind",
   coffeeNameOrigin = "",
   process = "",
@@ -1825,6 +1826,7 @@ function PrototypeCuppingScreen({
           <AssessmentHeader
             onBackPress={onBackPress}
             sampleNumber={sampleNumber}
+            sampleCode={sampleCode}
             cupIndex={cupIndex}
             temperature={cupStatus?.temp}
             scale={scale}

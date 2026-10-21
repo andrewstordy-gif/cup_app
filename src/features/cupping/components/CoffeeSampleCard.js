@@ -119,7 +119,7 @@ export function CoffeeSampleCard({
     : EMPTY_SCORES;
   const isLocked = isComplete;
   const removeDisabled = !canRemove || (isLocked && !participantLocalRemoval);
-  const displaySampleNumber = resolveSampleNumber(sample.sampleNumber, index);
+  const displaySampleNumber = sample.sampleCode || resolveSampleNumber(sample.sampleNumber, index);
   const canOpenSample = Boolean(sample.cupUUID && typeof onOpenSample === "function");
   const editDisabled = isLocked || typeof onEditSample !== "function";
   const feedbackState = detailData.feedbackRowsByField

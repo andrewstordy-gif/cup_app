@@ -55,7 +55,7 @@ async function aggregateWithDb(db, sessionId, actor) {
   for (const sample of samples) {
     const owner = await db.getFirstAsync('SELECT local_profile_id,bound_at FROM local_response_streams WHERE session_id = ? AND sample_id = ?', [sessionId, sample.id]);
     if (owner && (!validActor(owner.local_profile_id) || !validTime(owner.bound_at))) fail('tasting:damaged_provenance');
-    entries.push({ id: sample.id, cupUUID: sample.cup_uuid, number: sample.sample_number, form: sample.cupping_form,
+    entries.push({ id: sample.id, cupUUID: sample.cup_uuid, number: sample.sample_number, code: sample.sample_code, metadata: sample.sample_metadata_json, form: sample.cupping_form,
       mode: sample.cupping_mode, count: sample.cup_number, owner: owner?.local_profile_id ?? null,
       response: [1, 2].includes(session.cupping_form) ? semanticSource(await sourceWithDb(db, sessionId, sample.id, session.cupping_form)) : null });
   }

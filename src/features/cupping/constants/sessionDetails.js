@@ -1,4 +1,5 @@
 import { generateDomainId, generateSessionReference } from "../../../utils/secureIdentifiers";
+import { validCode, metadataMatches } from '../../../data/sampleCodeProfile';
 
 export const SESSION_STATUS = {
   DRAFT:       "draft",
@@ -366,6 +367,7 @@ export function createSample(data = {}) {
     cupUUID: data.cupUUID || "",
     cupNumber,
     sampleNumber: normalizePositiveInteger(data.sampleNumber),
+    ...(data.sampleCode !== undefined ? { sampleCode: data.sampleCode } : {}),
     cuppingForm: data.cuppingForm,
     verificationStatus: data.verificationStatus || "unverified",
   };
@@ -377,6 +379,7 @@ export function buildCompactSessionMetadata({
   cupNumber,
   samplesInSession,
   sampleNumber,
+  sampleCode,
   cuppingMode,
   cuppingForm,
   sessionName,
@@ -389,7 +392,7 @@ export function buildCompactSessionMetadata({
     p: compactProcessValue(process),
     y: Number.isInteger(Number(cupNumber)) ? Number(cupNumber) : 3,
     ...(Number.isInteger(Number(samplesInSession)) ? { i: Number(samplesInSession) } : {}),
-    ...(Number.isInteger(Number(sampleNumber)) ? { z: Number(sampleNumber) } : {}),
+    ...(sampleCode !== undefined ? { z: sampleCode } : Number.isInteger(Number(sampleNumber)) ? { z: Number(sampleNumber) } : {}),
     m: compactCuppingModeValue(cuppingMode),
     f: compactCuppingFormValue(cuppingForm),
     e: String(sessionName || "").trim(),
@@ -400,6 +403,7 @@ export function buildCompactSessionMetadata({
 }
 
 export function doesMetadataMatchExpected(actual, expected) {
+  if (validCode(expected?.z)) return metadataMatches(actual, expected);
   if (!actual || typeof actual !== "object") {
     return false;
   }
