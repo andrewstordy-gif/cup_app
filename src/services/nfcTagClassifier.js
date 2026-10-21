@@ -1,4 +1,4 @@
-import { parseMetadata, decodeTextPayload } from '../data/sampleCodeProfile';
+import { parseMetadata, decodeTextPayload, tagContext } from '../data/sampleCodeProfile';
 
 export const NFC_TAG_TYPES = {
   SMART_CUP: "smart_cup",
@@ -84,21 +84,24 @@ export function findNdef4MetadataPayload(parsed) {
 export function classifyNfcTagReadResult(readResult) {
   const parsed = readResult?.parsed || {};
   const recordCount = Number(readResult?.recordCount) || 0;
+  if(![0,1,4].includes(recordCount))throw new Error('Unsupported CUP record count. No cup was written.');
   const wireRecords=readResult?.tag?.ndefMessage;
   if(Array.isArray(wireRecords))for(const record of wireRecords){
-    if(record?.tnf!==1||!Array.isArray(record.type)||record.type.length!==1||record.type[0]!==84)throw new Error('Unsupported NFC record type. No cup was written.');
+    if(record?.tnf!==1||!Array.isArray(record.type)||record.type.length!==1||record.type[0]!==84||record.id?.length)throw new Error('Unsupported NFC record type. No cup was written.');
     decodeTextPayload(record.payload);
   }
   const hasSmartCupState = hasNumericKey(parsed?.text1, ["state", "s"]);
   const hasSmartCupUuid = hasAnyKey(parsed?.text2, ["UUID", "uuid", "u"]);
   const hasSmartCupConfig = hasAnyKey(parsed?.text3, ["brewTime", "w", "triggerTemp", "r"]);
   const metadataPayload = findNdef4MetadataPayload(parsed);
+  if(recordCount===4)tagContext(readResult);
   // This separate test copy understands only strict code assignments. A CUP-
   // shaped numeric/malformed tag must not be relabelled blank and overwritten.
   const metadataRaw = parsed?.raw?.text4 || (recordCount === 1 ? parsed?.raw?.text1 : null);
+  if(recordCount===1&&typeof metadataRaw!=='string')throw new Error('NFC text could not be decoded safely. No cup was written.');
   let checkedMetadata = metadataPayload;
   if (metadataPayload) checkedMetadata = parseMetadata(metadataRaw);
-  else if (metadataRaw && /"(?:u|z|f|n|p|y|coffeeName|sessionUUID|sampleNumber)"\s*:/.test(metadataRaw)) parseMetadata(metadataRaw);
+  else if (metadataRaw && (/^\s*[\[{]/.test(metadataRaw) && metadataRaw.trim()!=='{}' || /"(?:u|z|f|n|p|y|coffeeName|sessionUUID|sampleNumber)"\s*:/.test(metadataRaw))) parseMetadata(metadataRaw);
 
   // A state value on its own is not enough to identify a smart cup. Some
   // standard NTAG stickers can be left with stale NDEF1 state records, but they

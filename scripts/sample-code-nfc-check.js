@@ -32,6 +32,20 @@ async function main(){
     assert.throws(()=>classifier.classifyNfcTagReadResult({recordCount:1,tag:{id:'04ABCD'},parsed}),undefined,raw);
   }
   for(const code of require('../src/data/sampleCodeProfile').POOL){const parsed=nfc.parseNdefMessageMinimal([record(JSON.stringify({...metadata,z:code}))]);assert.equal(classifier.classifyNfcTagReadResult({recordCount:1,tag:{id:'04ABCD'},parsed}).metadataPayload.z,code);}
+  for(const raw of ['{"\\u0075":"nfzyy8y0pqizn6","\\u007a":','{"\\u007a":"00"','{"\\u007a":"00"}']){
+    tag={id:'04ABCD',ndefMessage:[record(raw)]};writes=[];
+    await assert.rejects(nfc.readAndWriteNdefMinimal(async result=>{classifier.classifyNfcTagReadResult(result);return {metadataOnly:true,records:{text4:metadata},beforeWrite:async()=>{}};}));
+    assert.equal(writes.length,0,'escaped incomplete CUP keys cannot become writable generic tags');
+  }
+  tag={id:'04ABCD',ndefMessage:[{tnf:1,type:[84],id:[],payload:[2,101,110,0xf0,0x28,0x8c,0x28]}]};writes=[];
+  await assert.rejects(nfc.readAndWriteNdefMinimal(async result=>{classifier.classifyNfcTagReadResult(result);return {metadataOnly:true,records:{text4:metadata},beforeWrite:async()=>{}};}));
+  assert.equal(writes.length,0,'malformed UTF-8 is never a writable blank/generic tag');
+  const smartRecords=nfc.buildNdefRecordsMinimal({text1:{s:1},text2:{},text3:{r:40,a:96,w:240,c:70,x:3600,l:50,k:3},text4:metadata}).map(record=>({...record,type:[84]}));
+  for(const malformed of [[...smartRecords,record('{}')],smartRecords.slice(0,3)]){
+    tag={id:'04ABCD',ndefMessage:malformed};writes=[];let reachedResolution=false;
+    await assert.rejects(nfc.readAndWriteNdefMinimal(async result=>{classifier.classifyNfcTagReadResult(result);reachedResolution=true;return {metadataOnly:false,records:{text4:metadata},beforeWrite:async()=>{}};}),/record count/);
+    assert.equal(reachedResolution,false,'Home-shaped classify-before-resolution cannot import unsupported record profiles');assert.equal(writes.length,0);
+  }
   console.log('PASS R1-103 actual NFC serializer/dispatcher + native adapter: 1,296 classifier codes, string 00/u/y, NTAG1/Smart4, NDEF2{}, settings/k preserved, exact capacity/readOnly failure beforewrite, identical retry bytes, malformed/numeric/duplicate/alias rejection. No hardware.');
 }
 const originalLog=console.log;console.log=()=>{};main().then(()=>{console.log=originalLog;originalLog('PASS R1-103 native-adapter checks (software only).');}).catch(error=>{console.log=originalLog;console.error(error);process.exitCode=1;});

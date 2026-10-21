@@ -54,6 +54,8 @@ async function main(){
     await assert.rejects(participant.repo.resolveActiveSampleFromCupMetadata({cupUUID:'SAMEUID',metadata:{...a.payload,z:2}}),/Unsupported/);
     // Losing issuer provenance must not restart the pool on a scanned session.
     await assert.rejects(participant.repo.stagePendingSampleAddition({sessionId:S,candidate:c.candidate,saveInput:c.saveInput,tagContext:{kind:'ntag'}}),/local profile/);
+    const ack=fixture();ack.hook(sql=>{if(sql.startsWith('SELECT sample_code AS code FROM samples'))ack.actor(ack.actorB);});
+    await assert.rejects(ack.repo.resolveActiveSampleFromCupMetadata({cupUUID:'ACK-TAG',metadata:a.payload}),/actor_changed/,'final acknowledgement read cannot return another actor context');
     const exhaustion=fixture();await prepare(exhaustion,form);
     for(let index=0;index<POOL.length;index++)exhaustion.sqlite.prepare('INSERT INTO issued_sample_codes(session_id,code,operation_id) VALUES (?,?,?)').run(S,POOL[index],`op-${index}`);
     await assert.rejects(attempt(exhaustion),/1,296/);assert.equal(exhaustion.sqlite.prepare('SELECT COUNT(*) AS n FROM issued_sample_codes').get().n,1296);

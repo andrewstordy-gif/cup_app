@@ -1629,6 +1629,7 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata}) {
   await requireSameTastingActor(actor);
   const present=await db.getFirstAsync('SELECT sample_code AS code FROM samples WHERE session_id=? AND id=?',[output.sessionId,output.sampleId]);
   if(present?.code!==observed.z)tastingFail('tasting:ack_changed');
+  await requireSameTastingActor(actor);
   return output;
 }
 
