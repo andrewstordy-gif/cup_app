@@ -319,6 +319,18 @@ This section is the approved behaviour, not a claim of implementation. It supers
 
 #### 6.8.1 Per-session role, screens and controls
 
+**Per-sample mode clarification, approved 21 October 2026 (R1-105):** Blind/Open
+is chosen independently for each CVA sample, not once for the whole session.
+A valid mixture does not revoke the creator's otherwise permitted DRAFT setup
+access or prevent further samples being added. Each target/card/form uses that
+stored sample's mode: Open identity remains visible; Blind identity is hidden
+during tasting until qualified explicit local completion, except the existing
+creator preparation context. A changed saved revision re-hides Blind only.
+Legacy remains Open-only. A nullable/valid historical CVA session mode is not
+authority to override its samples; malformed modes/pins/unknown targets remain
+fail-closed. This clarification does not change roles, state, NFC fields,
+schema, Lock, scoring or the controlled incremental deployment boundary.
+
 One profile may create Session A and participate in Session B. Creator provenance is immutable stored ownership, not editable profile fields, a route flag or NDEF data (section 12.2). Participants retain independent local copies containing only samples they scan/add, preserving assigned sample numbers; there is no implied view of the creator's full sample roster. Every saved local session appears under its actual session name, including empty drafts and blind sessions. Blind protects coffee identity, not the session name; diagnostics are still minimized and must not log names merely because they are visible.
 
 | Screen | Creator of this session | Participant in this session |

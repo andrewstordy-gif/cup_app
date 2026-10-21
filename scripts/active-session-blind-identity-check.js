@@ -4,6 +4,7 @@ const { readFileSync } = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
 const { transformSync } = require('@babel/core');
+const { formIdentity } = require('../src/features/forms/sessionFormRoute');
 
 const root = path.resolve(__dirname, '..');
 const filename = path.join(root, 'src/features/cupping/screens/activeSessionIdentity.js');
@@ -18,7 +19,10 @@ const displayHelpers = require('./helpers/load-project-module')(root, {
   '../../../utils/secureIdentifiers': {},
 })('src/features/cupping/constants/sessionDetails.js');
 const nativeRequire = mod.require.bind(mod);
-mod.require = request => request === '../constants/sessionDetails' ? displayHelpers : nativeRequire(request);
+const savedIdentity = require('./helpers/load-project-module')(root, {
+  '../../../utils/secureIdentifiers': {},
+})('src/features/cupping/screens/savedSessionIdentity.js');
+mod.require = request => request === '../constants/sessionDetails' ? displayHelpers : request === './savedSessionIdentity' ? savedIdentity : nativeRequire(request);
 mod._compile(code, filename);
 const {
   projectActiveSessionIdentity,
@@ -27,13 +31,14 @@ const {
 } = mod.exports;
 
 const session = {
+  cuppingForm: 1, formKey: formIdentity(1).form_key, formVersion: formIdentity(1).form_version, formHash: formIdentity(1).form_hash,
   id: 'session-1', sessionName: 'October training', sessionDate: '15 Oct 2026',
   sessionType: 'Quality Control', cuppingMode: 'blind', status: 'complete',
 };
 const cups = [
-  { id: 'sample-a', sampleNumber: 1, cuppingMode: 'blind', coffeeNameOrigin: 'Ethiopia Guji',
+  { id: 'sample-a', sampleNumber: 1, cuppingForm: 1, cuppingMode: 'blind', coffeeNameOrigin: 'Ethiopia Guji',
     process: '1', scores: [], defects: [], finalScore: 80, supplier: 'Secret A' },
-  { id: 'sample-b', sampleNumber: 2, cuppingMode: 'blind', coffeeNameOrigin: 'Kenya Kirinyaga',
+  { id: 'sample-b', sampleNumber: 2, cuppingForm: 1, cuppingMode: 'blind', coffeeNameOrigin: 'Kenya Kirinyaga',
     process: '2', scores: [], defects: [], finalScore: 75, supplier: 'Secret B' },
 ];
 const incomplete = [
@@ -83,7 +88,7 @@ for (const mode of [null, undefined, 'malformed', 'blind']) {
 assert.equal(projectActiveSessionIdentity({ ...session, cuppingMode: null }, [], { allowOpen: true }).identityHidden,
   true, 'an empty CVA quick-start session cannot infer open mode');
 assert.equal(projectActiveSessionIdentity({ ...session, cuppingMode: 'blind' }, allOpen, { allowOpen: true }).identityHidden,
-  true, 'explicit blind session overrules open sample data');
+  false, 'valid historical session mode cannot override stored Open samples');
 assert.equal(projectActiveSessionIdentity({ ...session, cuppingMode: 'weird' }, allOpen, { allowOpen: true }).identityHidden,
   true, 'invalid session mode overrules open sample data');
 

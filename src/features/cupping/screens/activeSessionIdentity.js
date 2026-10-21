@@ -1,32 +1,23 @@
 import { getSessionDateDisplayLabel, getSessionTypeDisplayLabel } from "../constants/sessionDetails";
+import { canShowSavedSampleIdentity, canShowSavedSessionIdentity } from './savedSessionIdentity';
 
-function isOpen(value) {
-  return value === "open" || value === "o";
-}
-
-function isBlind(value) {
-  return value === "blind" || value === "b";
-}
-
-// CVA quick-start records have no session mode, but every locally persisted
-// sample has its own validated mode. Any missing or conflicting evidence hides
-// identity for the whole participant-facing Active Session view.
+// Fallback projection has no completion authority. Validate stored per-sample
+// modes; a legacy session-level mode never overrides the selected sample.
 export function showsOpenCvaIdentity(session, cups = []) {
-  const sessionMode = session?.cuppingMode;
-  const samples = Array.isArray(cups) ? cups : [];
-  if (isBlind(sessionMode) || (sessionMode != null && !isOpen(sessionMode))) return false;
-  if (samples.length === 0) return isOpen(sessionMode);
-  return samples.every((cup) => isOpen(cup?.cuppingMode));
+  return canShowSavedSessionIdentity({...session,samples:Array.isArray(cups)?cups:[]});
 }
 
 export function activeSampleLabel(cup, index) {
+  if(typeof cup?.sampleCode==='string'&&/^[A-Z0-9]{2}$/.test(cup.sampleCode))return `Sample ${cup.sampleCode}`;
   const position = Number(cup?.sampleNumber);
   return `Sample ${Number.isInteger(position) && position > 0 ? position : index + 1}`;
 }
 
 export function projectActiveSessionIdentity(session, cups = [], { allowOpen = false } = {}) {
   const samples = Array.isArray(cups) ? cups : [];
-  const identityHidden = !allowOpen || !showsOpenCvaIdentity(session, samples);
+  const stored={...session,samples};
+  const hidden=cup=>!allowOpen||!canShowSavedSampleIdentity(stored,cup);
+  const identityHidden = samples.length?samples.some(hidden):!allowOpen||!showsOpenCvaIdentity(session,samples);
   return {
     identityHidden,
     session: session ? {
@@ -41,6 +32,7 @@ export function projectActiveSessionIdentity(session, cups = [], { allowOpen = f
     cups: samples.map((cup, index) => ({
       id: cup.id,
       sampleNumber: cup.sampleNumber,
+      sampleCode: cup.sampleCode,
       sampleColour: cup.sampleColour,
       cupNumber: cup.cupNumber,
       scores: cup.scores,
@@ -54,17 +46,17 @@ export function projectActiveSessionIdentity(session, cups = [], { allowOpen = f
       finalScore: cup.finalScore,
       currentScore: cup.currentScore,
       resultLabel: cup.resultLabel,
-      coffeeNameOrigin: identityHidden ? activeSampleLabel(cup, index) : cup.coffeeNameOrigin,
-      process: identityHidden ? null : cup.process,
-      identityHidden,
+      coffeeNameOrigin: hidden(cup) ? activeSampleLabel(cup, index) : cup.coffeeNameOrigin,
+      process: hidden(cup) ? null : cup.process,
+      identityHidden: hidden(cup),
     })),
   };
 }
 
 export function buildActiveSessionCompletionWarning(incompleteSamples = [], visibleCups = [], identityHidden = true) {
   const names = (Array.isArray(incompleteSamples) ? incompleteSamples : []).map((sample) => {
-    if (!identityHidden) return `• ${sample.name}`;
     const index = visibleCups.findIndex((cup) => cup.id === sample.sampleId);
+    if(index>=0 && visibleCups[index].identityHidden===false)return `• ${visibleCups[index].coffeeNameOrigin}`;
     return `• ${index < 0 ? "Sample" : activeSampleLabel(visibleCups[index], index)}`;
   }).join("\n");
   return `The following samples have incomplete cupping scores:\n\n${names}\n\nComplete the scores for each sample, or remove it from the session before marking complete.`;

@@ -291,7 +291,7 @@ async function withTastingResponseAccess(db, sessionId, sampleId, form, saved, c
   const sample = presentation.session.samples.find(row => row.id === sampleId);
   if (actor) await requireSameTastingActor(actor);
   return { ...saved, access: { state: access.state, canWrite: !saved.historicalReadOnly && access.canWrite, canAdopt: !saved.historicalReadOnly && access.canAdopt, sourceToken: saved.historicalReadOnly ? null : access.sourceToken },
-    identity: { visible: !presentation.identityHidden, name: sample?.coffeeNameOrigin || '', process: sample?.process || '' },
+    identity: { visible: Boolean(sample && !sample.identityHidden), name: sample?.coffeeNameOrigin || '', process: sample?.process || '' },
     tasting: presentation.tasting };
 }
 
@@ -959,17 +959,22 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     ['new', 'pending', 'in_progress', 'complete'].includes(raw.status) &&
     samples.every(sample => sample.cuppingForm === raw.cuppingForm && Number.isInteger(sample.cupNumber) && sample.cupNumber >= 1 && sample.cupNumber <= 8);
   const modes = samples.map(sample => sample.cuppingMode);
-  const consistentMode = samples.length ? modes.every(mode => mode === modes[0]) && ['open', 'blind'].includes(modes[0])
-    && (raw.cuppingMode == null || raw.cuppingMode === modes[0]) : ['open', 'blind'].includes(raw.cuppingMode);
-  const validMode = consistentMode && (raw.cuppingForm !== 2 || raw.cuppingMode === 'open' && modes.every(mode => mode === 'open'));
-  const open = validMode && (samples.length ? modes[0] === 'open' : raw.cuppingMode === 'open');
+  const knownSessionMode = raw.cuppingMode == null || ['open', 'blind'].includes(raw.cuppingMode);
+  const validMode = knownSessionMode && (samples.length ? modes.every(mode => ['open','blind'].includes(mode)) : ['open','blind'].includes(raw.cuppingMode)) &&
+    (raw.cuppingForm !== 2 || raw.cuppingMode === 'open' && modes.every(mode => mode === 'open'));
+  const open = validMode && raw.cuppingMode === 'open';
   // An empty, unassigned CVA draft chooses mode when its first sample is added.
   // NULL here is not the same as malformed non-null or conflicting assigned mode.
   const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked);
   const canManageSetup = Boolean(activePin && supported && setupModeValid && isLocalCreator && !state.started && raw.status !== 'complete');
   const emptyCvaDraftSetup = purpose === 'setup' && canManageSetup && raw.status === 'new' &&
     !samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked;
-  const show = Boolean(supported && (validMode && (open || state.revealed || purpose === 'setup' && canManageSetup) || emptyCvaDraftSetup));
+  const preparation = purpose === 'setup' && canManageSetup;
+  const showSample = sample => Boolean(supported && validMode && (sample.cuppingMode === 'open' || state.revealed || preparation));
+  // This aggregate is conservative metadata only. Never use it for a target's
+  // coffee identity: mixed tasting cards carry their own identityHidden flag.
+  const identityHidden = samples.length ? samples.some(sample => !showSample(sample)) :
+    !Boolean(supported && (validMode && (open || state.revealed || preparation) || emptyCvaDraftSetup));
   const localRemoval = {};
   if (activePin && validMode && validActor(actor) && creator?.creator === null) {
     for (const sample of samples) localRemoval[sample.id] = await participantRemovalContextWithDb(db, sessionId, sample.id, actor);
@@ -985,10 +990,10 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     cuppingForm: sample.cuppingForm, cuppingMode: sample.cuppingMode,
     sampleNumber: sample.sampleNumber, sampleCode: sample.sampleCode, positionIndex: sample.positionIndex,
     localRemoval: localRemoval[sample.id] || { canRemove: false },
-    coffeeNameOrigin: show ? sample.coffeeNameOrigin : `Sample ${sample.sampleCode || Number(sample.sampleNumber) || index + 1}`,
-    process: show ? sample.process : null, identityHidden: !show,
+    coffeeNameOrigin: showSample(sample) ? sample.coffeeNameOrigin : `Sample ${sample.sampleCode || Number(sample.sampleNumber) || index + 1}`,
+    process: showSample(sample) ? sample.process : null, identityHidden: !showSample(sample),
   })) };
-  return { session: projected, identityHidden: !show,
+  return { session: projected, identityHidden,
     tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(activePin && validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete' && !(creator?.creator && raw.status === 'new')),
       canManageSetup, isLocalCreator } };
 }
@@ -1004,9 +1009,9 @@ async function participantRemovalContextWithDb(db, sessionId, sampleId, actor) {
       !['pending','in_progress'].includes(session.status) || sample.cuppingForm !== session.cuppingForm ||
       !Number.isInteger(sample.cupNumber) || sample.cupNumber < 1 || sample.cupNumber > 8 ||
       !['blind','open'].includes(sample.cuppingMode) || session.cuppingForm === 2 && (session.cuppingMode !== 'open' || sample.cuppingMode !== 'open')) return denied;
-  if (session.cuppingMode !== null && session.cuppingMode !== sample.cuppingMode ||
+  if (session.cuppingMode != null && !['open','blind'].includes(session.cuppingMode) ||
       !Number.isInteger(sample.sampleNumber) || sample.sampleNumber < 1 || !cleanString(sample.cupUUID) ||
-      session.samples.some(row => row.cuppingForm !== session.cuppingForm || row.cuppingMode !== sample.cuppingMode ||
+      session.samples.some(row => row.cuppingForm !== session.cuppingForm || !['open','blind'].includes(row.cuppingMode) || session.cuppingForm===2&&row.cuppingMode!=='open' ||
         !Number.isInteger(row.cupNumber) || row.cupNumber < 1 || row.cupNumber > 8)) return denied;
   const revision = await revisionWithDb(db, sessionId, actor);
   if (!revision.matches || await db.getFirstAsync('SELECT local_profile_id FROM local_tasting_revisions WHERE session_id=? AND local_profile_id<>? LIMIT 1', [sessionId, actor])) return denied;
@@ -1092,7 +1097,7 @@ export async function completeLocalTasting(sessionId, { expectedContextToken } =
     if ((!isActiveFormPin(session, 1) && !isActiveFormPin(session, 2)) ||
         !['new', 'pending', 'in_progress', 'complete'].includes(session.status)) tastingFail('tasting:unsupported');
     if (presentation.tasting.completed) {
-      if (presentation.identityHidden) tastingFail('tasting:unsupported');
+      if (presentation.session.samples.some(sample => sample.identityHidden)) tastingFail('tasting:unsupported');
       await requireSameTastingActor(actor);
       output = { status: 'complete', tasting: presentation.tasting }; return;
     }
@@ -1608,7 +1613,7 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata}) {
     await assertNoPendingWithDb(txn,session.id);
     await assertAssessmentReadyWithDb(txn,session.id);
     const setup=await getSessionByIdWithDb(txn,session.id), mode=observed.m==='b'?'blind':'open';
-    if(!isActiveFormPin(setup,observed.f)||setup.samples.some(sample=>sample.cuppingForm!==observed.f||sample.cuppingMode!==mode))throw new Error('Cup form or mode conflicts with this session.');
+    if(!isActiveFormPin(setup,observed.f)||setup.cuppingMode!=null&&!['open','blind'].includes(setup.cuppingMode)||observed.f===2&&setup.cuppingMode!=='open'||setup.samples.some(sample=>sample.cuppingForm!==observed.f||!['open','blind'].includes(sample.cuppingMode)||observed.f===2&&sample.cuppingMode!=='open'))throw new Error('Cup form or mode conflicts with this session.');
     const creator=await txn.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id=?',[session.id]);
     let sample=setup.samples.find(row=>row.sampleCode===observed.z);
     if(sample) {

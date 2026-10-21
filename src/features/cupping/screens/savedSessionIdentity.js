@@ -28,27 +28,31 @@ function isOpen(value) {
 // names are ordinary metadata and do not depend on this coffee-identity flag.
 export function canShowSavedSessionIdentity(session) {
   const samples = Array.isArray(session?.samples) ? session.samples : [];
-  const form = session?.cuppingForm;
-  if (form === 2) {
-    return isPinnedForm(session, 2) && isOpen(session.cuppingMode) &&
-      samples.every((sample) => sample?.cuppingForm === 2 && isOpen(sample.cuppingMode));
-  }
-  if (form !== 1 || !isPinnedForm(session, 1)) return false;
-  if (session.cuppingMode !== null && session.cuppingMode !== undefined && !isOpen(session.cuppingMode)) {
-    return false;
-  }
-  if (samples.length === 0) return isOpen(session.cuppingMode);
-  return samples.every((sample) => sample?.cuppingForm === 1 && isOpen(sample.cuppingMode));
+  return validSampleModes(session) && (samples.length ? samples.every(sample => isOpen(sample.cuppingMode)) : isOpen(session.cuppingMode));
+}
+
+function validSampleModes(session) {
+  const form=session?.cuppingForm,samples=Array.isArray(session?.samples)?session.samples:[];
+  if(![1,2].includes(form)||!isPinnedForm(session,form)||session.cuppingMode!=null&&!['open','blind'].includes(session.cuppingMode))return false;
+  return (form!==2||session.cuppingMode==='open') && samples.every(sample=>sample?.cuppingForm===form&&['open','blind'].includes(sample.cuppingMode)&&(form!==2||sample.cuppingMode==='open'));
+}
+
+// Stored target mode is authoritative. A neighbouring Open sample, legacy
+// session mode or caller-supplied route flag cannot reveal a Blind target.
+export function canShowSavedSampleIdentity(session,sample) {
+  return Boolean(sample && validSampleModes(session) && sample.cuppingForm===session.cuppingForm && isOpen(sample.cuppingMode));
 }
 
 export function savedSampleLabel(sample, index) {
+  if(typeof sample?.sampleCode==='string'&&/^[A-Z0-9]{2}$/.test(sample.sampleCode))return `Sample ${sample.sampleCode}`;
   const position = Number(sample?.sampleNumber);
   return `Sample ${Number.isInteger(position) && position > 0 ? position : index + 1}`;
 }
 
 export function projectSavedSessionIdentity(session, { allowOpen = false } = {}) {
-  const identityHidden = !allowOpen || !canShowSavedSessionIdentity(session);
   const samples = Array.isArray(session?.samples) ? session.samples : [];
+  const hidden=sample=>!allowOpen||!canShowSavedSampleIdentity(session,sample);
+  const identityHidden = samples.length ? samples.some(hidden) : !allowOpen||!canShowSavedSessionIdentity(session);
   return {
     identityHidden,
     sessionName: savedSessionName(session),
@@ -61,26 +65,29 @@ export function projectSavedSessionIdentity(session, { allowOpen = false } = {})
       cupUUID: sample.cupUUID,
       cupNumber: sample.cupNumber,
       sampleNumber: sample.sampleNumber,
+      sampleCode: sample.sampleCode,
       cuppingForm: sample.cuppingForm,
       cuppingMode: sample.cuppingMode,
-      coffeeNameOrigin: identityHidden ? savedSampleLabel(sample, index) : sample.coffeeNameOrigin,
-      process: identityHidden ? null : sample.process,
-      identityHidden,
+      coffeeNameOrigin: hidden(sample) ? savedSampleLabel(sample, index) : sample.coffeeNameOrigin,
+      process: hidden(sample) ? null : sample.process,
+      identityHidden: hidden(sample),
     })),
   };
 }
 
-// Navigation must apply the same projection before a raw saved Sample reaches
-// either scoring form. In particular, a corrupted open Sample cannot overrule
-// its blind Session and turn the assessment identity strip back on.
+// Resolve the stored target before either scoring form. Neither a caller's Open
+// flag nor an Open neighbour can reveal a Blind/missing target. Completion-aware
+// reveal remains exclusively the repository projection's responsibility.
 export function projectSavedAssessmentContext(session, context) {
-  if (!context || canShowSavedSessionIdentity(session)) return context;
-  const position = Number(context.sampleNumber);
-  const index = Number(context.cupIndex);
+  if (!context) return context;
+  const samples=Array.isArray(session?.samples)?session.samples:[];
+  const sample=context.sessionId===session?.id?samples.find(sample=>sample.id===context.sampleId):null;
+  if(canShowSavedSampleIdentity(session,sample))return {...context,cuppingMode:sample.cuppingMode,coffeeNameOrigin:sample.coffeeNameOrigin,process:sample.process};
+  const index=sample?samples.indexOf(sample):Number(context.cupIndex);
   return {
     ...context,
     cuppingMode: "blind",
-    coffeeNameOrigin: savedSampleLabel({ sampleNumber: position }, Number.isInteger(index) ? index : 0),
+    coffeeNameOrigin: savedSampleLabel(sample||{sampleCode:context.sampleCode,sampleNumber:context.sampleNumber}, Number.isInteger(index) ? index : 0),
     process: "",
   };
 }

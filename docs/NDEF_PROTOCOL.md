@@ -122,7 +122,7 @@ NDEF4 is app-owned metadata linking a physical cup to a coffee sample and cuppin
 - `y` — number of physical cups used for this sample.
 - `i` — total number of samples in the session. Written when a valid integer is available.
 - `z` — this sample’s one-based position in the session. Written when a valid integer is available.
-- `m` — cupping mode: `b` for Blind Cupping or `o` for Open Cupping.
+- `m` — this sample's cupping mode: `b` for Blind Cupping or `o` for Open Cupping. CVA samples in one session may differ (approved 21 October 2026, R1-105); local session-level mode does not override a stored target sample. Legacy remains Open-only. No encoding, field or radio change.
 - `f` — cupping-form key. Release 1 defines `1` for SCA CVA and `2` for SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 - `e` — session name.
 - `t` — session-type key.

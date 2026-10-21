@@ -57,10 +57,12 @@ assertHidden(session, 'host-complete blind session does not reveal');
 for (const mode of [null, undefined, 'broken', 'open']) {
   assertHidden({ ...session, cuppingMode: mode }, `session mode ${String(mode)} cannot overrule blind samples`);
 }
-for (const mode of [null, undefined, 'broken', 'blind']) {
+for (const mode of [null, undefined, 'broken']) {
   const mixed = samples.map((sample, index) => index === 0 ? { ...sample, cuppingMode: mode } : { ...sample, cuppingMode: 'open' });
   assertHidden({ ...session, cuppingMode: 'open', samples: mixed }, `sample mode ${String(mode)} must fail closed`);
 }
+const mixedProjection = projectSavedSessionIdentity({ ...session, samples: [samples[0], { ...samples[1], cuppingMode: 'open' }] }, { allowOpen: true });
+assert.deepEqual(mixedProjection.samples.map(sample => sample.identityHidden), [true, false]);
 assertHidden({ ...session, formHash: 'invalid', cuppingMode: 'open', samples: samples.map((sample) => ({ ...sample, cuppingMode: 'open' })) }, 'invalid CVA pin');
 assertHidden({ ...session, cuppingForm: '1', cuppingMode: 'open', samples: samples.map((sample) => ({ ...sample, cuppingMode: 'open' })) }, 'malformed form value');
 assertHidden({ ...session, cuppingMode: null, samples: [] }, 'empty null-mode session');
@@ -85,8 +87,7 @@ assert.equal(projectSavedSessionIdentity({ ...session, cuppingMode: 'open', samp
 const rawAssessment = { sessionId: 's', sampleId: 'a', sampleNumber: 1, cupIndex: 0,
   cuppingForm: 1, cuppingMode: 'open', coffeeNameOrigin: samples[0].coffeeNameOrigin,
   process: samples[0].process, defectsCupTotal: 5 };
-for (const candidate of [session, { ...session, samples: [{ ...samples[0], cuppingMode: 'open' }, samples[1]] },
-  { ...session, cuppingMode: 'open', samples: [{ ...samples[0], cuppingMode: 'open' }, samples[1]] },
+for (const candidate of [session,
   { ...session, cuppingMode: null, samples: [] }]) {
   const visible = projectSavedAssessmentContext(candidate, rawAssessment);
   assert.equal(visible.cuppingMode, 'blind', 'mixed or missing mode cannot turn on the scorer identity strip');
@@ -94,6 +95,11 @@ for (const candidate of [session, { ...session, samples: [{ ...samples[0], cuppi
   assert.equal(visible.process, '');
   assert.equal(visible.sampleId, rawAssessment.sampleId, 'scoring identity remains usable');
   assert.equal(visible.defectsCupTotal, 5, 'score/cup data is unchanged');
+}
+for (const mode of [null, 'open', 'blind']) {
+  const candidate = { ...session, cuppingMode: mode, samples: [{ ...samples[0], cuppingMode: 'open' }, samples[1]] };
+  assert.deepEqual(projectSavedAssessmentContext(candidate, rawAssessment), rawAssessment, 'stored Open target remains visible beside Blind');
+  assert.equal(projectSavedAssessmentContext(candidate, { ...rawAssessment, sampleId: 'b' }).coffeeNameOrigin, 'Sample 2', 'caller Open cannot reveal stored Blind target');
 }
 const openAssessment = projectSavedAssessmentContext({ ...session, cuppingMode: null, samples: openSamples }, rawAssessment);
 assert.deepEqual(openAssessment, rawAssessment, 'validated Open CVA scorer presentation is unchanged');
