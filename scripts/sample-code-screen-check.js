@@ -77,4 +77,3 @@ async function main(){
  console.log('PASS R1-103 actual screen callbacks + SQLite: both forms, close->editable drawer, edited A-to-B fresh write, failed check/rewrite fresh code, no early member, save-only retry, second sample, write failure retry, stale callback fence. Native NFC mocked.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});
-

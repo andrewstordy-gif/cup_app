@@ -78,4 +78,3 @@ function fixture(filename = ':memory:') {
   value.reload(); return value;
 }
 module.exports = { fixture, actorA, actorB, createCvaDraft };
-
