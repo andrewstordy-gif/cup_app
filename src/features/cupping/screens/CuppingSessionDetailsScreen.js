@@ -1656,7 +1656,7 @@ export function CuppingSessionDetailsScreen({
               sessionType={sessionId ? visibleIdentity.sessionType : getSessionTypeLabel(sessionType)}
               formLabel={isSessionFormLoading ? "Checking saved session form…" : isSessionFormSupported ? getCuppingFormLabel(selectedForm) : "Older or unsupported prototype form"}
               dateLabel={sessionId ? visibleIdentity.sessionDate : sessionDate}
-              sessionCode={hideSavedIdentity ? "Session code unavailable" : sessionDisplayId}
+              sessionCode={sessionDisplayId}
               status={sessionStatusBadgeLabel.toUpperCase()}
             />
             {isSessionFormLoading || !isSessionFormSupported ? (
@@ -1731,8 +1731,8 @@ export function CuppingSessionDetailsScreen({
             <Text style={styles.metaValueMuted} accessibilityLabel="Session date">
               {sessionId ? visibleIdentity.sessionDate : sessionDate}
             </Text>
-            <Text style={styles.metaValueMuted} accessibilityLabel={hideSavedIdentity ? "Session code unavailable" : `Session code ${sessionDisplayId}`}>
-              {hideSavedIdentity ? "Session code unavailable" : sessionDisplayId}
+            <Text style={styles.metaValueMuted} accessibilityLabel={`Session code ${sessionDisplayId}`}>
+              {sessionDisplayId}
             </Text>
             <SessionStatusBadge status={sessionStatusBadgeLabel} />
           </View>

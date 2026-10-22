@@ -132,14 +132,13 @@ assert.match(details, /canEditSessionSetup = !sessionId \|\| \(isSessionFormSupp
 assert.match(details, /permission\?\.canRemove && permission\.removalToken/, 'participant local removal requires trusted scoped permission and token');
 assert.match(details, /if \(!canEditSessionSetup\) return;\s*setIsSessionDirty\(true\);\s*setSamples\(\(prev\) => prev\.filter/, 'creator setup removal remains ownership guarded');
 assert.match(details, /showRemove=\{canEditSessionSetup \|\| Boolean\(sample\.localRemoval\?\.canRemove\)\}/, 'only creator setup or trusted participant local removal exposes a cross');
-assert.match(details, /accessibilityLabel=\{hideSavedIdentity \? "Session code unavailable"/, 'saved blind Details never speaks a stored reference');
-assert.match(details, /hideSavedIdentity \? "Session code unavailable" : sessionDisplayId/, 'saved blind Details never prints a stored reference');
+assert.match(details, /accessibilityLabel=\{`Session code \$\{sessionDisplayId\}`\}/, 'public session code accessibility is independent of coffee identity');
+assert.match(details, /sessionCode=\{sessionDisplayId\}/, 'compact title displays public session code independently of Blind');
 assert.doesNotMatch(readFileSync(filename, 'utf8'), /safeSavedSessionCode/, 'no stored reference formatter exists for blind views');
 const craftedIdentifiers = { sessionDisplayId: 'SECRET COFFEE', sessionUUID: 'secretcoffeexy', id: 'SECRET COFFEE ID' };
 const blindListLabel = `Session ${1}`;
-const blindDetailsLabel = 'Session code unavailable';
 for (const value of Object.values(craftedIdentifiers)) {
-  assert.ok(!blindListLabel.includes(value) && !blindDetailsLabel.includes(value), 'stored identity-bearing identifiers are absent from blind labels');
+  assert.ok(!blindListLabel.includes(value), 'unrelated session list distinguishing labels remain neutral');
 }
 assert.match(details, /accessibilityLabel="Session name"/, 'visible session name has truthful accessible label');
 assert.doesNotMatch(details, /Session name hidden for blind cupping|Identity is hidden in this shared view/, 'session name is not announced as hidden coffee identity');
