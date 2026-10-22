@@ -22,7 +22,7 @@ function screen(presentation,access,{sessionId=S,pending=null}={}){
   const h={sessionId,tastingPresentation:presentation,setupAccess:{sessionId,...access},sessionName:saved.sessionName,sessionType:saved.sessionType,
     sessionDate:saved.sessionDate,sessionMode:saved.cuppingMode,samples:saved.samples,sessionForm:{loadedSessionId:sessionId,cuppingForm:saved.cuppingForm,
       formKey:saved.formKey,formVersion:saved.formVersion,formHash:saved.formHash,formLocked:saved.formLocked},
-    savedOpenEvidence:null,isLegacy:saved.cuppingForm===2,isAddSheetVisible:false,saveOperationRef:{current:null},pendingAdditionBusyRef:{current:null},pendingAdditionRef:{current:pending}};
+    savedOpenEvidence:null,isLegacy:saved.cuppingForm===2,isAddSheetVisible:false,saveOperationRef:{current:null},lockOperationRef:{current:null},pendingAdditionBusyRef:{current:null},pendingAdditionRef:{current:pending}};
   if(!sessionId)h.sessionForm=formIdentity(saved.cuppingForm);
   h.evaluate=name=>{const deps={...constants,...h,useMemo:factory=>factory(),projectSavedSessionIdentity,isSessionFormReady,UNSUPPORTED_MESSAGE};
     for(const name of ['EditingSampleId','SheetCoffeeNameOrigin','SheetProcess','SheetCupNumber','IsSheetCupNumberDefault','SheetCuppingMode','IsSheetCuppingModeDefault','SheetErrors','ScanStatusMessage','CupBlockedMessage','IsAddSheetVisible','SessionName','SessionType'])deps['set'+name]=value=>{h[name[0].toLowerCase()+name.slice(1)]=value;};

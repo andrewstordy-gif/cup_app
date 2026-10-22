@@ -63,6 +63,8 @@ import {
   getSessionSampleFinalStatus,
   saveSessionWithSamples,
   getSessionSetupAccess,
+  getSessionLockReadiness,
+  lockSessionSetup,
   getPendingSampleAddition,
   stagePendingSampleAddition,
   markPendingSampleAdditionWritten,
@@ -212,6 +214,10 @@ export function CuppingSessionDetailsScreen({
   const [setupAccess, setSetupAccess] = useState(null);
   const [tastingPresentation, setTastingPresentation] = useState(null);
   const [presentationRevision, setPresentationRevision] = useState(0);
+  const [lockReadiness, setLockReadiness] = useState(null);
+  const [lockConfirmation, setLockConfirmation] = useState(null);
+  const [isLockingSession, setIsLockingSession] = useState(false);
+  const lockOperationRef = useRef(null);
   const ownsSavedSetup = setupAccess?.sessionId === sessionId && setupAccess.canManageSetup;
   const [sheetCuppingMode, setSheetCuppingMode] = useState("blind");
   const [isSheetCuppingModeDefault, setIsSheetCuppingModeDefault] = useState(true);
@@ -302,6 +308,10 @@ export function CuppingSessionDetailsScreen({
     pendingSetupExitRef.current = null;
     saveOperationRef.current = null;
     completionBusyRef.current = null;
+    lockOperationRef.current = null;
+    setLockReadiness(null);
+    setLockConfirmation(null);
+    setIsLockingSession(false);
     participantRemovalRef.current = null;
     setParticipantRemoval(null);
     setIsRemovingParticipantSample(false);
@@ -315,11 +325,12 @@ export function CuppingSessionDetailsScreen({
       pendingSetupExitRef.current = null;
       saveOperationRef.current = null;
       completionBusyRef.current = null;
+      lockOperationRef.current = null;
     };
   }, [sessionId, quickStartSessionTypeValue]);
 
   const requestSetupExit = (action) => {
-    const pendingSetupWork = saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
+    const pendingSetupWork = lockOperationRef.current || saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
       isCompletingSession || isDeleting || participantRemovalBusyRef.current || isRemovingParticipantSample || verifyingSampleId || rewritingSampleId;
     if (!setupContinuationRef.current && !pendingSetupWork && !isSessionDirty) return action?.();
     if (pendingSetupWork) {
@@ -340,7 +351,7 @@ export function CuppingSessionDetailsScreen({
     setSetupExitMessage("");
   };
   const leaveSetup = () => {
-    if (saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
+    if (lockOperationRef.current || saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
         isCompletingSession || isDeleting || verifyingSampleId || rewritingSampleId) return;
     const pending = pendingSetupExitRef.current;
     stayInSetup();
@@ -355,13 +366,13 @@ export function CuppingSessionDetailsScreen({
   }, [samples, isCheckingCup, requestSetupExit, onQuickStartSampleReady]);
 
   useEffect(() => {
-    if (!setupContinuationRef.current && !saveOperationRef.current?.protectSetup && !isSessionDirty) return undefined;
+    if (!isLockingSession && !setupContinuationRef.current && !saveOperationRef.current?.protectSetup && !isSessionDirty) return undefined;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       requestSetupExit(onBackPress);
       return true;
     });
     return () => subscription.remove();
-  }, [requestSetupExit, onBackPress]);
+  }, [requestSetupExit, onBackPress, isLockingSession]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -561,6 +572,56 @@ export function CuppingSessionDetailsScreen({
   const isSessionFormLoading = Boolean(sessionId) && sessionForm?.loadedSessionId !== sessionId;
   const canEditSessionSetup = !sessionId || (isSessionFormSupported && ownsSavedSetup);
   const canSelectSessionForm = !isSessionLocked && !isQuickStartSession && canEditSessionSetup;
+  const lockInputKey = currentSetupInputKeyRef.current;
+  const canLockSession = Boolean(sessionId && savedSessionIdRef.current === sessionId && !isQuickStartSession &&
+    sessionStatus === 'new' && ownsSavedSetup && isSessionFormSupported && !isSessionDirty && samples.length &&
+    !isSaving && !isLockingSession && !isNfcWriting && !isCheckingCup && !isAddSheetVisible &&
+    !isCompletingSession && !isDeleting && !isRemovingParticipantSample &&
+    !verifyingSampleId && !rewritingSampleId && !pendingAdditionRef.current && !pendingAdditionBusyRef.current &&
+    lockReadiness?.sessionId === sessionId && lockReadiness.inputKey === lockInputKey);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLockReadiness(null);
+    if (sessionId && !isQuickStartSession && sessionStatus === 'new' && ownsSavedSetup &&
+        isSessionFormSupported && !isSessionDirty && samples.length && !isSaving && !isNfcWriting &&
+        !isCheckingCup && !pendingAdditionRef.current && !pendingAdditionBusyRef.current) {
+      const epoch = setupEpochRef.current;
+      getSessionLockReadiness(sessionId).then(ready => {
+        if (!cancelled && epoch === setupEpochRef.current && currentSetupInputKeyRef.current === lockInputKey)
+          setLockReadiness({ ...ready, inputKey: lockInputKey, epoch });
+      }).catch(() => { /* unavailable or unfinished drafts stay disabled */ });
+    }
+    return () => { cancelled = true; };
+  }, [sessionId, isQuickStartSession, sessionStatus, ownsSavedSetup, isSessionFormSupported, isSessionDirty,
+    lockInputKey, isSaving, isNfcWriting, isCheckingCup, presentationRevision]);
+
+  const handleRequestLockSession = () => {
+    if (!canLockSession || lockOperationRef.current || saveOperationRef.current) return;
+    setLockConfirmation(lockReadiness);
+  };
+  const handleConfirmLockSession = async () => {
+    const request = lockConfirmation;
+    if (!request || !canLockSession || request.sessionId !== sessionId || request.epoch !== setupEpochRef.current ||
+        request.inputKey !== currentSetupInputKeyRef.current || lockOperationRef.current || saveOperationRef.current) return;
+    lockOperationRef.current = request;
+    setIsLockingSession(true);
+    setLockConfirmation(null);
+    try {
+      await lockSessionSetup({ sessionId: request.sessionId, expectedSnapshot: request.snapshot });
+      if (request.epoch !== setupEpochRef.current) return;
+      setLockReadiness(null);
+      setSetupAccess(previous => ({ ...previous, sessionId: request.sessionId, canManageSetup: false }));
+      setPresentationRevision(value => value + 1);
+    } catch (error) {
+      if (request.epoch === setupEpochRef.current) setScanStatusMessage(error?.message || 'Session could not be locked. Reopen it and try again.');
+    } finally {
+      if (lockOperationRef.current === request) {
+        lockOperationRef.current = null;
+        setIsLockingSession(false);
+      }
+    }
+  };
 
   const openSessionFormMenu = () => {
     if (!canSelectSessionForm) return;
@@ -588,6 +649,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleUpdateSample = (sampleId, field, value) => {
+    if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
     setIsSessionDirty(true);
     setSamples((prev) =>
@@ -604,6 +666,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleRemoveSample = (sampleId) => {
+    if (lockOperationRef.current) return;
     const permission = samples.find(sample=>sample.id===sampleId)?.localRemoval;
     if (permission?.canRemove && permission.removalToken && !participantRemovalBusyRef.current && savedSessionIdRef.current === sessionId && tastingPresentation?.session?.id === sessionId) {
       const candidate = { sessionId, sampleId, token:permission.removalToken, label:permission.label, epoch:setupEpochRef.current };
@@ -679,6 +742,7 @@ export function CuppingSessionDetailsScreen({
     String(pending.candidate.process) === String(normalizeProcessKey(sheetProcess)) &&
     pending.candidate.cupNumber === sheetCupNumber && pending.candidate.cuppingMode === normalizeCuppingModeKey(sheetCuppingMode);
   const handleOpenAddSheet = () => {
+    if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
     if (saveOperationRef.current || pendingAdditionBusyRef.current) return;
     if (pendingAdditionRef.current) {
@@ -731,6 +795,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleOpenEditSheet = (sample) => {
+    if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
     if (pendingAdditionRef.current) { handleOpenAddSheet(); return; }
     if (hideSavedIdentity || !isSessionFormSupported || !sample || sampleStatusById?.[sample.id]?.isComplete) {
@@ -787,6 +852,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleSaveEditedSample = async () => {
+    if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
     if (hideSavedIdentity || !isSessionFormSupported || !editingSampleId || !validateEditSheet()) {
       return;
@@ -834,6 +900,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleScanCup = async () => {
+    if (lockOperationRef.current) return;
     const setupEpoch = setupEpochRef.current;
     if (pendingAdditionBusyRef.current || saveOperationRef.current) return;
     setCupBlockedMessage("");
@@ -1528,6 +1595,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleSave = async () => {
+    if (lockOperationRef.current) return;
     if (pendingAdditionRef.current || pendingAdditionBusyRef.current) {
       setScanStatusMessage("Finish the pending cup check from Add Sample before saving.");
       return;
@@ -1642,7 +1710,7 @@ export function CuppingSessionDetailsScreen({
 
   const showScanFooter = sessionStatusBadgeLabel === "Pending" && !isSessionDirty;
   const showInProgressFooter = canCompleteSession;
-  const footerDisabled = isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample;
+  const footerDisabled = isLockingSession || isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample;
   const showCompactSessionTitle = ["Pending", "In Progress", "Complete"].includes(sessionStatusBadgeLabel);
 
   return (
@@ -1765,12 +1833,12 @@ export function CuppingSessionDetailsScreen({
               index={index}
               scale={scale}
               onRemove={handleRemoveSample}
-              canRemove={!isRemovingParticipantSample && (sample.localRemoval?.canRemove || samples.length > 0 && canEditSessionSetup)}
+              canRemove={!lockOperationRef.current && !isRemovingParticipantSample && (sample.localRemoval?.canRemove || samples.length > 0 && canEditSessionSetup)}
               showRemove={canEditSessionSetup || Boolean(sample.localRemoval?.canRemove)}
               participantLocalRemoval={Boolean(sample.localRemoval?.canRemove)}
               status={sampleStatusById?.[sample.id]}
               defaultExpanded={isSessionComplete}
-              onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : () => handleOpenEditSheet(sample)}
+              onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : lockOperationRef.current ? undefined : () => handleOpenEditSheet(sample)}
               onOpenSample={
                 sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && isSessionFormSupported && sample.cupUUID && typeof onOpenSample === "function"
                   ? () =>
@@ -1792,6 +1860,7 @@ export function CuppingSessionDetailsScreen({
             <FullPageButton
               label="ADD SAMPLE"
               onPress={handleOpenAddSheet}
+              disabled={isLockingSession}
               accessibilityLabel="Open add sample sheet"
               style={[styles.addSampleButton, { marginTop: 24 * scale }]}
               textStyle={styles.addSampleButtonText}
@@ -1831,8 +1900,10 @@ export function CuppingSessionDetailsScreen({
           primaryDisabled={footerDisabled || !isSessionFormSupported}
           primaryAccessibilityLabel="Save cupping session details"
           secondaryLabel="LOCK SESSION"
-          secondaryDisabled
-          secondaryStyle={{ backgroundColor: colors.muted }}
+          onSecondaryPress={handleRequestLockSession}
+          secondaryDisabled={!canLockSession}
+          secondaryLoading={isLockingSession}
+          secondaryStyle={{ backgroundColor: canLockSession ? colors.ink : colors.muted }}
           secondaryTextStyle={{}}
         />
       ) : (
@@ -1902,6 +1973,10 @@ export function CuppingSessionDetailsScreen({
         onScanCup={handleScanCup}
         onSave={handleSaveEditedSample}
       />
+
+      <WarningDialog visible={Boolean(lockConfirmation) && lockConfirmation.sessionId === sessionId && lockConfirmation.epoch === setupEpochRef.current}
+        title="Lock Session" message="This will lock the session so it can’t be changed."
+        okLabel="OK" onOk={handleConfirmLockSession} onDismiss={() => setLockConfirmation(null)} />
 
       <WarningDialog
         visible={Boolean(setupExitMessage)}

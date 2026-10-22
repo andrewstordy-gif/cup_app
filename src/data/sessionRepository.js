@@ -1,7 +1,7 @@
 import { getLocalDatabase } from "./localDatabase";
 import { getLocalProfileIdentity, getOrCreateLocalProfileIdentity } from "./userProfileRepository";
 import { generateDomainId } from "../utils/secureIdentifiers";
-import { validCode, validSession, reserveWithDb, validateMetadata, metadataMatches, wireProof } from './sampleCodeProfile';
+import { validCode, validSession, reserveWithDb, validateMetadata, parseMetadata, metadataMatches, wireProof } from './sampleCodeProfile';
 import { assertNoPendingWithDb, decodePending, pendingRowWithDb, pendingSaveInput,
   pendingSampleFields, stagePendingWithDb } from './pendingSampleAdditionStore';
 import { fail as tastingFail, validActor, contextToken, stateWithDb as tastingStateWithDb,
@@ -39,6 +39,83 @@ async function assertLocalCreatorWithDb(db, sessionId) {
   if (!profileId || !row?.creator || row.creator !== profileId) throw new Error(SETUP_PERMISSION_ERROR);
 }
 
+async function setupLockWithDb(db, sessionId) {
+  const row = await db.getFirstAsync('SELECT local_setup_locked_at AS at, local_setup_lock_snapshot AS snapshot FROM sessions WHERE id=?', [sessionId]);
+  if (!row) throw new Error('Session setup is unavailable.');
+  if (row.at == null && row.snapshot == null) return null;
+  if (typeof row.at !== 'string' || !Number.isFinite(Date.parse(row.at)) || new Date(row.at).toISOString() !== row.at ||
+      typeof row.snapshot !== 'string' || !/^[a-f0-9]{64}$/.test(row.snapshot)) throw new Error('Session setup lock is unavailable.');
+  return row;
+}
+
+async function assertSetupUnlockedWithDb(db, sessionId) {
+  if (await setupLockWithDb(db, sessionId)) throw new Error('This session is locked. Its setup cannot be changed.');
+}
+
+// Read-only readiness proof. Each member retains its own original on-tag total.
+async function lockSnapshotWithDb(db, sessionId, actor) {
+  await assertLocalCreatorWithDb(db, sessionId);
+  await assertSetupUnlockedWithDb(db, sessionId);
+  await assertUnstartedWithDb(db, sessionId);
+  await assertNoPendingWithDb(db, sessionId);
+  const setup = await getSessionByIdWithDb(db, sessionId, { reconcile: false });
+  if (setup.status !== 'new' || !setup.samples.length ||
+      !isActiveFormPin(setup, setup.cuppingForm) || ![1, 2].includes(setup.cuppingForm) ||
+      setup.cuppingMode != null && !['open', 'blind'].includes(setup.cuppingMode) ||
+      setup.cuppingForm === 2 && setup.cuppingMode !== 'open') throw new Error('Save a verified draft before locking this session.');
+  const issuer = await db.getFirstAsync('SELECT actor_id,incarnation,profile FROM sample_code_issuers WHERE session_id=?', [sessionId]);
+  if (issuer?.actor_id !== actor || issuer.profile !== 103 || !issuer.incarnation) throw new Error('Session verification is unavailable.');
+  const members = [];
+  for (const sample of setup.samples) {
+    if (!validCode(sample.sampleCode) || !Number.isInteger(sample.cupNumber) || sample.cupNumber < 1 || sample.cupNumber > 8 ||
+        !['blind', 'open'].includes(sample.cuppingMode) || setup.cuppingForm === 2 && sample.cuppingMode !== 'open') throw new Error('Session verification is unavailable.');
+    const metadata = parseMetadata(sample.metadataJson);
+    const intended = buildCompactSessionMetadata({ ...sample, sessionUUID: sessionId, sessionName: setup.sessionName,
+      sessionType: setup.sessionType, sessionDate: setup.sessionDate, samplesInSession: metadata.i });
+    if (sample.cuppingForm !== setup.cuppingForm || !metadataMatches(metadata, intended)) throw new Error('Session verification is unavailable.');
+    const proof = await db.getFirstAsync(`SELECT issued.operation_id, committed.actor_id, committed.outcome_json
+      FROM issued_sample_codes issued JOIN sample_code_commit_outcomes committed
+      ON committed.session_id=issued.session_id AND committed.operation_id=issued.operation_id
+      WHERE issued.session_id=? AND issued.code=?`, [sessionId, sample.sampleCode]);
+    let outcome; try { outcome = JSON.parse(proof?.outcome_json); } catch { /* fail closed */ }
+    if (proof?.actor_id !== actor || outcome?.sessionId !== sessionId || !Number.isInteger(outcome.savedSampleCount) ||
+        outcome.savedSampleCount < 1 || outcome.status !== 'new') throw new Error('Session verification is unavailable.');
+    members.push({ ...sample, operationId: proof.operation_id });
+  }
+  const { status, updatedAt, ...savedSetup } = setup;
+  return sha256(canonicalize({ ...savedSetup, samples: members, incarnation: issuer.incarnation, actor }));
+}
+
+export async function getSessionLockReadiness(sessionId) {
+  const db = await getLocalDatabase(), actor = await getLocalProfileIdentity();
+  let snapshot;
+  await db.withExclusiveTransactionAsync(async txn => {
+    snapshot = await lockSnapshotWithDb(txn, sessionId, actor);
+    await requireSameTastingActor(actor);
+  });
+  await requireSameTastingActor(actor);
+  return { sessionId, snapshot };
+}
+
+export async function lockSessionSetup({ sessionId, expectedSnapshot }) {
+  if (!validSession(sessionId) || typeof expectedSnapshot !== 'string' || !/^[a-f0-9]{64}$/.test(expectedSnapshot)) throw new Error('Session lock request is unavailable.');
+  const db = await getLocalDatabase(), actor = await getLocalProfileIdentity();
+  await db.withExclusiveTransactionAsync(async txn => {
+    await assertLocalCreatorWithDb(txn, sessionId);
+    const locked = await setupLockWithDb(txn, sessionId);
+    if (locked) {
+      if (locked.snapshot !== expectedSnapshot) throw new Error('Session setup changed. Reopen the session.');
+    } else {
+      if (await lockSnapshotWithDb(txn, sessionId, actor) !== expectedSnapshot) throw new Error('Session setup changed. Save and try again.');
+      await requireSameTastingActor(actor);
+      await txn.runAsync("UPDATE sessions SET local_setup_locked_at=?,local_setup_lock_snapshot=?,status='pending' WHERE id=?", [new Date().toISOString(), expectedSnapshot, sessionId]);
+    }
+    await requireSameTastingActor(actor);
+  });
+  await requireSameTastingActor(actor);
+  return { sessionId, locked: true };
+}
+
 export async function getSessionSetupAccess(sessionId) {
   try {
     const presentation = await getLocalTastingPresentation(sessionId, { purpose: 'setup' });
@@ -53,6 +130,7 @@ export async function getOwnedSessionSetup(sessionId) {
   let result;
   await db.withExclusiveTransactionAsync(async txn => {
     await assertLocalCreatorWithDb(txn, sessionId);
+    await assertSetupUnlockedWithDb(txn, sessionId);
     await assertUnstartedWithDb(txn, sessionId);
     const presentation = await getLocalTastingPresentationWithDb(txn, sessionId, 'setup', actor);
     if (!presentation.tasting.canManageSetup) throw new Error(SETUP_PERMISSION_ERROR);
@@ -68,6 +146,7 @@ async function withPendingSetup(sessionId, operation) {
   let result;
   await db.withExclusiveTransactionAsync(async txn=>{
     await assertLocalCreatorWithDb(txn,sessionId);
+    await assertSetupUnlockedWithDb(txn,sessionId);
     await assertUnstartedWithDb(txn,sessionId);
     const presentation=await getLocalTastingPresentationWithDb(txn,sessionId,'setup',actor);
     if(!presentation.tasting.canManageSetup)throw new Error(SETUP_PERMISSION_ERROR);
@@ -608,6 +687,7 @@ export async function saveSessionWithSamples({
     );
     if (existingSession) {
       await assertLocalCreatorWithDb(db, sessionId);
+      await assertSetupUnlockedWithDb(db, sessionId);
       await assertUnstartedWithDb(db, sessionId);
     }
     else if (existingSessionId) throw new Error('This saved session is unavailable. No new session was created.');
@@ -977,7 +1057,9 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   // An empty, unassigned CVA draft chooses mode when its first sample is added.
   // NULL here is not the same as malformed non-null or conflicting assigned mode.
   const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked);
-  const canManageSetup = Boolean(activePin && supported && setupModeValid && isLocalCreator && !state.started && raw.status !== 'complete');
+  let setupUnlocked = false;
+  try { setupUnlocked = !(await setupLockWithDb(db, sessionId)); } catch { /* damaged lock denies setup */ }
+  const canManageSetup = Boolean(activePin && supported && setupModeValid && isLocalCreator && !state.started && setupUnlocked && raw.status !== 'complete');
   const emptyCvaDraftSetup = purpose === 'setup' && canManageSetup && raw.status === 'new' &&
     !samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked;
   const preparation = purpose === 'setup' && canManageSetup;
@@ -2223,6 +2305,7 @@ async function deleteOwnedSampleFromSession(db, sampleId) {
   );
   if (!sample?.sessionId) return { deleted: false };
   await assertUnstartedWithDb(db, sample.sessionId);
+  await assertSetupUnlockedWithDb(db, sample.sessionId);
   await assertPinnedSessionWithDb(db, sample.sessionId);
   const ownerPin = await db.getFirstAsync(
     'SELECT cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash FROM sessions WHERE id = ? LIMIT 1',

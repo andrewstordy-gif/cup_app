@@ -360,6 +360,7 @@ async function prepareSchema(db) {
     ["cupping_form", "INTEGER"], ["form_key", "TEXT"],
     ["form_version", "TEXT"], ["form_hash", "TEXT"],
     ["local_creator_profile_id", "TEXT"],
+    ["local_setup_locked_at", "TEXT"], ["local_setup_lock_snapshot", "TEXT"],
   ]) {
     if (!sessionColumns.some((column) => column?.name === name)) {
       await db.execAsync(`ALTER TABLE sessions ADD COLUMN ${name} ${type};`);

@@ -24,7 +24,7 @@ function harness(env,form=1,id='nfzyy8y0pqizn6') {
     sheetCoffeeNameOrigin:'Test coffee',sheetProcess:'1',sheetCupNumber:5,sheetCuppingMode:form===2?'open':'blind',
     isAddSheetVisible:true,isNfcWriting:false,isCheckingCup:false,checkingSampleId:null,pendingSaveError:'',checkSampleStatus:'pending',
     setupEpochRef:ref(1),savedSessionIdRef:ref(null),pendingAdditionRef:ref(null),pendingAdditionBusyRef:ref(null),pendingCheckSampleOverridesRef:ref({}),
-    pendingQuickStartReadyRef:ref(null),saveOperationRef:ref(null),reopenPendingDrawerRef:ref(false),
+    pendingQuickStartReadyRef:ref(null),saveOperationRef:ref(null),lockOperationRef:ref(null),reopenPendingDrawerRef:ref(false),
     pendingVerifiedQuickStartRef:ref(null),verifiedObservationRef:ref(null),
     savedSetupSnapshotRef:ref(null),savedSetupInputKeyRef:ref(null),writes:[],reads:0,tagId:'TEST-TAG',isSheetCupNumberDefault:false,isSheetCuppingModeDefault:false,
   };
