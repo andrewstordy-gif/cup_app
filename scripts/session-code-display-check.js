@@ -9,7 +9,7 @@ const evaluate=(node,deps)=>new Function(...Object.keys(deps),`return (${generat
 const helper=path.join(__dirname,'pending-blind-card-check.js'),helperSource=fs.readFileSync(helper,'utf8'),mod=new Module(helper,module);mod.filename=helper;mod.paths=Module._nodeModulePaths(__dirname);
 // Only this test's binding AST is overlaid; do not activate the reused card
 // harness's unrelated historical --base reproduction.
-const argv=process.argv;process.argv=argv.filter(value=>value!=='--base');try{mod._compile(helperSource.slice(0,helperSource.indexOf('\nasync function main(){'))+'\nmodule.exports={view,harness,card,save};',helper);}finally{process.argv=argv;}const {view,harness,card,save}=mod.exports;
+const argv=process.argv;process.argv=argv.filter(value=>value!=='--base');try{mod._compile(helperSource.slice(0,helperSource.indexOf('\nasync function main(){'))+'\nmodule.exports={view,harness,card,readyForTasting};',helper);}finally{process.argv=argv;}const {view,harness,card,readyForTasting}=mod.exports;
 const titleBinding=all(ast,node=>node.type==='JSXOpeningElement'&&node.name?.name==='SessionTitleSummary')[0];
 const metadata=all(ast,node=>node.type==='JSXElement'&&node.openingElement.name?.name==='Text'&&node.openingElement.attributes.some(attr=>attr.name?.name==='accessibilityLabel'&&generate(attr).code.includes('Session code')))[0];
 const loadedCode=all(ast,node=>node.type==='CallExpression'&&node.callee?.name==='setSessionDisplayId'&&generate(node.arguments[0]).code.includes('loaded.sessionDisplayId'))[0].arguments[0];
@@ -35,7 +35,7 @@ async function main(){
   for(const modes of [['blind'],['open'],['blind','open'],['open','blind']]){
     const env=fixture(path.join(fs.mkdtempSync(path.join(os.tmpdir(),'cup-public-code-')),'test.db')),h=harness(env,1,S);
     for(let index=0;index<modes.length;index++){h.run('handleOpenAddSheet');h.sheetCoffeeNameOrigin=`SECRET_COFFEE_${index}`;h.sheetProcess='5';h.sheetCuppingMode=modes[index];h.tagId=`TAG${index}`;h.physicalPayload=null;await h.run('handleScanCup');await h.run('handleScanToCheckCup');}
-    const draft=await check(env,'Draft');await save(draft);await check(env,'Pending');await check(env,'Pending');
+    const draft=await check(env,'Draft');await readyForTasting(env,draft);await check(env,'Pending');await check(env,'Pending');
     const raw=await env.repo.getSessionById(S);for(const sample of raw.samples)await env.save(S,sample.id,{...require('../src/features/cupping/data/cvaResponse').createCvaDraft(5),ratings:Object.fromEntries(Object.values(require('../src/features/cupping/data/cvaResponse').RATINGS).map(key=>[key,7]))});
     await check(env,'In Progress');await env.complete(S);await check(env,'Complete');
   }

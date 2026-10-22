@@ -1541,15 +1541,17 @@ export function CuppingSessionDetailsScreen({
     const request = { ...formState, samples: formState.samples.map(sample => ({ ...sample })) };
     const requestKey = JSON.stringify(request);
     const snapshot = setupWarningSnapshot(request, sessionForm);
+    const savesDraft = !isQuickStartSession && request.status === 'new';
     const startsContinuation = !sessionId && !isQuickStartSession &&
       request.cuppingForm === 1 && request.samples.length === 0;
-    const operation = { epoch: setupEpochRef.current, protectSetup: startsContinuation || setupContinuationRef.current };
+    const operation = { epoch: setupEpochRef.current, protectSetup: savesDraft || startsContinuation || setupContinuationRef.current };
     saveOperationRef.current = operation;
     setIsSaving(true);
 
     try {
       const result = await saveSessionWithSamples({
         ...request,
+        ...(savesDraft ? { intent: 'setup' } : {}),
         existingSessionId: savedSessionIdRef.current,
       });
       if (operation.epoch !== setupEpochRef.current) return;
@@ -1562,6 +1564,11 @@ export function CuppingSessionDetailsScreen({
       if (startsContinuation) setupContinuationRef.current = true;
       if (hasNewerChanges) {
         setScanStatusMessage("Earlier draft saved locally. You have newer changes to save before leaving setup.");
+        return;
+      }
+      if (savesDraft) {
+        setScanStatusMessage(`Draft saved locally (${result.savedSampleCount} samples).`);
+        onSaveSuccess?.(result.sessionId);
         return;
       }
       if (setupContinuationRef.current && request.cuppingForm === 1) {

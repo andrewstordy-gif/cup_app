@@ -33,6 +33,10 @@ cardMod._compile(transformSync(fs.readFileSync(cardFile,'utf8'),{filename:cardFi
 function card(h,sample,index){const display=prop(h,sample,index,'sample'),onEditSample=prop(h,sample,index,'onEditSample');return {display,tree:cardMod.exports.CoffeeSampleCard({sample:display,index,defaultExpanded:true,onEditSample,canRemove:true}),onEditSample};}
 function snapshot(env){return JSON.stringify(env.sqlite.prepare('SELECT * FROM samples ORDER BY rowid').all());}
 async function save(h){h.setupContinuationRef={current:false};h.currentSetupInputKeyRef={current:''};const deps=h.dependencies;h.dependencies=()=>({...deps(),setIsSaving:()=>{},setupContinuationRef:h.setupContinuationRef,currentSetupInputKeyRef:h.currentSetupInputKeyRef,onSaveSuccess:()=>{}});await h.run('handleSave');}
+// Test fixture only: Lock is deliberately unavailable in the experiment. These
+// existing tasting/privacy tests explicitly use the repository readiness API,
+// not the normal Draft Save handler, to enter their required Pending scenario.
+async function readyForTasting(env,h){await save(h);const raw=await env.repo.getOwnedSessionSetup(h.sessionUUID);await env.repo.saveSessionWithSamples({...raw,existingSessionId:raw.id,intent:'save'});}
 async function main(){
   for(const sampleCode of [undefined,null,'a4','XYZ','']){const sample={sampleCode,sampleNumber:2,cuppingMode:'blind',coffeeNameOrigin:'SECRET',process:'5'};assert.equal(identity.projectSessionDetailsCard(sample,'Pending',0).coffeeNameOrigin,'Sample 2','invalid/missing code preserves shared safe fallback');}
   assert.equal(identity.savedSampleLabel({sampleCode:'IT'},0),'Sample IT','other shared surfaces keep existing label');
@@ -42,7 +46,7 @@ async function main(){
     let h=await view(env);assert.equal(h.sessionStatusBadgeLabel,'Draft');assert.equal(h.canEditSessionSetup,true);
     for(let index=0;index<2;index++)assert.strictEqual(prop(h,h.samples[index],index,'sample'),h.visibleIdentity.samples[index],'DRAFT exact existing card sample retained');
     // Invoke actual Save against unredacted formState and reload the real DB.
-    await save(h);env.restart();h=await view(env);assert.equal(h.sessionStatusBadgeLabel,'Pending');assert.equal(h.canEditSessionSetup,true);assert.equal(h.hideSavedIdentity,false,'global preparation permission unchanged');
+    await readyForTasting(env,h);env.restart();h=await view(env);assert.equal(h.sessionStatusBadgeLabel,'Pending');assert.equal(h.canEditSessionSetup,true);assert.equal(h.hideSavedIdentity,false,'global preparation permission unchanged');
     for(let reload=0;reload<2;reload++){
       const before=snapshot(env),internal=JSON.stringify(h.samples);
       for(let index=0;index<2;index++){

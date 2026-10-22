@@ -5,7 +5,7 @@ if(process.argv.includes('--base')){
   const original=fs.readFileSync,sources=new Map(['src/data/sessionRepository.js','src/features/cupping/data/cvaResponseStore.js'].map(file=>[path.join(root,file),require('node:child_process').execFileSync('git',['show',`c78a20cbd74a237fac54882963d3e89630a5f407:${file}`],{cwd:root,encoding:'utf8'})]));
   fs.readFileSync=function(file,...args){return sources.has(String(file))?sources.get(String(file)):original.call(this,file,...args);};
 }
-const helper=path.join(__dirname,'pending-blind-card-check.js'),text=fs.readFileSync(helper,'utf8'),mod=new Module(helper,module);mod.filename=helper;mod.paths=Module._nodeModulePaths(__dirname);const argv=process.argv;process.argv=argv.filter(value=>value!=='--base');try{mod._compile(text.slice(0,text.indexOf('\nasync function main(){'))+'\nmodule.exports={view,harness,save,card};',helper);}finally{process.argv=argv;}const {view,harness,save,card}=mod.exports;
+const helper=path.join(__dirname,'pending-blind-card-check.js'),text=fs.readFileSync(helper,'utf8'),mod=new Module(helper,module);mod.filename=helper;mod.paths=Module._nodeModulePaths(__dirname);const argv=process.argv;process.argv=argv.filter(value=>value!=='--base');try{mod._compile(text.slice(0,text.indexOf('\nasync function main(){'))+'\nmodule.exports={view,harness,readyForTasting,card};',helper);}finally{process.argv=argv;}const {view,harness,readyForTasting,card}=mod.exports;
 const full=()=>({...createCvaDraft(5),ratings:Object.fromEntries(Object.values(RATINGS).map(key=>[key,7]))});
 function history(env){return env.sqlite.prepare('SELECT ever_started,ever_completed FROM local_session_foundations WHERE session_id=?').get(S);}
 function startedAt(env){return env.sqlite.prepare('SELECT local_tasting_started_at AS time FROM sessions WHERE id=?').get(S).time;}
@@ -23,7 +23,7 @@ async function main(){
   for(const modes of [['blind'],['open'],['blind','open']]){
     const env=fixture(path.join(fs.mkdtempSync(path.join(os.tmpdir(),'cup-rating-progress-')),'test.db')),h=harness(env,1,S);
     for(let index=0;index<modes.length;index++){h.run('handleOpenAddSheet');h.sheetCoffeeNameOrigin=`SECRET_${index}`;h.sheetProcess='5';h.sheetCuppingMode=modes[index];h.tagId=`TAG${index}`;h.physicalPayload=null;await h.run('handleScanCup');await h.run('handleScanToCheckCup');}
-    const draft=await current(env,'Draft');await save(draft);let pending=await current(env,'Pending'),ids=pending.samples.map(sample=>sample.id);
+    const draft=await current(env,'Draft');await readyForTasting(env,draft);let pending=await current(env,'Pending'),ids=pending.samples.map(sample=>sample.id);
     await env.save(S,ids[0],createCvaDraft(5));if(!process.argv.includes('--base'))await current(env,'Pending');assert.equal(history(env).ever_started,0,'defaults-only Save never starts tasting');
     await env.save(S,ids[0],{...createCvaDraft(5),ratings:{fragrance:7}});await current(env,'In Progress',{locked:true});const firstStarted=startedAt(env),revisionBefore=(await env.repo.getCvaResponse(S,ids[0])).revision;
     const unsaved=createCvaDraft(5);assert.deepEqual(unsaved.ratings,{});await current(env,'In Progress',{locked:true});
@@ -47,7 +47,7 @@ async function main(){
     const historical=await store.readWithDb(env.bridge,S,ids[0]);assert.equal(historical.historicalReadOnly,true);assert.equal((await store.statusesWithDb(env.bridge,S))[ids[0]].hasAnyFeedback,true,'historical read-only status retains prior contract');
     await assert.rejects(store.saveWithDb(env.bridge,{sessionId:S,sampleId:ids[0],response:createCvaDraft(5),expectedRevision:historical.revision,expectedIdentity:pin,expectedCupCount:5},()=> 'unused'),/historical_read_only/);
   }
-  const old=fixture(path.join(fs.mkdtempSync(path.join(os.tmpdir(),'cup-implicit-start-')),'test.db')),draft=harness(old,1,S);await draft.run('handleScanCup');await draft.run('handleScanToCheckCup');await save(await view(old));const id=(await old.repo.getSessionById(S)).samples[0].id;
+  const old=fixture(path.join(fs.mkdtempSync(path.join(os.tmpdir(),'cup-implicit-start-')),'test.db')),draft=harness(old,1,S);await draft.run('handleScanCup');await draft.run('handleScanToCheckCup');await readyForTasting(old,await view(old));const id=(await old.repo.getSessionById(S)).samples[0].id;
   await old.save(S,id,{...createCvaDraft(5),ratings:{fragrance:7}});await old.save(S,id,createCvaDraft(5));
   old.sqlite.prepare('DELETE FROM local_session_foundations WHERE session_id=?').run(S);old.sqlite.prepare("UPDATE sessions SET status='in_progress',local_tasting_started_at=NULL WHERE id=?").run(S);
   assert.equal(await old.repo.recomputeSessionProgressStatus(S),'pending');assert.equal(history(old).ever_started,1,'explicit recompute preserves implicit old start before lowering status');assert.equal(startedAt(old),null,'no fabricated timestamp');await current(old,'Pending',{locked:true});old.restart();await current(old,'Pending',{locked:true});
