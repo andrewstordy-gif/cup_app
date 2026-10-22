@@ -34,6 +34,8 @@ function card(h,sample,index){const display=prop(h,sample,index,'sample'),onEdit
 function snapshot(env){return JSON.stringify(env.sqlite.prepare('SELECT * FROM samples ORDER BY rowid').all());}
 async function save(h){h.setupContinuationRef={current:false};h.currentSetupInputKeyRef={current:''};const deps=h.dependencies;h.dependencies=()=>({...deps(),setIsSaving:()=>{},setupContinuationRef:h.setupContinuationRef,currentSetupInputKeyRef:h.currentSetupInputKeyRef,onSaveSuccess:()=>{}});await h.run('handleSave');}
 async function main(){
+  for(const sampleCode of [undefined,null,'a4','XYZ','']){const sample={sampleCode,sampleNumber:2,cuppingMode:'blind',coffeeNameOrigin:'SECRET',process:'5'};assert.equal(identity.projectSessionDetailsCard(sample,'Pending',0).coffeeNameOrigin,'Sample 2','invalid/missing code preserves shared safe fallback');}
+  assert.equal(identity.savedSampleLabel({sampleCode:'IT'},0),'Sample IT','other shared surfaces keep existing label');
   for(const modes of [['blind','open'],['open','blind']]){
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'cup-card-')),env=fixture(path.join(dir,'creator.db')),draft=harness(env,1,S),payloads=[];
     for(let index=0;index<2;index++){draft.run('handleOpenAddSheet');draft.sheetCoffeeNameOrigin=`SECRET_COFFEE_${index}`;draft.sheetProcess='5';draft.sheetCuppingMode=modes[index];draft.tagId=`TAG${index}`;draft.physicalPayload=null;await draft.run('handleScanCup');payloads.push(draft.pendingAdditionRef.current.payload);await draft.run('handleScanToCheckCup');}
@@ -45,8 +47,8 @@ async function main(){
       const before=snapshot(env),internal=JSON.stringify(h.samples);
       for(let index=0;index<2;index++){
         const sample=h.samples[index],output=card(h,sample,index),hidden=modes[index]==='blind';
-        assert.equal(output.display.identityHidden,hidden,'actual Pending binding hides only Blind');assert.equal(output.display.coffeeNameOrigin,hidden?`Sample ${sample.sampleCode}`:sample.coffeeNameOrigin);assert.equal(output.display.process,hidden?null:sample.process);
-        const rendered=JSON.stringify(output.tree);if(hidden){assert(!rendered.includes(sample.coffeeNameOrigin));assert(!rendered.includes('Yellow Honey'));assert(rendered.includes('Hidden during blind cupping'));assert(rendered.includes(`Sample ${sample.sampleCode}`));}else{assert(rendered.includes(sample.coffeeNameOrigin));assert(rendered.includes('Yellow Honey'));}
+        assert.equal(output.display.identityHidden,hidden,'actual Pending binding hides only Blind');assert.equal(output.display.coffeeNameOrigin,hidden?sample.sampleCode:sample.coffeeNameOrigin);assert.equal(output.display.process,hidden?null:sample.process);
+        const rendered=JSON.stringify(output.tree);if(hidden){assert(!rendered.includes(sample.coffeeNameOrigin));assert(!rendered.includes('Yellow Honey'));assert(rendered.includes('Hidden during blind cupping'));assert(!rendered.includes(`Sample ${sample.sampleCode}`));assert(rendered.includes(`"${sample.sampleCode}"`));}else{assert(rendered.includes(sample.coffeeNameOrigin));assert(rendered.includes('Yellow Honey'));}
         // Actual Card's edit handler receives redacted props, but the screen's
         // closure must forward the original permitted setup row to the drawer.
         const edit=find(output.tree,node=>node.props?.accessibilityLabel===`Edit sample ${sample.sampleCode}`);assert(edit);edit.props.onPress({stopPropagation(){}});assert.equal(h.sheetCoffeeNameOrigin,sample.coffeeNameOrigin);assert.equal(h.sheetProcess,sample.process);

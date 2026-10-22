@@ -53,7 +53,9 @@ export function savedSampleLabel(sample, index) {
 // not feed this redaction back into session state or permission projections.
 export function projectSessionDetailsCard(sample, statusLabel, index) {
   if (!sample || statusLabel !== "Pending" || sample.cuppingMode !== "blind") return sample;
-  return { ...sample, coffeeNameOrigin: savedSampleLabel(sample, index), process: null, identityHidden: true };
+  const label = typeof sample.sampleCode === "string" && /^[A-Z0-9]{2}$/.test(sample.sampleCode)
+    ? sample.sampleCode : savedSampleLabel(sample, index);
+  return { ...sample, coffeeNameOrigin: label, process: null, identityHidden: true };
 }
 
 export function projectSavedSessionIdentity(session, { allowOpen = false } = {}) {
