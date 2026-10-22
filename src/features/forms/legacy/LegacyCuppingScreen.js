@@ -291,7 +291,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     if (typeof onScanPress === 'function') onScanPress();
   };
 
-  if (loading || !response) return <View style={styles.screen}><AssessmentHeader sampleNumber={sampleNumber} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} /><Text style={styles.hint}>{message || 'Loading saved assessment…'}</Text></View>;
+  if (loading || !response) return <View style={styles.screen}><AssessmentHeader sampleNumber={sampleNumber} sampleCode={sampleCode} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} /><Text style={styles.hint}>{message || 'Loading saved assessment…'}</Text></View>;
   const defect = response.scored_defect;
   const beanTypeCups = selectedTypeCups(response.bean_defect_type_masks, BEAN_DEFECT_OPTIONS);
   const scoredBeanCups = Array.isArray(defect?.affected_cups) ? defect.affected_cups : [];

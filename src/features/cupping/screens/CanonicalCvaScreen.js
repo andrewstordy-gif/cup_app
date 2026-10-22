@@ -48,7 +48,7 @@ function CaptureNotes({ label, value, onChange, disabled, scrollRef, showLabel =
   </View>;
 }
 
-export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, cupIndex, cupStatus, cuppingMode,
+export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, sampleCode, cupIndex, cupStatus, cuppingMode,
   coffeeNameOrigin, process, onBackPress, onScanPress, isScanInProgress, scanRevision,
   canSwipeSamples, onSampleSwipe, cupTotal, initialScrollTarget, cupStateNumber = 1, tagType, captureMode, startInFinalMode,
   cupUUID, elapsedSeconds = null, brewTimeSeconds = null }) {
@@ -166,7 +166,7 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, cupIndex
     onBackPress?.();
   };
   if (!response || !saved || loadedContext !== contextKey) return <View style={styles.screen}>
-    <AssessmentHeader sampleNumber={sampleNumber} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} />
+    <AssessmentHeader sampleNumber={sampleNumber} sampleCode={sampleCode} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} />
     <Text style={styles.hint}>{message || 'Loading assessment…'}</Text></View>;
   const n = saved.n;
   if (brewing) {
@@ -214,7 +214,7 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, cupIndex
     { key: 'total', label: 'Total score', value: finalResult.display_score, total: true },
   ] : [];
   return <View style={styles.screen} {...pager.panHandlers}>
-    <AssessmentHeader sampleNumber={sampleNumber} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={goBack} scale={scale} />
+    <AssessmentHeader sampleNumber={sampleNumber} sampleCode={sampleCode} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={goBack} scale={scale} />
     {saved.identity?.visible ? <AssessmentSampleIdentity name={saved.identity.name} process={getProcessLabel(saved.identity.process) || saved.identity.process} scale={scale} /> : null}
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView ref={scroll} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets={false}
