@@ -125,7 +125,7 @@ assert.match(list, /accessibilityLabel=\{`Delete session \$\{item\.title\}\$\{it
 const details = readFileSync(path.join(root, 'src/features/cupping/screens/CuppingSessionDetailsScreen.js'), 'utf8');
 assert.match(details, /value=\{sessionId \? visibleIdentity\.sessionName : sessionName\}/, 'saved name input must project independently of coffee visibility');
 assert.match(details, /editable=\{!isSessionLocked && canEditSessionSetup\}/, 'session name edits still require setup rights and lifecycle permission');
-assert.match(details, /sample=\{sessionId \? visibleIdentity\.samples\[index\] : sample\}/, 'saved card receives projected sample');
+assert.match(details, /sample=\{projectSessionDetailsCard\(sessionId \? visibleIdentity\.samples\[index\] : sample, sessionStatusBadgeLabel, index\)\}/, 'CVA card receives existing projection plus narrow Pending card redaction');
 assert.match(details, /onEditSample=\{showInProgressFooter \|\| !canEditSessionSetup \? undefined/, 'unowned sample cannot open raw edit sheet');
 assert.match(details, /canEditSessionSetup = !sessionId \|\| \(isSessionFormSupported && ownsSavedSetup\)/,
   'saved setup requires local ownership, not merely an Open projection');

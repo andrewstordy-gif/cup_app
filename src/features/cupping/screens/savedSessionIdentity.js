@@ -49,6 +49,13 @@ export function savedSampleLabel(sample, index) {
   return `Sample ${Number.isInteger(position) && position > 0 ? position : index + 1}`;
 }
 
+// Card props only: preparation metadata stays intact for setup/save/NFC. Do
+// not feed this redaction back into session state or permission projections.
+export function projectSessionDetailsCard(sample, statusLabel, index) {
+  if (!sample || statusLabel !== "Pending" || sample.cuppingMode !== "blind") return sample;
+  return { ...sample, coffeeNameOrigin: savedSampleLabel(sample, index), process: null, identityHidden: true };
+}
+
 export function projectSavedSessionIdentity(session, { allowOpen = false } = {}) {
   const samples = Array.isArray(session?.samples) ? session.samples : [];
   const hidden=sample=>!allowOpen||!canShowSavedSampleIdentity(session,sample);

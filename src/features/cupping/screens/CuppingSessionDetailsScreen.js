@@ -31,7 +31,7 @@ import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
 import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
 import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
 import { SessionTitleSummary } from "../components/SessionTitleSummary";
-import { canShowSavedSessionIdentity, projectSavedSessionIdentity } from "./savedSessionIdentity";
+import { canShowSavedSessionIdentity, projectSavedSessionIdentity, projectSessionDetailsCard } from "./savedSessionIdentity";
 import {
   buildCompactSessionMetadata,
   CUP_NUMBER_OPTIONS,
@@ -1754,7 +1754,7 @@ export function CuppingSessionDetailsScreen({
           ) : isSessionFormSupported ? (
             <CoffeeSampleCard
               key={sample.id}
-              sample={sessionId ? visibleIdentity.samples[index] : sample}
+              sample={projectSessionDetailsCard(sessionId ? visibleIdentity.samples[index] : sample, sessionStatusBadgeLabel, index)}
               index={index}
               scale={scale}
               onRemove={handleRemoveSample}
@@ -1763,7 +1763,7 @@ export function CuppingSessionDetailsScreen({
               participantLocalRemoval={Boolean(sample.localRemoval?.canRemove)}
               status={sampleStatusById?.[sample.id]}
               defaultExpanded={isSessionComplete}
-              onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : handleOpenEditSheet}
+              onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : () => handleOpenEditSheet(sample)}
               onOpenSample={
                 sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && isSessionFormSupported && sample.cupUUID && typeof onOpenSample === "function"
                   ? () =>
