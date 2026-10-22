@@ -113,7 +113,8 @@ async function statusesWithDb(db, sessionId) {
     const saved = await readWithDb(db, sessionId, sample.id);
     output[sample.id] = { isComplete: saved.complete, finalScore: saved.result?.display_score ?? null,
       canonicalCva: true, noteGroups: cvaNoteGroups(saved.response),
-      resultLabel: saved.result?.label || null, hasAnyFeedback: saved.revision > 0, revision: saved.revision,
+      resultLabel: saved.result?.label || null,
+      hasAnyFeedback: saved.historicalReadOnly ? saved.revision > 0 : Object.values(RATINGS).some(key => saved.response?.ratings?.[key] != null), revision: saved.revision,
       scoresByField: Object.fromEntries(Object.entries(RATINGS).filter(([, key]) => saved.response?.ratings?.[key] != null)
         .map(([label, key]) => [label, saved.response.ratings[key]])) };
   }

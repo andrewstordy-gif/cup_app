@@ -417,7 +417,7 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
   }
 
   const session = await db.getFirstAsync(
-    "SELECT status FROM sessions WHERE id = ? LIMIT 1",
+    "SELECT status, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion, form_hash AS formHash FROM sessions WHERE id = ? LIMIT 1",
     [normalizedSessionId]
   );
   if (!session) {
@@ -441,6 +441,17 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
   );
   const sampleCount = Number(sampleCountRow?.count) || 0;
   let nextStatus = sampleCount > 0 ? "pending" : "new";
+  if (sampleCount > 0 && isActiveFormPin(session, 1) && isCanonicalCvaReadPin(session)) {
+    const history = await historyWithDb(db, normalizedSessionId);
+    if (history.ever_started && history.schema_version == null) await persistHistoryWithDb(db, normalizedSessionId);
+    const statuses = await canonicalCvaStatuses(db, normalizedSessionId);
+    if (Object.values(statuses).some(sample => sample.hasAnyFeedback)) {
+      nextStatus = 'in_progress';
+      await startTastingWithDb(db, normalizedSessionId);
+    }
+    if (nextStatus !== currentStatus) await db.runAsync('UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?', [nextStatus, new Date().toISOString(), normalizedSessionId]);
+    return nextStatus;
+  }
   const foundation = await db.getFirstAsync('SELECT session_id FROM local_session_foundations WHERE session_id = ?', [normalizedSessionId]);
   if (foundation) {
     if ((await historyWithDb(db, normalizedSessionId)).ever_started) nextStatus = 'in_progress';
@@ -979,10 +990,17 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   if (activePin && validMode && validActor(actor) && creator?.creator === null) {
     for (const sample of samples) localRemoval[sample.id] = await participantRemovalContextWithDb(db, sessionId, sample.id, actor);
   }
+  let displayStatus = state.completed ? 'complete' : raw.status === 'complete' ? 'complete' : state.started && raw.status !== 'new' ? 'in_progress' : raw.status;
+  // Current ratings control active CVA progress only. Historical start still
+  // governs setup/privacy; reading an older already-cleared row never writes.
+  if (activePin && isCanonicalCvaReadPin(raw) && samples.length && !['new', 'complete'].includes(displayStatus)) {
+    const statuses = await canonicalCvaStatuses(db, sessionId);
+    displayStatus = Object.values(statuses).some(sample => sample.hasAnyFeedback) ? 'in_progress' : 'pending';
+  }
   const projected = {
     id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
     sessionName: raw.sessionName, sessionType: raw.sessionType, sessionDate: raw.sessionDate,
-    samplesInSession: raw.samplesInSession, status: state.completed ? 'complete' : raw.status === 'complete' ? 'complete' : state.started && raw.status !== 'new' ? 'in_progress' : raw.status, cuppingForm: raw.cuppingForm,
+    samplesInSession: raw.samplesInSession, status: displayStatus, cuppingForm: raw.cuppingForm,
     formKey: raw.formKey, formVersion: raw.formVersion, formHash: raw.formHash,
     cuppingMode: raw.cuppingMode, formLocked: raw.formLocked, createdAt: raw.createdAt, updatedAt: raw.updatedAt,
     samples: samples.map((sample, index) => ({
