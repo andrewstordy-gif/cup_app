@@ -35,18 +35,24 @@ function logNfcEvent(stage, payload) {
   const counts = {};
   for (const key of ["delayMs", "attempt", "recordCount", "byteLength"]) {
     const value = payload?.[key];
-    if (typeof value === "number" && Number.isFinite(value) && value >= 0) counts[key] = value;
+    if (Number.isSafeInteger(value) && value >= 0 && value <= (key === "recordCount" ? 65535 : 2147483647)) counts[key] = value;
+  }
+  if (/^(?:read|write|read\+write) (?:tag summary|retry tag summary)$/.test(safeStage)) {
+    for (const key of ["tagPresent", "identifierPresent", "ndefArrayPresent"]) {
+      if (typeof payload?.[key] === "boolean") counts[key] = payload[key];
+    }
+    counts.tagType = safeTagType(payload?.tagType);
   }
   // Raw NDEF, decoded text, byte windows and native objects can identify a
-  // blind coffee. Diagnostics use fixed stages and operational counts only.
-  console.log(`${ts} NFC minimal ${safeStage}`, counts);
+  // blind coffee. Emit only fixed stages, counts and allowlisted scan shape.
+  try { console.log(`${ts} NFC minimal ${safeStage}`, counts); } catch { /* Diagnostics must not interrupt NFC. */ }
 }
 
 function logNativeNfcError(stage) {
   const ts = logTimestamp();
   const safeStage = ["requestTechnology", "getTag", "writeNdefMessage", "read+write writeNdefMessage"].includes(stage)
     ? stage : "operation";
-  console.log(`${ts} NFC minimal error stage: ${safeStage}`);
+  try { console.log(`${ts} NFC minimal error stage: ${safeStage}`); } catch { /* Diagnostics only. */ }
 }
 
 function byteToHex(value) {
@@ -487,18 +493,44 @@ async function getCurrentTag() {
   }
 }
 
-function summarizeTag(tag) {
-  if (!tag || typeof tag !== "object") {
-    return { present: false };
-  }
+// Closed native technology labels only; never echo an arbitrary native string.
+function safeTagType(value) {
+  return ["mifare", "iso15693", "iso7816", "felica", "Ndef", "NfcA", "NfcB", "NfcF", "NfcV", "IsoDep", "MifareClassic", "MifareUltralight", "NdefFormatable", "android.nfc.tech.Ndef", "android.nfc.tech.NfcA", "android.nfc.tech.NfcB", "android.nfc.tech.NfcF", "android.nfc.tech.NfcV", "android.nfc.tech.IsoDep", "android.nfc.tech.MifareClassic", "android.nfc.tech.MifareUltralight", "android.nfc.tech.NdefFormatable"].includes(value) ? value : "unknown";
+}
 
-  const ndefMessage = Array.isArray(tag.ndefMessage) ? tag.ndefMessage : [];
-  return {
-    present: true,
-    id: tag.id ?? null,
-    ndefRecordCount: ndefMessage.length,
-    keys: Object.keys(tag).sort(),
+function summarizeTag(tag) {
+  // Read data properties only; skip accessors and custom array methods.
+  // Malformed diagnostics must not affect the scanner's control flow.
+  const data = (object, key) => {
+    try { return Object.getOwnPropertyDescriptor(object, key)?.value; } catch { return undefined; }
   };
+  const own = key => data(tag, key);
+  try {
+    const tagPresent = Boolean(tag && typeof tag === "object" && !Array.isArray(tag));
+    const id = own("id") ?? own("identifier") ?? own("serialNumber");
+    let identifierPresent = typeof id === "string" && /[a-z0-9]/i.test(id);
+    if (Array.isArray(id)) {
+      const length = data(id, "length");
+      identifierPresent = Number.isSafeInteger(length) && length > 0 && length <= 64;
+      for (let index = 0; identifierPresent && index < length; index += 1) {
+        const byte = data(id, String(index));
+        identifierPresent = Number.isInteger(byte) && byte >= 0 && byte <= 255;
+      }
+    }
+    const ndef = own("ndefMessage"), techTypes = own("techTypes");
+    let tagType = safeTagType(own("tech"));
+    if (tagType === "unknown") tagType = safeTagType(own("type"));
+    const techCount = Array.isArray(techTypes) ? data(techTypes, "length") : 0;
+    if (Number.isSafeInteger(techCount) && techCount <= 32) {
+      for (let index = 0; tagType === "unknown" && index < techCount; index += 1) {
+        tagType = safeTagType(data(techTypes, String(index)));
+      }
+    }
+    return { tagPresent, identifierPresent, ndefArrayPresent: Array.isArray(ndef),
+      recordCount: Array.isArray(ndef) ? data(ndef, "length") : 0, tagType };
+  } catch {
+    return { tagPresent: false, identifierPresent: false, ndefArrayPresent: false, recordCount: 0, tagType: "unknown" };
+  }
 }
 
 async function getCurrentTagWithRetry(stage) {
