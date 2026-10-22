@@ -466,6 +466,7 @@ export function CuppingSessionDetailsScreen({
               }),
               cuppingMode: normalizeCuppingModeKey(sample.cuppingMode),
               identityHidden: sample.identityHidden,
+              tastingActive: sample.tastingActive,
               localRemoval: sample.localRemoval,
             })
           )
@@ -1820,16 +1821,17 @@ export function CuppingSessionDetailsScreen({
           </View>
 
           {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
-            <LegacySampleCard key={sample.id} sample={sessionId ? visibleIdentity.samples[index] : sample} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
+            <LegacySampleCard key={sample.id} sample={sessionId ? visibleIdentity.samples[index] : sample} inactive={sample.tastingActive === false} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
               onRemove={handleRemoveSample} canRemove={Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample}
               showRemove={Boolean(sample.localRemoval?.canRemove)}
-              onPress={sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
+              onPress={sample.tastingActive !== false && sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
                 ? () => requestSetupExit(() => onOpenSample(sample, index, samples.length, { sessionId: savedSessionIdRef.current, isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) }))
                 : undefined} />
           ) : isSessionFormSupported ? (
             <CoffeeSampleCard
               key={sample.id}
               sample={projectSessionDetailsCard(sessionId ? visibleIdentity.samples[index] : sample, sessionStatusBadgeLabel, index)}
+              inactive={sample.tastingActive === false}
               index={index}
               scale={scale}
               onRemove={handleRemoveSample}
@@ -1840,7 +1842,7 @@ export function CuppingSessionDetailsScreen({
               defaultExpanded={isSessionComplete}
               onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : lockOperationRef.current ? undefined : () => handleOpenEditSheet(sample)}
               onOpenSample={
-                sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && isSessionFormSupported && sample.cupUUID && typeof onOpenSample === "function"
+                sample.tastingActive !== false && sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && isSessionFormSupported && sample.cupUUID && typeof onOpenSample === "function"
                   ? () =>
                       requestSetupExit(() => onOpenSample(sample, index, samples.length, {
                         sessionId: savedSessionIdRef.current,

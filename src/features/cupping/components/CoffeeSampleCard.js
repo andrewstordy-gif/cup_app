@@ -101,6 +101,7 @@ export function CoffeeSampleCard({
   onOpenSample,
   onEditSample,
   defaultExpanded = false,
+  inactive = false,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [detailData, setDetailData] = useState({
@@ -109,19 +110,19 @@ export function CoffeeSampleCard({
     defects: null,
     loaded: false,
   });
-  const isComplete = Boolean(status?.isComplete);
-  const finalScore = normalizeTotalScore(status?.finalScore);
+  const isComplete = !inactive && Boolean(status?.isComplete);
+  const finalScore = inactive ? null : normalizeTotalScore(status?.finalScore);
   const totalScore = finalScore;
   const scoresByField = status?.scoresByField || {};
-  const hasScoreBreakdown = Boolean(status?.hasAnyFeedback) || Object.keys(scoresByField).length > 0;
+  const hasScoreBreakdown = !inactive && (Boolean(status?.hasAnyFeedback) || Object.keys(scoresByField).length > 0);
   const scoreItems = hasScoreBreakdown
     ? makeScores(CUPPING_SCORE_FIELDS.map((field) => scoresByField[field] ?? null))
     : EMPTY_SCORES;
   const isLocked = isComplete;
-  const removeDisabled = !canRemove || (isLocked && !participantLocalRemoval);
+  const removeDisabled = inactive || !canRemove || (isLocked && !participantLocalRemoval);
   const displaySampleNumber = sample.sampleCode || resolveSampleNumber(sample.sampleNumber, index);
-  const canOpenSample = Boolean(sample.cupUUID && typeof onOpenSample === "function");
-  const editDisabled = isLocked || typeof onEditSample !== "function";
+  const canOpenSample = !inactive && Boolean(sample.cupUUID && typeof onOpenSample === "function");
+  const editDisabled = inactive || isLocked || typeof onEditSample !== "function";
   const feedbackState = detailData.feedbackRowsByField
     ? buildFeedbackStateFromSavedRows(detailData.feedbackRowsByField)
     : {};
@@ -138,7 +139,7 @@ export function CoffeeSampleCard({
   const roastDefects = getSelectedDefects(latestDefectEntry, ROAST_DEFECT_OPTIONS);
 
   useEffect(() => {
-    if (!expanded || !sample.id || detailData.loaded) {
+    if (inactive || !expanded || !sample.id || detailData.loaded) {
       return undefined;
     }
 
@@ -175,9 +176,10 @@ export function CoffeeSampleCard({
     return () => {
       isCancelled = true;
     };
-  }, [detailData.loaded, expanded, sample.id]);
+  }, [detailData.loaded, expanded, sample.id, inactive]);
 
   const handleCollapsedPress = () => {
+    if (inactive) return;
     if (canOpenSample) {
       onOpenSample(sample, index);
       return;
@@ -198,7 +200,7 @@ export function CoffeeSampleCard({
   };
 
   return (
-    <View style={[styles.card, { marginTop: 16 * scale }]}>
+    <View style={[styles.card, inactive && { backgroundColor: colors.panel }, { marginTop: 16 * scale }]}>
       <View
         style={[
           styles.collapsedBody,
@@ -212,16 +214,18 @@ export function CoffeeSampleCard({
       >
         <Pressable
           onPress={handleCollapsedPress}
+          disabled={inactive}
           accessibilityRole="button"
+          accessibilityState={{ disabled: inactive }}
           accessibilityLabel={
-            canOpenSample ? `Open scoring for sample ${displaySampleNumber}` : `Expand sample ${displaySampleNumber}`
+            inactive ? `Sample ${displaySampleNumber}${sample.identityHidden ? '' : `, ${sample.coffeeNameOrigin || 'Coffee not set'}, ${getProcessLabel(sample.process) || 'Process not set'}`}. Scan cup to include in your tasting` : canOpenSample ? `Open scoring for sample ${displaySampleNumber}` : `Expand sample ${displaySampleNumber}`
           }
           style={[styles.collapsedMain, { gap: 12 * scale }]}
         >
           <View style={styles.topLine}>
             <View style={[styles.identity, { gap: 8 * scale }]}>
-              <Text style={styles.sampleLabel}>{displaySampleNumber}</Text>
-              {onEditSample ? (
+              <Text style={[styles.sampleLabel, inactive && { color: colors.muted }]}>{displaySampleNumber}</Text>
+              {onEditSample && !inactive ? (
                 <Pressable
                   onPress={handleEditPress}
                   disabled={editDisabled}
@@ -235,7 +239,7 @@ export function CoffeeSampleCard({
                 </Pressable>
               ) : null}
             </View>
-            {showRemove ? <IconButton name="close"
+            {showRemove && !inactive ? <IconButton name="close"
               onPress={handleRemovePress}
               disabled={removeDisabled}
               accessibilityLabel={`Remove sample ${displaySampleNumber}`}
@@ -244,14 +248,20 @@ export function CoffeeSampleCard({
           </View>
 
           <ScoreRow scores={scoreItems} totalScore={totalScore} scale={scale} />
-          {status?.resultLabel ? <Text style={styles.sectionLabel}>{status.resultLabel}</Text> : null}
+          {!inactive && status?.resultLabel ? <Text style={styles.sectionLabel}>{status.resultLabel}</Text> : null}
+          {inactive ? <Text style={styles.sectionLabel}>Scan cup to include in your tasting</Text> : null}
+          {inactive && !sample.identityHidden ? <View style={styles.fieldBlock}>
+            <Text style={styles.sectionValue}>{sample.coffeeNameOrigin || "Coffee not set"}</Text>
+            <Text style={styles.sectionLabel}>{getProcessLabel(sample.process) || "Process not set"}</Text>
+          </View> : null}
         </Pressable>
 
         <Pressable
-          onPress={() => setExpanded((value) => !value)}
+          onPress={() => { if (!inactive) setExpanded((value) => !value); }}
+          disabled={inactive}
           accessibilityRole="button"
           accessibilityLabel={expanded ? "Collapse sample" : "Expand sample"}
-          accessibilityState={{ expanded }}
+          accessibilityState={{ expanded: !inactive && expanded, disabled: inactive }}
           style={styles.chevronRow}
           hitSlop={8}
         >
@@ -259,7 +269,7 @@ export function CoffeeSampleCard({
         </Pressable>
       </View>
 
-      {expanded ? (
+      {!inactive && expanded ? (
         <>
           <View style={styles.divider} />
 

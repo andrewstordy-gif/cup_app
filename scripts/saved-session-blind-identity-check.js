@@ -144,7 +144,7 @@ assert.match(details, /accessibilityLabel="Session name"/, 'visible session name
 assert.doesNotMatch(details, /Session name hidden for blind cupping|Identity is hidden in this shared view/, 'session name is not announced as hidden coffee identity');
 const card = readFileSync(path.join(root, 'src/features/cupping/components/CoffeeSampleCard.js'), 'utf8');
 assert.match(card, /sample\.identityHidden \? "Hidden during blind cupping"/, 'expanded process explains redaction');
-assert.match(card, /\{showRemove \? <IconButton/, 'card omits removal control unless trusted permission exposes it');
+assert.match(card, /\{showRemove && !inactive \? <IconButton/, 'card omits removal control unless trusted permission exposes it and the card is active');
 const nav = readFileSync(path.join(root, 'src/navigation/AppNavigator.js'), 'utf8');
 assert.equal((nav.match(/if \(!await selectSavedAssessment\(\{/g) || []).length, 4,
   'both NFC branches, aroma capture and completed review project scorer context');

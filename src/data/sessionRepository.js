@@ -52,12 +52,44 @@ async function assertSetupUnlockedWithDb(db, sessionId) {
   if (await setupLockWithDb(db, sessionId)) throw new Error('This session is locked. Its setup cannot be changed.');
 }
 
+// Only new explicit Locks enroll. NULL preserves every pre-existing session;
+// response ownership/score presence is never evidence of a physical tasting scan.
+async function creatorActivationWithDb(db, sessionId) {
+  const session = await db.getFirstAsync(`SELECT local_creator_activation_policy AS policy,
+    local_creator_profile_id AS creator, local_setup_lock_snapshot AS snapshot,
+    status, cupping_form AS cuppingForm, form_key AS formKey, form_version AS formVersion,
+    form_hash AS formHash FROM sessions WHERE id=?`, [sessionId]);
+  if (!session || session.policy == null) return null;
+  if (session.policy !== 1 || !validActor(session.creator) || !['pending', 'in_progress', 'complete'].includes(session.status) ||
+      !isActiveFormPin(session, session.cuppingForm) || !(await setupLockWithDb(db, sessionId))) tastingFail('tasting:damaged_activation');
+  const samples = await db.getAllAsync('SELECT id,sample_code AS code FROM samples WHERE session_id=?', [sessionId]);
+  const rows = await db.getAllAsync('SELECT * FROM local_creator_sample_activations WHERE session_id=?', [sessionId]);
+  for (const row of rows) {
+    if (row.local_profile_id !== session.creator || row.lock_snapshot !== session.snapshot ||
+        !validCode(row.sample_code) || !samples.some(sample => sample.id === row.sample_id && sample.code === row.sample_code) ||
+        typeof row.scanned_at !== 'string' || !Number.isFinite(Date.parse(row.scanned_at)) ||
+        new Date(row.scanned_at).toISOString() !== row.scanned_at) tastingFail('tasting:damaged_activation');
+  }
+  return { ...session, rows };
+}
+
+function creatorTargetActive(policy, actor, sampleId) {
+  return !policy || policy.creator === actor && policy.rows.some(row => row.sample_id === sampleId);
+}
+
+async function assertCreatorTargetActiveWithDb(db, sessionId, sampleId, actor) {
+  const policy = await creatorActivationWithDb(db, sessionId);
+  if (!creatorTargetActive(policy, actor, sampleId)) tastingFail('tasting:scan_to_activate');
+  return policy;
+}
+
 // Read-only readiness proof. Each member retains its own original on-tag total.
 async function lockSnapshotWithDb(db, sessionId, actor) {
   await assertLocalCreatorWithDb(db, sessionId);
   await assertSetupUnlockedWithDb(db, sessionId);
   await assertUnstartedWithDb(db, sessionId);
   await assertNoPendingWithDb(db, sessionId);
+  await creatorActivationWithDb(db, sessionId);
   const setup = await getSessionByIdWithDb(db, sessionId, { reconcile: false });
   if (setup.status !== 'new' || !setup.samples.length ||
       !isActiveFormPin(setup, setup.cuppingForm) || ![1, 2].includes(setup.cuppingForm) ||
@@ -108,7 +140,7 @@ export async function lockSessionSetup({ sessionId, expectedSnapshot }) {
     } else {
       if (await lockSnapshotWithDb(txn, sessionId, actor) !== expectedSnapshot) throw new Error('Session setup changed. Save and try again.');
       await requireSameTastingActor(actor);
-      await txn.runAsync("UPDATE sessions SET local_setup_locked_at=?,local_setup_lock_snapshot=?,status='pending' WHERE id=?", [new Date().toISOString(), expectedSnapshot, sessionId]);
+      await txn.runAsync("UPDATE sessions SET local_setup_locked_at=?,local_setup_lock_snapshot=?,local_creator_activation_policy=1,status='pending' WHERE id=?", [new Date().toISOString(), expectedSnapshot, sessionId]);
     }
     await requireSameTastingActor(actor);
   });
@@ -327,7 +359,7 @@ export async function saveCvaResponse(input) {
   const actor = await getOrCreateLocalProfileIdentity();
   const result = await saveCanonicalCva(db, command, generateId, cvaDescriptors, async txn => {
     await requireSameTastingActor(actor);
-    await assertAssessmentReadyWithDb(txn, command.sessionId);
+    await assertAssessmentReadyWithDb(txn, command.sessionId, command.sampleId, actor);
     await persistHistoryWithDb(txn, command.sessionId);
     const before = await revisionWithDb(txn, command.sessionId, actor);
     if (!before.matches) tastingFail('tasting:stale_content');
@@ -352,19 +384,20 @@ async function requireSameTastingActor(actor) {
   if (!validActor(actor) || await getLocalProfileIdentity() !== actor) tastingFail('tasting:actor_changed');
 }
 
-async function assertAssessmentReadyWithDb(db, sessionId) {
+async function assertAssessmentReadyWithDb(db, sessionId, sampleId = null, actor = undefined) {
   await assertNoPendingWithDb(db, sessionId);
   const row = await db.getFirstAsync('SELECT status, local_creator_profile_id AS creator FROM sessions WHERE id = ?', [sessionId]);
   if (row?.status === 'new' && row.creator) throw new Error('Save this session before opening a tasting assessment.');
+  if (sampleId) await assertCreatorTargetActiveWithDb(db, sessionId, sampleId, actor === undefined ? await getLocalProfileIdentity() : actor);
 }
 
 async function withTastingResponseAccess(db, sessionId, sampleId, form, saved, capturedActor = undefined) {
-  await assertAssessmentReadyWithDb(db, sessionId);
   let actor = capturedActor;
   if (actor === undefined) {
     actor = null;
     try { actor = await getOrCreateLocalProfileIdentity(); } catch { /* unavailable fails closed */ }
   }
+  await assertAssessmentReadyWithDb(db, sessionId, sampleId, actor);
   const access = await streamWithDb(db, sessionId, sampleId, form, actor);
   const presentation = await getLocalTastingPresentationWithDb(db, sessionId, 'tasting', actor);
   const sample = presentation.session.samples.find(row => row.id === sampleId);
@@ -378,7 +411,12 @@ async function canonicalCvaForSample(db, sampleId) {
   const row = await db.getFirstAsync(`SELECT s.id, s.cupping_form AS cuppingForm,
     s.form_key AS formKey, s.form_version AS formVersion, s.form_hash AS formHash
     FROM samples sm JOIN sessions s ON s.id = sm.session_id WHERE sm.id = ? LIMIT 1`, [sampleId]);
-  return row && isCanonicalCvaReadPin(row) ? readCanonicalCva(db, row.id, sampleId) : null;
+  if (!row || !isCanonicalCvaReadPin(row)) return null;
+  const actor = await getLocalProfileIdentity();
+  const policy = await assertCreatorTargetActiveWithDb(db, row.id, sampleId, actor);
+  const saved = await readCanonicalCva(db, row.id, sampleId);
+  if (policy) await requireSameTastingActor(actor);
+  return saved;
 }
 
 async function assertActiveCvaSampleWithDb(db, sessionId, sampleId) {
@@ -1045,6 +1083,8 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const isLocalCreator = validActor(actor) && creator?.creator === actor;
   const state = await tastingStateWithDb(db, sessionId, actor);
   const samples = raw.samples || [];
+  const activation = await creatorActivationWithDb(db, sessionId);
+  const targetActive = sample => creatorTargetActive(activation, actor, sample.id);
   const activePin = isActiveFormPin(raw, 1) || isActiveFormPin(raw, 2);
   const supported = (activePin || isCanonicalCvaReadPin(raw)) &&
     ['new', 'pending', 'in_progress', 'complete'].includes(raw.status) &&
@@ -1063,7 +1103,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const emptyCvaDraftSetup = purpose === 'setup' && canManageSetup && raw.status === 'new' &&
     !samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked;
   const preparation = purpose === 'setup' && canManageSetup;
-  const showSample = sample => Boolean(supported && validMode && (sample.cuppingMode === 'open' || state.revealed || preparation));
+  const showSample = sample => Boolean(supported && validMode && (sample.cuppingMode === 'open' || targetActive(sample) && state.revealed || preparation));
   // This aggregate is conservative metadata only. Never use it for a target's
   // coffee identity: mixed tasting cards carry their own identityHidden flag.
   const identityHidden = samples.length ? samples.some(sample => !showSample(sample)) :
@@ -1089,6 +1129,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     id: sample.id, cupUUID: sample.cupUUID, cupNumber: sample.cupNumber,
     cuppingForm: sample.cuppingForm, cuppingMode: sample.cuppingMode,
     sampleNumber: sample.sampleNumber, sampleCode: sample.sampleCode, positionIndex: sample.positionIndex,
+    ...(activation ? { tastingActive: targetActive(sample) } : {}),
     localRemoval: localRemoval[sample.id] || { canRemove: false },
     coffeeNameOrigin: showSample(sample) ? sample.coffeeNameOrigin : `Sample ${sample.sampleCode || Number(sample.sampleNumber) || index + 1}`,
     process: showSample(sample) ? sample.process : null, identityHidden: !showSample(sample),
@@ -1230,7 +1271,7 @@ export async function adoptSavedTasting({ sessionId, sampleId, expectedSourceTok
   let committedSource;
   await db.withExclusiveTransactionAsync(async txn => {
     await requireSameTastingActor(actor);
-    await assertAssessmentReadyWithDb(txn, sessionId);
+    await assertAssessmentReadyWithDb(txn, sessionId, sampleId, actor);
     const session = await getSessionByIdWithDb(txn, sessionId);
     if (!(await revisionWithDb(txn, sessionId, actor)).matches) tastingFail('tasting:stale_content');
     form = session?.cuppingForm;
@@ -1694,7 +1735,13 @@ async function importSampleWithDb(db, {
   };
 }
 
-async function resolveCodeSampleFromMetadata({cupUUID,metadata}) {
+async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=null}) {
+  const assertScanCurrent = () => {
+    if (isScanCurrent == null) return;
+    let current = false;
+    try { current = typeof isScanCurrent === 'function' && isScanCurrent() === true; } catch { /* revoke */ }
+    if (!current) tastingFail('tasting:scan_cancelled');
+  };
   // Internal decoded aliases may exist, but must agree exactly with compact data.
   const aliases={coffeeName:'n',coffeeProcess:'p',cupNumber:'y',samplesInSession:'i',sampleNumber:'z',sessionName:'e',sessionType:'t',sessionDate:'d',sessionUUID:'u',cuppingMode:'m',cuppingForm:'f'};
   const compact={};
@@ -1729,9 +1776,21 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata}) {
       sample={id,cupUUID:target,cupNumber:observed.y,cuppingForm:observed.f,cuppingMode:mode,sampleNumber:index+1,sampleCode:observed.z,coffeeNameOrigin:observed.n,process:String(observed.p),positionIndex:index};
     }
     const saved=await getSessionByIdWithDb(txn,session.id);
+    const activation = await creatorActivationWithDb(txn, session.id);
+    if (activation) {
+      assertScanCurrent();
+      if (activation.creator !== actor) tastingFail('tasting:foreign_activation');
+      if (!creatorTargetActive(activation, actor, sample.id)) {
+        if (saved.status === 'complete') tastingFail('tasting:complete_activation_unavailable');
+        await txn.runAsync(`INSERT INTO local_creator_sample_activations
+          (session_id,local_profile_id,sample_id,sample_code,lock_snapshot,scanned_at) VALUES (?,?,?,?,?,?)`,
+        [session.id,actor,sample.id,sample.sampleCode,activation.snapshot,new Date().toISOString()]);
+      }
+    }
     await txn.runAsync('INSERT OR IGNORE INTO physical_code_observations(session_id,code,physical_uid) VALUES (?,?,?)',[session.id,observed.z,target]);
     output={sessionId:saved.id,sessionUUID:saved.sessionUUID,sessionDisplayId:saved.sessionDisplayId,sessionName:saved.sessionName,sessionType:saved.sessionType,sessionStatus:saved.status,sessionDate:saved.sessionDate,sampleId:sample.id,cupUUID:target,cupNumber:sample.cupNumber,cuppingForm:sample.cuppingForm,cuppingMode:sample.cuppingMode,sampleNumber:sample.sampleNumber,sampleCode:sample.sampleCode,coffeeNameOrigin:sample.coffeeNameOrigin,coffeeProcess:sample.process,cupIndex:sample.positionIndex,cupTotal:saved.samples.length};
     await requireSameTastingActor(actor);
+    if (activation) assertScanCurrent();
   });
   await requireSameTastingActor(actor);
   const present=await db.getFirstAsync('SELECT sample_code AS code FROM samples WHERE session_id=? AND id=?',[output.sessionId,output.sampleId]);
@@ -1740,8 +1799,8 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata}) {
   return output;
 }
 
-export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata } = {}) {
-  return resolveCodeSampleFromMetadata({cupUUID,metadata});
+export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata, isScanCurrent = null } = {}) {
+  return resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent});
 }
 
 // Numeric-profile resolver retained as historical implementation evidence, never
@@ -1917,6 +1976,7 @@ export async function discardLegacyRecoveryDraft({ sessionId, sampleId, expected
   const actor = await getLocalProfileIdentity();
   await db.withExclusiveTransactionAsync(async txn => {
     await requireSameTastingActor(actor);
+    await assertCreatorTargetActiveWithDb(txn, sessionId, sampleId, actor);
     if (!expectedFingerprint || expectedFingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
     await txn.runAsync('DELETE FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?', [sessionId, sampleId, actor]);
     await requireSameTastingActor(actor);
@@ -2009,7 +2069,7 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
       return;
     }
     await requireSameTastingActor(actor);
-    await assertAssessmentReadyWithDb(txn, sessionId);
+    await assertAssessmentReadyWithDb(txn, sessionId, sampleId, actor);
     if (fingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
     const access = await streamWithDb(txn, sessionId, sampleId, 2, actor);
     if (!access.canWrite) tastingFail(access.state === 'unattributed' ? 'tasting:review_required' : 'tasting:foreign_stream');
@@ -2559,6 +2619,9 @@ export async function getSampleFlavourObservations(sampleId) {
   }
 
   const db = await getLocalDatabase();
+  const actor = await getLocalProfileIdentity();
+  const target = await db.getFirstAsync('SELECT session_id AS sessionId FROM samples WHERE id=?', [normalizedSampleId]);
+  const policy = target ? await assertCreatorTargetActiveWithDb(db, target.sessionId, normalizedSampleId, actor) : null;
   const rows = await db.getAllAsync(
     `
       SELECT
@@ -2576,6 +2639,7 @@ export async function getSampleFlavourObservations(sampleId) {
     [normalizedSampleId]
   );
 
+  if (policy) await requireSameTastingActor(actor);
   return (rows || []).map((row) => ({
     keyword: cleanString(row?.keyword),
     label: cleanString(row?.label),

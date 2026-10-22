@@ -312,6 +312,8 @@ export function AppNavigator() {
     try {
       const session = sessionId ? await getSessionById(sessionId) : null;
       const storedSample = session?.samples?.find((entry) => entry.id === (sample?.sampleId || sample?.id));
+      const tasting = sessionId ? await getLocalTastingPresentation(sessionId, { purpose: 'tasting' }) : null;
+      if (tasting?.session?.samples?.find(entry => entry.id === storedSample?.id)?.tastingActive === false) throw new Error('Scan cup to include in your tasting.');
       return requireFormRoute(session, storedSample, metadata);
     } catch (error) {
       showWarning("Form unavailable", error?.message || UNSUPPORTED_MESSAGE);
@@ -323,6 +325,7 @@ export function AppNavigator() {
     const presentation = await getLocalTastingPresentation(context.sessionId, { purpose: 'tasting' });
     const sample = presentation.session?.samples?.find(item => item.id === context.sampleId);
     if (!sample) throw new Error(UNSUPPORTED_MESSAGE);
+    if (sample.tastingActive === false) throw new Error('Scan cup to include in your tasting.');
     // Preserve the real mode/form contract. Identity is a separate repository
     // projection; neither Open route flags nor caller coffee text grant reveal.
     return { ...context, cuppingMode: sample.cuppingMode,
@@ -393,8 +396,10 @@ export function AppNavigator() {
           ? await resolveActiveSampleFromCupMetadata({
               cupUUID: tagId,
               metadata,
+              isScanCurrent: () => isCurrentNfcAction(actionToken),
             })
           : null;
+        if (!isCurrentNfcAction(actionToken)) return;
         const activeSample = importedSample || (await findActiveSampleByCupUUID(tagId));
         if (!activeSample) {
           addFlowEvent(flowEvents, `NTAG_NO_ACTIVE_SAMPLE id=${tagId}`);
@@ -508,7 +513,9 @@ export function AppNavigator() {
         : await resolveActiveSampleFromCupMetadata({
             cupUUID,
             metadata: parsed?.text4,
+            isScanCurrent: () => isCurrentNfcAction(actionToken),
           });
+      if (!isCurrentNfcAction(actionToken)) return;
       const activeSample = importedSample || (await findActiveSampleByCupUUID(cupUUID));
       if (activeSample && noSessionMode) {
         addFlowEvent(flowEvents, `NO_SESSION_IGNORED_ACTIVE_SAMPLE uuid=${cupUUID}`);
@@ -796,7 +803,7 @@ export function AppNavigator() {
         if (isCancelled) {
           return;
         }
-        setSessionSampleContexts(Array.isArray(session?.samples) ? session.samples : []);
+        setSessionSampleContexts(Array.isArray(session?.samples) ? session.samples.filter(sample => sample.tastingActive !== false) : []);
       } catch {
         if (!isCancelled) {
           setSessionSampleContexts([]);
@@ -809,7 +816,7 @@ export function AppNavigator() {
     return () => {
       isCancelled = true;
     };
-  }, [selectedCupContext?.sessionId]);
+  }, [selectedCupContext?.sessionId, selectedCupContext?.sampleId, selectedCupContext?.scanRevision]);
 
   const buildContextFromSessionSample = (sample, index, total, options = {}) => {
     if (!sample) {

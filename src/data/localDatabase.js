@@ -361,6 +361,7 @@ async function prepareSchema(db) {
     ["form_version", "TEXT"], ["form_hash", "TEXT"],
     ["local_creator_profile_id", "TEXT"],
     ["local_setup_locked_at", "TEXT"], ["local_setup_lock_snapshot", "TEXT"],
+    ["local_creator_activation_policy", "INTEGER"],
   ]) {
     if (!sessionColumns.some((column) => column?.name === name)) {
       await db.execAsync(`ALTER TABLE sessions ADD COLUMN ${name} ${type};`);
@@ -469,6 +470,15 @@ async function prepareSchema(db) {
   await migrateFoundationWithDb(db);
   await db.execAsync(PENDING_SAMPLE_SCHEMA);
   await db.execAsync(SAMPLE_CODE_SCHEMA);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_creator_sample_activations (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    lock_snapshot TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );`);
 }
 
 async function runMigrations(db) {
