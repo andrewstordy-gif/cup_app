@@ -206,7 +206,7 @@ export function AppNavigator() {
   // until that read's existing finally settles. No overlapping radio session.
   const handleLocalTastingRemovalStart = (sessionId,sampleId) => {
     localTastingRemovalRef.current = true;
-    if (scanInProgressRef.current) removalRevokedNfcTokenRef.current = nfcActionTokenRef.current;
+    if (scanInProgressRef.current && removalRevokedNfcTokenRef.current == null) removalRevokedNfcTokenRef.current = nfcActionTokenRef.current;
     nfcActionTokenRef.current += 1;
     setSelectedCupContext(previous => previous?.sessionId === sessionId && previous?.sampleId === sampleId ? null : previous);
     if (selectedCupContext?.sessionId === sessionId) setSessionSampleContexts(previous => previous.filter(sample => sample.id !== sampleId));
