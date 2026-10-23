@@ -233,7 +233,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     setResult(null);
     setErrors([]);
     setHasPendingChanges(true);
-    const operation = saveQueue.current.enqueue(next, false, { intent: 'recovery', sessionId, sampleId });
+    const operation = saveQueue.current.enqueue(next, false, { intent: 'recovery', sessionId, sampleId, expectedRemovalGeneration:savedContext?.removalGeneration });
     const epoch = operationEpoch.current;
     operation.promise.then(saved => {
       if (epoch !== operationEpoch.current || operation.revision !== saveQueue.current.revision) return;
@@ -254,7 +254,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     const shouldComplete = Boolean(score?.ok);
     const wasComplete = savedCompleteRef.current;
     setIsSavingDraft(true);
-    const operation = saveQueue.current.enqueue(currentResponse, shouldComplete, { intent: 'save', sessionId, sampleId });
+    const operation = saveQueue.current.enqueue(currentResponse, shouldComplete, { intent: 'save', sessionId, sampleId, expectedRemovalGeneration:savedContext?.removalGeneration });
     const epoch = operationEpoch.current;
     try {
       const saved = await operation.promise;

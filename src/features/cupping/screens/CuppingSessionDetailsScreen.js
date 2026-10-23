@@ -58,6 +58,7 @@ import {
   assertSessionReferenceAvailable,
   deleteSessionById,
   removeParticipantSample,
+  removeCreatorTastingSample,
   findPendingSessionByCupUUID,
   getLocalTastingPresentation,
   getSessionSampleFinalStatus,
@@ -176,6 +177,7 @@ function buildRecoveredSmartCupText2(tag) {
 export function CuppingSessionDetailsScreen({
   onBackPress,
   onSaveSuccess,
+  onLocalTastingRemovalStart,
   onOpenSample,
   onScanCupForAssessment,
   quickStartSessionTypeKey,
@@ -670,7 +672,7 @@ export function CuppingSessionDetailsScreen({
     if (lockOperationRef.current) return;
     const permission = samples.find(sample=>sample.id===sampleId)?.localRemoval;
     if (permission?.canRemove && permission.removalToken && !participantRemovalBusyRef.current && savedSessionIdRef.current === sessionId && tastingPresentation?.session?.id === sessionId) {
-      const candidate = { sessionId, sampleId, token:permission.removalToken, label:permission.label, epoch:setupEpochRef.current };
+      const candidate = { sessionId, sampleId, token:permission.removalToken, label:permission.label, kind:permission.kind, epoch:setupEpochRef.current };
       participantRemovalRef.current = candidate;
       setParticipantRemoval(candidate);
       return;
@@ -690,8 +692,10 @@ export function CuppingSessionDetailsScreen({
     if (!candidate || candidate !== expected || participantRemovalBusyRef.current || candidate.sessionId !== sessionId || savedSessionIdRef.current !== sessionId || candidate.epoch !== setupEpochRef.current) return;
     participantRemovalBusyRef.current = candidate;
     setIsRemovingParticipantSample(true);
+    const finishRemoval = candidate.kind === 'creator-tasting' ? onLocalTastingRemovalStart?.(candidate.sessionId,candidate.sampleId) : null;
     try {
-      const result = await removeParticipantSample({sessionId:candidate.sessionId,sampleId:candidate.sampleId,expectedRemovalToken:candidate.token});
+      const remove = candidate.kind === 'creator-tasting' ? removeCreatorTastingSample : removeParticipantSample;
+      const result = await remove({sessionId:candidate.sessionId,sampleId:candidate.sampleId,expectedRemovalToken:candidate.token});
       if (candidate.epoch !== setupEpochRef.current || participantRemovalRef.current !== candidate) return;
       setTastingPresentation(result.presentation);
       setSamples(result.presentation.session.samples);
@@ -707,6 +711,7 @@ export function CuppingSessionDetailsScreen({
       setScanStatusMessage('Could not remove this local sample. Reopen the session and try again.');
       setPresentationRevision(value=>value+1);
     } finally {
+      finishRemoval?.();
       if (participantRemovalBusyRef.current === candidate) participantRemovalBusyRef.current = null;
       if (candidate.epoch === setupEpochRef.current) setIsRemovingParticipantSample(false);
     }
@@ -1821,7 +1826,7 @@ export function CuppingSessionDetailsScreen({
           </View>
 
           {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
-            <LegacySampleCard key={sample.id} sample={sessionId ? visibleIdentity.samples[index] : sample} inactive={sample.tastingActive === false} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
+            <LegacySampleCard key={sample.tastingActive == null ? sample.id : `${sample.id}:${sample.tastingActive ? 'active' : 'inactive'}`} sample={sessionId ? visibleIdentity.samples[index] : sample} inactive={sample.tastingActive === false} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
               onRemove={handleRemoveSample} canRemove={Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample}
               showRemove={Boolean(sample.localRemoval?.canRemove)}
               onPress={sample.tastingActive !== false && sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
@@ -1829,7 +1834,7 @@ export function CuppingSessionDetailsScreen({
                 : undefined} />
           ) : isSessionFormSupported ? (
             <CoffeeSampleCard
-              key={sample.id}
+              key={sample.tastingActive == null ? sample.id : `${sample.id}:${sample.tastingActive ? 'active' : 'inactive'}`}
               sample={projectSessionDetailsCard(sessionId ? visibleIdentity.samples[index] : sample, sessionStatusBadgeLabel, index)}
               inactive={sample.tastingActive === false}
               index={index}
@@ -1992,10 +1997,11 @@ export function CuppingSessionDetailsScreen({
       />
 
       <WarningDialog visible={Boolean(participantRemoval) && participantRemoval.sessionId === sessionId && tastingPresentation?.session?.id === sessionId && participantRemoval.epoch === setupEpochRef.current}
-        title="Remove local sample?"
-        message={`Delete ${participantRemoval?.label || 'this sample'} and its saved scores and notes from this phone? The physical cup and creator's copy will not change.`}
-        okLabel="Cancel" onOk={()=>dismissParticipantRemoval(participantRemoval)} onDismiss={()=>dismissParticipantRemoval(participantRemoval)}
-        secondaryLabel="Delete" onSecondary={()=>confirmParticipantRemoval(participantRemoval)} />
+        title={participantRemoval?.kind === 'creator-tasting' ? 'Remove Sample' : 'Remove local sample?'}
+        message={participantRemoval?.kind === 'creator-tasting' ? 'Remove this sample from your cupping session.' : `Delete ${participantRemoval?.label || 'this sample'} and its saved scores and notes from this phone? The physical cup and creator's copy will not change.`}
+        okLabel={participantRemoval?.kind === 'creator-tasting' ? 'REMOVE' : 'Cancel'}
+        onOk={()=>participantRemoval?.kind === 'creator-tasting' ? confirmParticipantRemoval(participantRemoval) : dismissParticipantRemoval(participantRemoval)} onDismiss={()=>dismissParticipantRemoval(participantRemoval)}
+        secondaryLabel={participantRemoval?.kind === 'creator-tasting' ? undefined : 'Delete'} onSecondary={participantRemoval?.kind === 'creator-tasting' ? undefined : ()=>confirmParticipantRemoval(participantRemoval)} />
 
       <WarningDialog
         visible={isOverwriteDialogVisible}

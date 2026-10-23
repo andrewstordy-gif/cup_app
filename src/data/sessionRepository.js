@@ -13,7 +13,7 @@ import { PROFILE, validateResponse, scoreResponse } from "../features/forms/cont
 import { canonicalize, sha256 } from '../features/forms/contract/canonical';
 import { readWithDb as readCanonicalCva, saveWithDb as saveCanonicalCva,
   statusesWithDb as canonicalCvaStatuses, closeWithDb as closeCanonicalCva } from '../features/cupping/data/cvaResponseStore';
-import { RATINGS, cvaUiMasks, cvaNoteGroups } from '../features/cupping/data/cvaResponse';
+import { RATINGS, createCvaDraft, cvaUiMasks, cvaNoteGroups } from '../features/cupping/data/cvaResponse';
 import { tokenizeFlavourKeywords } from '../features/cupping/data/flavourKeywords';
 import { CVA_SCORED_DEFECT_POLICY, getCvaScoredDefectSlots } from "../features/cupping/data/cvaDefectPolicy";
 import { CVA_EXACT_CALCULATION_POLICY, CVA_UNKNOWN_CALCULATION_MESSAGE,
@@ -81,6 +81,34 @@ async function assertCreatorTargetActiveWithDb(db, sessionId, sampleId, actor) {
   const policy = await creatorActivationWithDb(db, sessionId);
   if (!creatorTargetActive(policy, actor, sampleId)) tastingFail('tasting:scan_to_activate');
   return policy;
+}
+
+// Removal epochs survive deactivation. In particular, a Legacy blank response
+// must not have the same optimistic-write identity before and after removal.
+async function creatorRemovalGenerationWithDb(db, sessionId, sampleId, actor, policy = undefined) {
+  if (policy === undefined) policy = await creatorActivationWithDb(db, sessionId);
+  if (!policy) return null;
+  if (policy.creator !== actor) tastingFail('tasting:foreign_activation');
+  const sample = await db.getFirstAsync('SELECT sample_code AS code FROM samples WHERE session_id=? AND id=?', [sessionId, sampleId]);
+  if (!sample || !validCode(sample.code)) tastingFail('tasting:damaged_activation');
+  const rows = await db.getAllAsync('SELECT * FROM local_creator_sample_removals WHERE session_id=? AND sample_id=?', [sessionId, sampleId]);
+  if (rows.length > 1) tastingFail('tasting:damaged_removal');
+  const row = rows[0];
+  if (!row) return 0;
+  if (row.local_profile_id !== actor || row.sample_code !== sample.code || row.lock_snapshot !== policy.snapshot ||
+      !Number.isSafeInteger(row.generation) || row.generation < 1 || typeof row.removed_at !== 'string' ||
+      !Number.isFinite(Date.parse(row.removed_at)) || new Date(row.removed_at).toISOString() !== row.removed_at) tastingFail('tasting:damaged_removal');
+  return row.generation;
+}
+
+async function creatorHasSavedScoreWithDb(db, sessionId, form) {
+  if (form === 1) return Object.values(await canonicalCvaStatuses(db, sessionId)).some(value => value.hasAnyFeedback);
+  const samples = await db.getAllAsync('SELECT id FROM samples WHERE session_id=?', [sessionId]);
+  for (const sample of samples) {
+    const saved = await getLegacyResponseWithDb(db, sessionId, sample.id);
+    if (Object.values(saved.response?.quality_ratings || {}).some(value => value != null)) return true;
+  }
+  return false;
 }
 
 // Read-only readiness proof. Each member retains its own original on-tag total.
@@ -558,6 +586,11 @@ async function recomputeSessionProgressStatusWithDb(db, sessionId) {
   );
   const sampleCount = Number(sampleCountRow?.count) || 0;
   let nextStatus = sampleCount > 0 ? "pending" : "new";
+  if (await creatorActivationWithDb(db, normalizedSessionId)) {
+    nextStatus = await creatorHasSavedScoreWithDb(db, normalizedSessionId, session.cuppingForm) ? 'in_progress' : 'pending';
+    if (nextStatus !== currentStatus) await db.runAsync('UPDATE sessions SET status=?,updated_at=? WHERE id=?', [nextStatus,new Date().toISOString(),normalizedSessionId]);
+    return nextStatus;
+  }
   if (sampleCount > 0 && isActiveFormPin(session, 1) && isCanonicalCvaReadPin(session)) {
     const history = await historyWithDb(db, normalizedSessionId);
     if (history.ever_started && history.schema_version == null) await persistHistoryWithDb(db, normalizedSessionId);
@@ -1109,6 +1142,9 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const identityHidden = samples.length ? samples.some(sample => !showSample(sample)) :
     !Boolean(supported && (validMode && (open || state.revealed || preparation) || emptyCvaDraftSetup));
   const localRemoval = {};
+  if (activation && isLocalCreator) {
+    for (const sample of samples) localRemoval[sample.id] = await creatorRemovalContextWithDb(db, sessionId, sample.id, actor);
+  }
   if (activePin && validMode && validActor(actor) && creator?.creator === null) {
     for (const sample of samples) localRemoval[sample.id] = await participantRemovalContextWithDb(db, sessionId, sample.id, actor);
   }
@@ -1118,6 +1154,9 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   if (activePin && isCanonicalCvaReadPin(raw) && samples.length && !['new', 'complete'].includes(displayStatus)) {
     const statuses = await canonicalCvaStatuses(db, sessionId);
     displayStatus = Object.values(statuses).some(sample => sample.hasAnyFeedback) ? 'in_progress' : 'pending';
+  }
+  if (activation && raw.cuppingForm === 2 && !state.completed && raw.status !== 'complete') {
+    displayStatus = await creatorHasSavedScoreWithDb(db, sessionId, 2) ? 'in_progress' : 'pending';
   }
   const projected = {
     id: raw.id, sessionUUID: raw.sessionUUID, sessionDisplayId: raw.sessionDisplayId,
@@ -1137,6 +1176,93 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   return { session: projected, identityHidden,
     tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(activePin && validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete' && !(creator?.creator && raw.status === 'new')),
       canManageSetup, isLocalCreator } };
+}
+
+async function creatorRemovalContextWithDb(db, sessionId, sampleId, actor) {
+  const denied = { canRemove: false };
+  const policy = await creatorActivationWithDb(db, sessionId);
+  if (!policy || !validActor(actor) || policy.creator !== actor) return denied;
+  const generation = await creatorRemovalGenerationWithDb(db, sessionId, sampleId, actor, policy);
+  const activation = policy.rows.find(row => row.sample_id === sampleId);
+  if (!activation || generation === Number.MAX_SAFE_INTEGER) return denied;
+  const session = await getSessionByIdWithDb(db, sessionId);
+  const sample = session.samples.find(row => row.id === sampleId);
+  if (session.cuppingMode != null && !['open','blind'].includes(session.cuppingMode) ||
+      session.cuppingForm === 2 && session.cuppingMode !== 'open' ||
+      session.samples.some(row => row.cuppingForm !== session.cuppingForm || !['open','blind'].includes(row.cuppingMode) ||
+        session.cuppingForm === 2 && row.cuppingMode !== 'open' || !Number.isInteger(row.cupNumber) || row.cupNumber < 1 || row.cupNumber > 8)) return denied;
+  if (!sample || sample.cuppingForm !== session.cuppingForm || !Number.isInteger(sample.cupNumber) ||
+      sample.cupNumber < 1 || sample.cupNumber > 8 || !['open','blind'].includes(sample.cuppingMode) ||
+      session.cuppingForm === 2 && sample.cuppingMode !== 'open') return denied;
+  const access = await streamWithDb(db, sessionId, sampleId, session.cuppingForm, actor);
+  if (!['fresh','mine'].includes(access.state)) return denied;
+  const revision = await revisionWithDb(db, sessionId, actor);
+  if (!revision.matches || await db.getFirstAsync('SELECT local_profile_id FROM local_tasting_revisions WHERE session_id=? AND local_profile_id<>? LIMIT 1', [sessionId,actor])) return denied;
+  if (session.cuppingForm === 1) await readCanonicalCva(db, sessionId, sampleId);
+  else await getLegacyResponseWithDb(db, sessionId, sampleId);
+  const recovery = await db.getAllAsync('SELECT * FROM local_legacy_recovery_drafts WHERE sample_id=? ORDER BY local_profile_id', [sampleId]);
+  for (const row of recovery) {
+    if (session.cuppingForm !== 2 || row.session_id !== sessionId || row.local_profile_id !== actor ||
+        row.base_fingerprint !== await legacyFingerprintWithDb(db,sessionId,sampleId,actor) ||
+        row.context_json !== canonicalize({sessionId,sampleId,pin:trustedLegacySession(session).identity,count:sample.cupNumber}) ||
+        typeof row.updated_at !== 'string' || !Number.isFinite(Date.parse(row.updated_at)) || new Date(row.updated_at).toISOString() !== row.updated_at) return denied;
+    try { if (canonicalize(JSON.parse(row.response_json)) !== row.response_json || !validateResponse({...trustedLegacySession(session),cup_count:sample.cupNumber,response:JSON.parse(row.response_json),complete:false},trustedLegacySession(session)).ok) return denied; }
+    catch { return denied; }
+  }
+  const childTables = ['sample_feedback_entries','sample_defect_entries','sample_flavour_observations','cva_response_revisions','legacy_responses','local_response_streams'];
+  if (await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='sample_feedback'")) childTables.push('sample_feedback');
+  for (const table of childTables) {
+    if (await db.getFirstAsync(`SELECT sample_id FROM ${table} WHERE sample_id=? AND (session_id IS NULL OR session_id<>?) LIMIT 1`,[sampleId,sessionId])) return denied;
+  }
+  return { canRemove:true, kind:'creator-tasting', label:sample.sampleCode,
+    removalToken:sha256(canonicalize({actor,sessionId,sampleId,generation,activation:{...activation},revision:revision.revision,hash:revision.hash,recovery:recovery.map(row=>({...row}))})) };
+}
+
+export async function removeCreatorTastingSample({sessionId,sampleId,expectedRemovalToken} = {}) {
+  const command = {sessionId,sampleId,expectedRemovalToken}, db = await getLocalDatabase(), actor = await getLocalProfileIdentity();
+  let output;
+  await db.withExclusiveTransactionAsync(async txn => {
+    await requireSameTastingActor(actor);
+    const context = await creatorRemovalContextWithDb(txn,command.sessionId,command.sampleId,actor);
+    if (!context.canRemove || !command.expectedRemovalToken || context.removalToken !== command.expectedRemovalToken) tastingFail('tasting:stale_removal');
+    const policy = await assertCreatorTargetActiveWithDb(txn,command.sessionId,command.sampleId,actor);
+    const generation = await creatorRemovalGenerationWithDb(txn,command.sessionId,command.sampleId,actor,policy);
+    const session = await getSessionByIdWithDb(txn,command.sessionId), sample = session.samples.find(row=>row.id===command.sampleId);
+    await persistHistoryWithDb(txn,command.sessionId);
+    // Preserve immutable completion provenance before reopening the current view.
+    await txn.runAsync("UPDATE sessions SET status='pending' WHERE id=?",[command.sessionId]);
+    if (session.cuppingForm === 1) {
+      const prior = await readCanonicalCva(txn,command.sessionId,command.sampleId);
+      await saveCanonicalCva({...txn,withExclusiveTransactionAsync:work=>work(txn)}, {
+        sessionId:command.sessionId,sampleId:command.sampleId,response:createCvaDraft(sample.cupNumber),
+        expectedRevision:prior.revision,expectedIdentity:prior.trusted.identity,expectedCupCount:sample.cupNumber,
+      },generateId,()=>[],async handle=>{
+        await writeStreamWithDb(handle,{sessionId:command.sessionId,sampleId:command.sampleId,form:1,actor});
+        return {}; // Repository owns progress; clearing is not a tasting start.
+      });
+    } else await txn.runAsync('DELETE FROM legacy_responses WHERE session_id=? AND sample_id=?',[command.sessionId,command.sampleId]);
+    await txn.runAsync('DELETE FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?',[command.sessionId,command.sampleId,actor]);
+    for (const table of ['sample_feedback_entries','sample_defect_entries','sample_flavour_observations']) {
+      await txn.runAsync(`DELETE FROM ${table} WHERE session_id=? AND sample_id=?`,[command.sessionId,command.sampleId]);
+    }
+    if (await txn.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='sample_feedback'")) {
+      await txn.runAsync('DELETE FROM sample_feedback WHERE session_id=? AND sample_id=?',[command.sessionId,command.sampleId]);
+    }
+    await txn.runAsync(`INSERT INTO local_creator_sample_removals
+      (session_id,local_profile_id,sample_id,sample_code,lock_snapshot,generation,removed_at) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(session_id,local_profile_id,sample_id) DO UPDATE SET generation=excluded.generation,removed_at=excluded.removed_at`,
+    [command.sessionId,actor,command.sampleId,sample.sampleCode,policy.snapshot,generation+1,new Date().toISOString()]);
+    await txn.runAsync('DELETE FROM local_creator_sample_activations WHERE session_id=? AND sample_id=? AND local_profile_id=?',[command.sessionId,command.sampleId,actor]);
+    await commitRevisionWithDb(txn,command.sessionId,actor);
+    await recomputeSessionProgressStatusWithDb(txn,command.sessionId);
+    output = {deactivated:true,presentation:await getLocalTastingPresentationWithDb(txn,command.sessionId,'tasting',actor),statuses:await getSessionSampleFinalStatusWithDb(txn,command.sessionId)};
+    await requireSameTastingActor(actor);
+  });
+  await requireSameTastingActor(actor);
+  const acknowledged = await getLocalTastingPresentation(command.sessionId);
+  if (acknowledged.tasting.contextToken !== output.presentation.tasting.contextToken || acknowledged.session.samples.find(row=>row.id===command.sampleId)?.tastingActive !== false) tastingFail('tasting:ack_changed');
+  await requireSameTastingActor(actor);
+  return output;
 }
 
 async function participantRemovalContextWithDb(db, sessionId, sampleId, actor) {
@@ -1941,6 +2067,7 @@ export async function getLegacyResponse(sessionId, sampleId) {
     if (actor) await requireSameTastingActor(actor);
     output = await withTastingResponseAccess(txn, sessionId, sampleId, 2, await getLegacyResponseWithDb(txn, sessionId, sampleId), actor);
     output.savedFingerprint = await legacyFingerprintWithDb(txn, sessionId, sampleId, actor);
+    output.removalGeneration = await creatorRemovalGenerationWithDb(txn,sessionId,sampleId,actor);
     const draft = validActor(actor) ? await txn.getFirstAsync(`SELECT * FROM local_legacy_recovery_drafts
       WHERE session_id=? AND sample_id=? AND local_profile_id=?`, [sessionId, sampleId, actor]) : null;
     if (draft && draft.base_fingerprint === output.savedFingerprint && output.access.canWrite) {
@@ -1965,7 +2092,8 @@ async function legacyFingerprintWithDb(db, sessionId, sampleId, actor) {
   const stream = await streamWithDb(db, sessionId, sampleId, 2, actor);
   const c = stream.context;
   if (!c) tastingFail('tasting:unavailable');
-  return sha256(canonicalize({ actor, context: { sessionId, sampleId,
+  const generation = await creatorRemovalGenerationWithDb(db,sessionId,sampleId,actor);
+  return sha256(canonicalize({ actor, ...(generation > 0 ? {removalGeneration:generation} : {}), context: { sessionId, sampleId,
     form: c.cupping_form, key: c.form_key, version: c.form_version, hash: c.form_hash,
     mode: c.cupping_mode, sampleForm: c.sample_form, sampleMode: c.sample_mode, count: c.cup_number },
   source: semanticSource(stream.source) }));
@@ -2010,7 +2138,7 @@ async function getLegacyResponseWithDb(db, sessionId, sampleId) {
     sessionComplete: session.status === 'complete' };
 }
 
-export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false, intent = 'save', expectedFingerprint = null }) {
+export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false, intent = 'save', expectedFingerprint = null, expectedRemovalGeneration = null }) {
   try { response = JSON.parse(canonicalize(response)); } catch { return { ok: false, errors: ['response:invalid_object'] }; }
   const actor = await getOrCreateLocalProfileIdentity();
   if (!['save', 'recovery'].includes(intent)) return { ok: false, errors: ['response:invalid_intent'] };
@@ -2070,6 +2198,8 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
     }
     await requireSameTastingActor(actor);
     await assertAssessmentReadyWithDb(txn, sessionId, sampleId, actor);
+    const generation = await creatorRemovalGenerationWithDb(txn,sessionId,sampleId,actor);
+    if (generation != null && (!Number.isSafeInteger(expectedRemovalGeneration) || expectedRemovalGeneration !== generation)) tastingFail('tasting:stale_removal');
     if (fingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
     const access = await streamWithDb(txn, sessionId, sampleId, 2, actor);
     if (!access.canWrite) tastingFail(access.state === 'unattributed' ? 'tasting:review_required' : 'tasting:foreign_stream');

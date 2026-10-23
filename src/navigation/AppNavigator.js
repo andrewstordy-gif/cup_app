@@ -86,6 +86,8 @@ export function AppNavigator() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const lastScanAtRef = useRef(0);
   const nfcActionTokenRef = useRef(0);
+  const localTastingRemovalRef = useRef(false);
+  const removalRevokedNfcTokenRef = useRef(null);
   const nfcLaunchGuardRef = useRef(false);
   const scanInProgressRef = useRef(false);
   const warningVisibleRef = useRef(false);
@@ -187,9 +189,10 @@ export function AppNavigator() {
   const isCurrentNfcAction = (token) => nfcActionTokenRef.current === token;
 
   const finishCurrentNfcAction = (token) => {
-    if (!isCurrentNfcAction(token)) {
+    if (!isCurrentNfcAction(token) && removalRevokedNfcTokenRef.current !== token) {
       return;
     }
+    if (removalRevokedNfcTokenRef.current === token) removalRevokedNfcTokenRef.current = null;
     scanInProgressRef.current = false;
     setIsScanInProgress(false);
     setTimeout(() => {
@@ -197,6 +200,17 @@ export function AppNavigator() {
         nfcLaunchGuardRef.current = false;
       }
     }, 450);
+  };
+
+  // Revoke stale native callbacks synchronously, but retain the launch guard
+  // until that read's existing finally settles. No overlapping radio session.
+  const handleLocalTastingRemovalStart = (sessionId,sampleId) => {
+    localTastingRemovalRef.current = true;
+    if (scanInProgressRef.current) removalRevokedNfcTokenRef.current = nfcActionTokenRef.current;
+    nfcActionTokenRef.current += 1;
+    setSelectedCupContext(previous => previous?.sessionId === sessionId && previous?.sampleId === sampleId ? null : previous);
+    if (selectedCupContext?.sessionId === sessionId) setSessionSampleContexts(previous => previous.filter(sample => sample.id !== sampleId));
+    return () => { localTastingRemovalRef.current = false; };
   };
 
   const normalizeCupUuid = (value) => String(value || "").trim().toUpperCase();
@@ -345,6 +359,7 @@ export function AppNavigator() {
     const flowEvents = [];
     addFlowEvent(flowEvents, "SCAN_START");
     if (
+      localTastingRemovalRef.current ||
       scanInProgressRef.current ||
       nfcLaunchGuardRef.current ||
       warningVisibleRef.current ||
@@ -1013,6 +1028,7 @@ export function AppNavigator() {
             setRoute("Cupping Session Details");
           }}
           onOpenSample={handleSessionDetailsSampleOpen}
+          onLocalTastingRemovalStart={handleLocalTastingRemovalStart}
           onScanCupForAssessment={() =>
             scanCupForAssessment({ statusPrefix: "Scan cup to start assessment..." })
           }

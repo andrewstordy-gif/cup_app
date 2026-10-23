@@ -479,6 +479,16 @@ async function prepareSchema(db) {
     scanned_at TEXT NOT NULL,
     PRIMARY KEY(session_id,local_profile_id,sample_id)
   );`);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_creator_sample_removals (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    lock_snapshot TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    removed_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );`);
 }
 
 async function runMigrations(db) {
