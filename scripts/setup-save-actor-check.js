@@ -41,8 +41,8 @@ async function main(){
   const beforePending=snapshot(populated.env);let flipped=false;populated.env.hook(sql=>{if(!flipped&&sql.startsWith('SELECT id, created_at, cup_uuid AS')){flipped=true;populated.env.actor(populated.env.actorB);}});
   await assert.rejects(populated.env.repo.saveSessionWithSamples({...pending.saveInput,pendingSampleOperationId:pending.operationId}),/actor_changed|profile/);populated.env.hook(null);assert(flipped);assert.equal(snapshot(populated.env),beforePending,'verified pending addition remains recoverable; no early membership/outcome after actor switch');
  }
- const fresh=fixture();fresh.storage.delete('cup_app:r1_103:user_profile');await fresh.repo.saveSessionWithSamples({sessionUUID:S,sessionName:'Fictional',sessionType:'4',sessionDate:'24 Oct 2026',cuppingForm:1,cuppingMode:null,samples:[],intent:'setup'});
- const profile=JSON.parse(fresh.storage.get('cup_app:r1_103:user_profile'));assert.equal(fresh.sqlite.prepare('SELECT local_creator_profile_id FROM sessions').get().local_creator_profile_id,profile.uuid,'existing new-profile initialization retained');
+ const fresh=fixture();fresh.storage.delete('cup_app:user_profile');await fresh.repo.saveSessionWithSamples({sessionUUID:S,sessionName:'Fictional',sessionType:'4',sessionDate:'24 Oct 2026',cuppingForm:1,cuppingMode:null,samples:[],intent:'setup'});
+ const profile=JSON.parse(fresh.storage.get('cup_app:user_profile'));assert.equal(fresh.sqlite.prepare('SELECT local_creator_profile_id FROM sessions').get().local_creator_profile_id,profile.uuid,'existing new-profile initialization retained');
  console.log('PASS verified addition rollback, invalid new populated denial and unchanged new-profile initialization; software SQLite only.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

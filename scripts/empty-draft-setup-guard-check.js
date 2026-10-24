@@ -22,7 +22,7 @@ function screen(presentation,access,{sessionId=S,pending=null}={}){
   const h={sessionId,tastingPresentation:presentation,setupAccess:{sessionId,...access},sessionName:saved.sessionName,sessionType:saved.sessionType,
     sessionDate:saved.sessionDate,sessionMode:saved.cuppingMode,samples:saved.samples,sessionForm:{loadedSessionId:sessionId,cuppingForm:saved.cuppingForm,
       formKey:saved.formKey,formVersion:saved.formVersion,formHash:saved.formHash,formLocked:saved.formLocked},
-    savedOpenEvidence:null,isLegacy:saved.cuppingForm===2,isAddSheetVisible:false,saveOperationRef:{current:null},lockOperationRef:{current:null},pendingAdditionBusyRef:{current:null},pendingAdditionRef:{current:pending}};
+    savedOpenEvidence:null,isLegacy:saved.cuppingForm===2,isAddSheetVisible:false,isRemovingDraftSample:false,saveOperationRef:{current:null},lockOperationRef:{current:null},draftRemoval:null,draftRemovalRef:{current:null},draftRemovalBusyRef:{current:null},pendingAdditionBusyRef:{current:null},pendingAdditionRef:{current:pending}};
   if(!sessionId)h.sessionForm=formIdentity(saved.cuppingForm);
   h.evaluate=name=>{const deps={...constants,...h,useMemo:factory=>factory(),projectSavedSessionIdentity,isSessionFormReady,UNSUPPORTED_MESSAGE};
     for(const name of ['EditingSampleId','SheetCoffeeNameOrigin','SheetProcess','SheetCupNumber','IsSheetCupNumberDefault','SheetCuppingMode','IsSheetCuppingModeDefault','SheetErrors','ScanStatusMessage','CupBlockedMessage','IsAddSheetVisible','SessionName','SessionType'])deps['set'+name]=value=>{h[name[0].toLowerCase()+name.slice(1)]=value;};
@@ -44,7 +44,7 @@ async function main(){
   const tasting=await context(env,'tasting');assert.equal(tasting.hideSavedIdentity,true,'empty null-mode tasting purpose stays private');
   tasting.open();assert.equal(tasting.isAddSheetVisible,false,'setup projection exception never leaks into tasting purpose');
   env.actor(env.actorB);const foreign=await context(env);foreign.open();assert.equal(foreign.isAddSheetVisible,false);assert.equal(foreign.hideSavedIdentity,true);
-  env.storage.delete('cup_app:r1_103:user_profile');const invalid=await context(env);invalid.open();assert.equal(invalid.canEditSessionSetup,false);assert.equal(invalid.hideSavedIdentity,true);env.actor(env.actorA);
+  env.storage.delete('cup_app:user_profile');const invalid=await context(env);invalid.open();assert.equal(invalid.canEditSessionSetup,false);assert.equal(invalid.hideSavedIdentity,true);env.actor(env.actorA);
   for(const mutation of [
     "UPDATE sessions SET cupping_mode='broken'",
     "UPDATE sessions SET form_locked=1",

@@ -77,7 +77,7 @@ async function main(){
     assertRows((await participant.repo.getLocalTastingPresentation(S)).session.samples,joined.samples);
     const permission=await participant.repo.getParticipantSampleRemovalContext(S,joined.samples[1].id);assert.equal(permission.canRemove,true);await participant.repo.removeParticipantSample({sessionId:S,sampleId:joined.samples[1].id,expectedRemovalToken:permission.removalToken});const retained=(await participant.repo.getLocalTastingPresentation(S)).session.samples;assert.equal(retained.length,2);assert.equal(retained[1].id,joined.samples[1].id);assert.equal(retained[1].sampleCode,joined.samples[1].sampleCode);assert.equal(retained[1].tastingActive,false);
     env.actor(env.actorB);assert.equal((await env.repo.getSessionSetupAccess(S)).canManageSetup,false);env.actor(env.actorA);
-    env.storage.delete('cup_app:r1_103:user_profile');assert.equal((await env.repo.getSessionSetupAccess(S)).canManageSetup,false);env.actor(env.actorA);
+    env.storage.delete('cup_app:user_profile');assert.equal((await env.repo.getSessionSetupAccess(S)).canManageSetup,false);env.actor(env.actorA);
     env.sqlite.exec('INSERT OR REPLACE INTO local_session_foundations(session_id,schema_version,ever_started,ever_completed) SELECT id,1,1,0 FROM sessions');
     assert.equal((await env.repo.getSessionSetupAccess(S)).canManageSetup,false,'started mixed session loses creator setup authority');
     assertRows((await env.repo.getLocalTastingPresentation(S,{purpose:'setup'})).session.samples,owned.samples);

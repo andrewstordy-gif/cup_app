@@ -22,7 +22,7 @@ function snapshot(env){return JSON.stringify(env.sqlite.prepare('SELECT * FROM s
 async function check(env,expectedStatus){
   env.restart();const before=snapshot(env),h=await view(env),raw=await env.repo.getSessionById(S),permission=await env.repo.getSessionSetupAccess(S);assert.equal(h.sessionStatusBadgeLabel,expectedStatus);
   h.sessionDisplayId=evaluate(loadedCode,{loaded:raw,loadedUuid:raw.sessionUUID,...constants});assert.equal(h.sessionDisplayId,raw.sessionDisplayId,'real stored display ID, not a fabricated reference');
-  const deps={...h.dependencies(),...constants,isSessionFormLoading:false};
+  const deps={...h.dependencies(),...constants,isSessionFormLoading:false,usesActiveCompletion:h.tastingPresentation?.tasting?.activeSelection===true};
   const code=evaluate(titleBinding.attributes.find(attr=>attr.name?.name==='sessionCode').value.expression,deps);assert.equal(code,raw.sessionDisplayId,'public code must not disappear with Blind coffee identity');
   const metadataLabel=evaluate(metadata.openingElement.attributes.find(attr=>attr.name?.name==='accessibilityLabel').value.expression,deps),metadataText=evaluate(metadata.children.find(child=>child.type==='JSXExpressionContainer').expression,deps);assert.equal(metadataLabel,`Session code ${raw.sessionDisplayId}`);assert.equal(metadataText,raw.sessionDisplayId);
   if(expectedStatus!=='Draft'){

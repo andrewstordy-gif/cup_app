@@ -51,7 +51,7 @@ for (const f of [1, 2]) {
   assert.equal(isSessionFormReady(null, pin), true, `selected form ${f} is ready`);
   const state = { form: null, mode: undefined, dirty: false };
   const select = evaluate(declaration('selectSessionForm'), {
-    canSelectSessionForm: true, formIdentity,
+    canSelectSessionForm: true, formIdentity, draftRemovalRef:{current:null}, draftRemovalBusyRef:{current:null},
     setSessionForm: value => { state.form = value; }, sessionId: null,
     setSessionMode: value => { state.mode = value; },
     setScanStatusMessage: () => {}, setIsSessionDirty: value => { state.dirty = value; },
@@ -64,13 +64,13 @@ for (const f of [1, 2]) {
 
 const blockedState = { form: null };
 evaluate(declaration('selectSessionForm'), {
-  canSelectSessionForm: false,
+  canSelectSessionForm: false, draftRemovalRef:{current:null}, draftRemovalBusyRef:{current:null},
   setSessionForm: value => { blockedState.form = value; },
 })(1);
 assert.equal(blockedState.form, null, 'unsupported/locked saved session cannot change form');
 
 const save = evaluate(declaration('handleSave'), {
-  canEditSessionSetup: true,
+  canEditSessionSetup: true, draftRemovalRef:{current:null}, draftRemovalBusyRef:{current:null}, lockOperationRef:{current:null}, pendingAdditionRef:{current:null}, pendingAdditionBusyRef:{current:null},
   isSessionFormSupported: false,
   setScanStatusMessage: message => { assert.match(message, /Select a session form/); },
   setIsSaving: () => { throw new Error('save must not begin without a form'); },

@@ -67,6 +67,7 @@ async function main() {
     const warnings = [];
     let opened = null;
     const canOpenSample = navigatorCallback(navigatorAst, 'canOpenSample', {
+      getLocalTastingPresentation: async id => ({ session: id === savedSessionId ? savedSession : null }),
       getSessionById: async id => id === savedSessionId ? savedSession : null,
       requireFormRoute,
       showWarning: (...args) => warnings.push(args),
