@@ -114,7 +114,7 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       secondaryButtonStyle={styles.confirmationPrimary} secondaryButtonTextStyle={styles.confirmationPrimaryText}
       okButtonStyle={styles.confirmationSecondary} okButtonTextStyle={styles.confirmationSecondaryText} /> : null}
     {deletionVisible ? <WarningDialog visible title="Delete Session?"
-      message="This deletes the local session, its saved results and its pending upload. The pending results will not be sent. Any results already uploaded remain unchanged."
+      message="Deletes local results and cancels the pending upload."
       variant="cupping-choice" secondaryLabel="Delete" onSecondary={() => finishDeletionPreview('Delete selected')}
       okLabel="Cancel" onOk={() => finishDeletionPreview('Cancel selected')}
       onDismiss={() => finishDeletionPreview('warning dismissed')}
