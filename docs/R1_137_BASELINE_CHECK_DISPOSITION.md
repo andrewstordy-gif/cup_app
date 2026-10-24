@@ -68,3 +68,32 @@ assessment.” Exact original main repository/schema in a separate mocked DB
 turns the equivalent initial Save into pending. This is a real included Quick
 workflow regression at the assessment boundary, not simply an obsolete test or
 an intentional current-navigation denial. No code changed; PM disposition needed.
+
+## Final post-R1-138 disposition
+
+The Quick finding above was corrected following the owner's explicit choice:
+automatically lock the separately verified Quick sample and open blank tasting.
+Exact reviewed source d2a0a568a52921d786433cea6b58820b309e9342 has independent
+source PASS and passing actual SQLite/Details/Nav Quick probes. Normal DRAFT
+getters remain denied and ordinary sessions still require explicit Lock.
+
+Final full matrix /private/tmp/r1-138-qa-final-d2a0a568/report.json is **48 PASS,
+28 FAIL of 76**, zero timeouts. It adds the passing Quick suite to the previous
+75-check matrix, but removal-text-action-check now fails its final historical
+whole-Details AST comparison to1f4b278. All preceding removal behavior, styling,
+busy/visibility and accessibility assertions pass. The approved Quick import,
+verified proof and epoch plumbing invalidate that full-screen freeze; this is
+not evidence that removal handlers changed. Independent reviewer accepted this
+one scoped superseded-reference disposition, not a blanket waiver. Keep the
+original script and failure count intact.
+
+/private/tmp/r1-138-removal-control-current.cjs preserves the functional
+assertions and compares removal-handler ASTs against pre-Quick b2da6bd: PASS.
+The other27 failures retain their documented historical-fixture dispositions.
+Independent current probes PASS: integrated bootstrap/old-store and profile
+isolation; Quick guarded command, Nav and failure boundaries; 18,330-case exact
+rational current scoring/form sweep; and actual deletion routes across both
+roles/four controlled states. Controlled deletion fixtures do not independently
+prove all lifecycle transitions. The legacy pure rounding12,870-case assertions
+passed with a corrected scratch loader, not its obsolete fixture-seeding tail.
+No migration, real upload, hardware NFC or all-platform release claim follows.
