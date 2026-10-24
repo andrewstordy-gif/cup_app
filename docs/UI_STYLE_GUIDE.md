@@ -255,6 +255,14 @@ Reference example: `ADD AROMA` on the Brewing screen.
 
 Use secondary actions sparingly. They should sit near the related primary action and remain visually quieter than blue `SCAN CUP` or charcoal `SAVE`.
 
+#### Quiet physical text action
+
+For DRAFT preparation, `Remove sample` is centered sentence-case text below
+`ADD SAMPLE`, not another filled pill. Use `text_secondary_body`, blue `action`
+(muted when disabled), no fill/border, a minimum 44-point centered touch target
+and subtle pressed opacity. Preserve its physical scan/clear behavior and
+accessibility meaning; typography is never responsively scaled.
+
 ### Dialogs
 
 Dialogs must always include an explicit close control in the top-right corner.

@@ -2007,8 +2007,12 @@ export function CuppingSessionDetailsScreen({
             />
           ) : null}
           {sessionId && sessionStatus==='new' && sessionStatusBadgeLabel==='Draft' && ownsSavedSetup && isSessionFormSupported && (samples.length>0||draftRemoval) ?
-            <FullPageButton label="REMOVE SAMPLE" onPress={()=>handleDraftRemoval()} disabled={isRemovingDraftSample||isSaving||isLockingSession||isNfcWriting||Boolean(pendingAdditionRef.current)||Boolean(pendingAdditionBusyRef.current)}
-              accessibilityLabel="Scan cup to remove sample" style={[styles.scanFooterButton,{marginTop:spacing.md}]} textStyle={styles.scanFooterButtonText}/> : null}
+            <Pressable onPress={()=>handleDraftRemoval()} disabled={isRemovingDraftSample||isSaving||isLockingSession||isNfcWriting||Boolean(pendingAdditionRef.current)||Boolean(pendingAdditionBusyRef.current)}
+              accessibilityRole="button" accessibilityLabel="Scan cup to remove sample"
+              accessibilityState={{disabled:isRemovingDraftSample||isSaving||isLockingSession||isNfcWriting||Boolean(pendingAdditionRef.current)||Boolean(pendingAdditionBusyRef.current)}}
+              style={({pressed})=>[styles.removeSampleAction,pressed&&styles.removeSampleActionPressed]}>
+              <Text style={[styles.removeSampleActionText,(isRemovingDraftSample||isSaving||isLockingSession||isNfcWriting||Boolean(pendingAdditionRef.current)||Boolean(pendingAdditionBusyRef.current))&&styles.removeSampleActionTextDisabled]}>Remove sample</Text>
+            </Pressable> : null}
         </View>
 
         {sessionId && !ownsSavedSetup ? <Text style={styles.scanStatusText}>{setupAccess?.sessionId === sessionId
@@ -2299,6 +2303,23 @@ const styles = StyleSheet.create({
   },
   addSampleButtonText: {
     color: colors.ink,
+  },
+  removeSampleAction: {
+    minHeight: 44,
+    marginTop: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  removeSampleActionPressed: {
+    opacity: 0.88,
+  },
+  removeSampleActionText: {
+    ...typography.text_secondary_body,
+    color: colors.action,
+    textAlign: "center",
+  },
+  removeSampleActionTextDisabled: {
+    color: colors.muted,
   },
   scanStatusText: {
     ...typography.text_secondary_body,
