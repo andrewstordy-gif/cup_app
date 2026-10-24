@@ -863,6 +863,34 @@ This boundary is provider-neutral. It does not require physical hosting in mainl
 
 ## 13. Fresh Release 1 schema and forward-migration contract
 
+### Installation-local integration extension (R1-137)
+
+Before the later encrypted production boundary below, the approved isolated
+candidate initializes `cup_sessions_v1.db` using the reviewed installation-local
+schema. This is ordinary Expo SQLite, not satisfaction of production encryption,
+service authorization, tenancy, upload or migration requirements. It never opens,
+imports, repairs, resets or aliases either historical session database. The main
+`cup_app:user_profile` is retained unchanged when valid; missing identity uses
+the existing secure initialization and invalid identity fails closed. Experiment
+profile identity and old ownership are never imported.
+
+The complete bundled non-internal schema fingerprint, user_version 5, integrated
+marker version 1 and foundation marker version 1 are required. A truly empty
+store is initialized atomically with its integrated marker written last; partial,
+unknown or weakened existing schemas fail closed without repair. See
+`DATABASE_SCHEMA.md` and `src/data/integratedSessionSchema.js` for this bounded
+manifest, not a generic forward-migration mechanism.
+
+For this enrolled local policy, sample identity is the session reference plus
+immutable two-character code, never the ordinal/count hint. Proven participant
+and creator local tasting removal clears only that actor's target results and
+retains its known card grey, superseding older participant-delete descriptions
+in section 2.2 only for this policy. Active membership, durable removal generation,
+actor/incarnation and saved-response coverage bind completion/reveal and stale
+operation rejection. DRAFT physical removal is a separate purpose-bound verified
+clear; it retires the assignment/code and does not reclaim issued codes. No
+completion/removal transition grants setup authority or upload permission.
+
 The pre-release `cup_user_test.db` and related prototype stores are disposable implementation evidence, not a production predecessor schema. Release 1 MUST initialize a distinct, fresh encrypted database and MUST NOT open, import, transform, alias, or expose prototype records through an importer or user-facing migration flow. This contract does not authorise deletion or mutation of any existing prototype data; preservation or archival outside the Release 1 product is a separately scoped operational choice.
 
 ### 13.1 First production schema initialization

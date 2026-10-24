@@ -3,8 +3,9 @@ import { migrateFoundationWithDb } from './localSessionStateMigration';
 import { PENDING_SAMPLE_SCHEMA } from './pendingSampleAdditionStore';
 import { SCHEMA as SAMPLE_CODE_SCHEMA } from './sampleCodeProfile';
 import { SCHEMA as DRAFT_REMOVAL_SCHEMA } from './pendingDraftRemovalStore';
+import {MARKER_DDL,recognize,validate} from './integratedSessionSchema';
 
-const DATABASE_NAME = "cup_r1_103_sample_codes_test.db";
+const DATABASE_NAME = "cup_sessions_v1.db";
 
 let dbPromise = null;
 let isMigrated = false;
@@ -55,19 +56,9 @@ async function backfillSessionProgressStatuses(db) {
 }
 
 async function prepareSchema(db) {
-  const existing = await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'");
-  if (existing) {
-    const marker = await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='r1_103_profile'");
-    if (!marker) throw new Error('Incompatible test storage. No database was reset.');
-    const profile = await db.getFirstAsync('SELECT version FROM r1_103_profile');
-    if (profile?.version !== 103) throw new Error('Unsupported test storage. No database was reset.');
-    for(const name of ['samples','sample_code_issuers','issued_sample_codes','sample_code_commit_outcomes','physical_code_observations']) {
-      if(!await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name=?",[name]))throw new Error('Incomplete test storage. No database was reset.');
-    }
-    const columns=await db.getAllAsync('PRAGMA table_info(samples)');
-    if(!columns.some(column=>column.name==='sample_code'&&column.type==='TEXT'&&column.notnull===1)||!columns.some(column=>column.name==='sample_metadata_json'&&column.type==='TEXT'))throw new Error('Incompatible sample-code storage. No database was reset.');
-  }
-  await db.execAsync('CREATE TABLE IF NOT EXISTS r1_103_profile(version INTEGER PRIMARY KEY CHECK(version=103)); INSERT OR IGNORE INTO r1_103_profile VALUES(103);');
+  // Called only after recognizing an entirely fresh integrated file. Existing
+  // stores never enter the historical CREATE/ALTER compatibility initializer.
+  await db.execAsync(MARKER_DDL);
   const initialUserVersion = readUserVersion(await db.getFirstAsync("PRAGMA user_version;"));
   if (initialUserVersion > 5) throw new Error('tasting:unsupported_schema');
 
@@ -551,7 +542,12 @@ async function runMigrations(db) {
       handle.execAsync = txn.execAsync ? sql => txn.execAsync(sql) : async sql => {
         for (const statement of sql.split(';').map(value => value.trim()).filter(Boolean)) await txn.runAsync(statement);
       };
-      await prepareSchema(handle);
+      if(!await recognize(handle)){
+        await prepareSchema(handle);
+        await validate(handle,{initialized:false});
+        await handle.runAsync('INSERT INTO cup_session_store_schema VALUES(1)');
+        await validate(handle);
+      }
     });
     isMigrated = true;
   })().catch(error => { migrationPromise = null; throw error; });

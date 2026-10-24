@@ -106,7 +106,7 @@ export function classifyNfcTagReadResult(readResult) {
   const hasSmartCupConfig = hasAnyKey(parsed?.text3, ["brewTime", "w", "triggerTemp", "r"]);
   const metadataPayload = findNdef4MetadataPayload(parsed);
   if(recordCount===4)tagContext(readResult);
-  // This separate test copy understands only strict code assignments. A CUP-
+  // The integrated assignment profile accepts only strict string codes. A CUP-
   // shaped numeric/malformed tag must not be relabelled blank and overwritten.
   const metadataRaw = parsed?.raw?.text4 || (recordCount === 1 ? parsed?.raw?.text1 : null);
   if(recordCount===1&&typeof metadataRaw!=='string')throw new Error('NFC text could not be decoded safely. No cup was written.');

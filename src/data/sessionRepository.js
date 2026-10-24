@@ -1105,7 +1105,7 @@ export async function saveSessionWithSamples({
   if (normalizedSamples.some((sample) => sample.cuppingForm !== pinnedForm.f)) {
     throw new Error("A sample form does not match the session form.");
   }
-  if(!validSession(normalizedSessionId)||normalizedSamples.some(sample=>!validCode(sample.sampleCode)))throw new Error('Unsupported test sample-code profile. No session was saved.');
+  if(!validSession(normalizedSessionId)||normalizedSamples.some(sample=>!validCode(sample.sampleCode)))throw new Error('Unsupported sample-code profile. No session was saved.');
   if (cuppingForm === 2 && normalizedSamples.some((sample) => sample.cuppingMode !== 'open')) {
     throw new Error('SCA Legacy Blind Cupping is not yet available. No session or cup assignment was saved.');
   }
@@ -2424,7 +2424,7 @@ export async function resolveActiveSampleFromCupMetadata({ cupUUID, metadata, is
 }
 
 // Numeric-profile resolver retained as historical implementation evidence, never
-// dispatched by the isolated code profile. Do not guess a code from an ordinal.
+// dispatched by the integrated code profile. Do not guess a code from an ordinal.
 async function resolveNumericSampleFromCupMetadata({ cupUUID, metadata } = {}) {
   // Freeze the observed read before an await; callers cannot retarget queued work.
   metadata = JSON.parse(JSON.stringify(metadata));

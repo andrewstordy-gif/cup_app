@@ -1,8 +1,8 @@
 # DRAFT sample removal NFC clearing contract
 
-Approved by Andrew for R1-133 implementation in the separate two-character-code
-test client, based on fc987a2. The historical filename is retained. This does
-not authorize working-app/main integration or change other protocol profiles.
+Approved by Andrew in R1-133 and included in the R1-137 integrated installation-
+local candidate. The historical filename is retained. This changes no clearing
+bytes or other protocol profiles; candidate validation is not main-merge approval.
 
 ## Approved user flow
 

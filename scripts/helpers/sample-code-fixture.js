@@ -8,7 +8,7 @@ const actorB = '22222222-2222-4222-8222-222222222222';
 function fixture(filename = ':memory:') {
   let sqlite = new DatabaseSync(filename), active = false, tail = Promise.resolve(), serial = 0;
   let failure = null, hook = null, afterCommit = null;
-  const storage = new Map([['cup_app:r1_103:user_profile', JSON.stringify({ uuid: actorA, name: 'Taster' })]]);
+  const storage = new Map([['cup_app:user_profile', JSON.stringify({ uuid: actorA, name: 'Taster' })]]);
   const handle = outer => ({
     async getFirstAsync(sql, args = []) {
       if (outer) assert.equal(active, false);
@@ -49,7 +49,7 @@ function fixture(filename = ':memory:') {
   const root = path.resolve(__dirname, '../..');
   const value = { bridge, storage, actorA, actorB,
     get sqlite() { return sqlite; },
-    actor(actor) { storage.set('cup_app:r1_103:user_profile', JSON.stringify({ uuid: actor, name: 'Taster' })); },
+    actor(actor) { storage.set('cup_app:user_profile', JSON.stringify({ uuid: actor, name: 'Taster' })); },
     failAt(text) { failure = text; }, hook(fn) { hook = fn; },
     afterCommit(fn) { afterCommit = fn; },
     reload() { value.repo = projectLoader(root, mocks)('src/data/sessionRepository.js'); return value.repo; },

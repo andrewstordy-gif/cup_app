@@ -1,4 +1,4 @@
-// R1-103 isolated test profile. No radio or database opening side effects.
+// Integrated two-character sample-code profile. No radio or DB-open effects.
 const { canonicalize, sha256 } = require('../features/forms/contract/canonical');
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const POOL = Object.freeze(Array.from(ALPHABET, a => Array.from(ALPHABET, b => a + b)).flat());

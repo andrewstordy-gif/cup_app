@@ -1,14 +1,13 @@
 # CUP App — Current NDEF Message Format
 
-## R1-103 isolated phone-test profile (21 October 2026)
+## Integrated sample-code profile (R1-137)
 
-**Experimental branch only; not a production protocol rollout.** The separate
-R1-103 database/client uses the approved two-character sample-code contract:
+The approved integrated installation-local client uses the reviewed two-character sample-code contract:
 `z` is a required string matching `^[A-Z0-9]{2}$` (including `00`), `u` is the
 unchanged 14-character lowercase session reference, and `y` remains physical
 cup count 1–8. Shared identity is `(u,z)`, never the physical UID or local order.
-The numeric examples below document the unchanged original profile; this test
-client rejects numeric/malformed assignments rather than converting them.
+Numeric assignments are historical and unsupported by this profile; the client
+rejects them rather than converting, overwriting or claiming creator ownership.
 
 NTAG writes one English UTF-8 Text record; Smart Cup writes four ordered Text
 records: `{s:1}`, `{}`, the validated preserved compact settings (including
@@ -30,11 +29,12 @@ dialog retains editable details; a retry may use another fresh/allowed cup.
 Verification and save-only recovery allocate no new code. Spent codes survive
 failed/superseded attempts and sample removal while that session exists.
 
-Test storage/profile/error logs are separately namespaced; there is no old-data
-migration or working-client change. Issuance from an imported/restored session
+Integrated storage is `cup_sessions_v1.db`, with the existing main local profile;
+old app/test databases and the experiment profile are not opened or copied.
+Issuance from an imported/restored session
 without its complete local issuer ledger is denied. This does not decide a
 production whole-session tombstone/retention policy, transfer or clone recovery.
-Only new/fresh or manually cleared test tags should be used with this client;
+Only fresh or manually cleared spare tags should be used for candidate acceptance;
 do not scan its string-code assignments with the old numeric client. Physical
 NFC/firmware conformance remains unverified until actual phone acceptance.
 
@@ -114,20 +114,20 @@ Long write aliases are `triggerTemp`, `maxStartTemp`, `brewTime`, `maxCupTemp`, 
 NDEF4 is app-owned metadata linking a physical cup to a coffee sample and cupping session.
 
 ```json
-{"n":"Burundi","p":6,"y":3,"i":4,"z":2,"m":"b","f":1,"e":"Production QC","t":2,"d":260930,"u":"nfzyy8y0pqizn6"}
+{"n":"Burundi","p":6,"y":3,"i":4,"z":"A4","m":"b","f":1,"e":"Production QC","t":2,"d":260930,"u":"nfzyy8y0pqizn6"}
 ```
 
 - `n` — coffee name and/or origin.
 - `p` — coffee processing-method key.
 - `y` — number of physical cups used for this sample.
-- `i` — total number of samples in the session. Written when a valid integer is available.
-- `z` — this sample’s one-based position in the session. Written when a valid integer is available.
+- `i` — optional positive integer total recorded at write time; a historical hint, not live roster authority. Removing/adding a sample does not rewrite neighbouring tags.
+- `z` — required two-character uppercase alphanumeric sample code, including `00`. All 1,296 codes are available per session; each new write attempt reserves a fresh code and spent codes are not reused while that session exists. It is not a numeric ordinal.
 - `m` — this sample's cupping mode: `b` for Blind Cupping or `o` for Open Cupping. CVA samples in one session may differ (approved 21 October 2026, R1-105); local session-level mode does not override a stored target sample. Legacy remains Open-only. No encoding, field or radio change.
 - `f` — cupping-form key. Release 1 defines `1` for SCA CVA and `2` for SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 - `e` — session name.
 - `t` — session-type key.
 - `d` — compact session date as a six-digit `YYMMDD` number.
-- `u` — session UUID. Newly generated session IDs are 14 lowercase alphanumeric characters. `NO-SESSION` is also used as a sentinel for cups not attached to a saved session.
+- `u` — assigned session reference, exactly 14 lowercase alphanumeric characters. `NO-SESSION` belongs to the separate generic Home/firmware flow, not a valid assigned string-code payload.
 
 For both open and blind sessions, `n` may contain the real coffee name/origin and `p` may contain the real processing-method key. In blind mode, `m=b` instructs Cup App to retain those fields locally but project them according to current local tasting completion and the narrow creator preparation exception in [PRODUCT_SPEC section 6.8](PRODUCT_SPEC.md#68-agreed-mobile-screen-and-state-map-18-october-2026). Explicit completion reveals; saved tasting changes or participant membership changes re-hide. Neither changes NDEF4, requires connectivity/host-global reveal, nor shares/uploads results. This projection clarification changes no wire field, enum, payload shape or unassignment encoding.
 
@@ -201,9 +201,9 @@ The following files show current implementation behaviour and are useful for con
 - `README.md` — descriptive protocol overview and firmware integration notes.
 - Do not treat `archive/original-root-app` as the current protocol. It documents an older long-key schema.
 
-### R1-133 isolated DRAFT-removal clearing profile
+### Approved DRAFT-removal clearing profile
 
-Approved only for the separate two-character-code client; see
+Included in the integrated installation-local client; see
 [the clearing contract](DRAFT_SAMPLE_REMOVAL_NFC_CONTRACT_DRAFT.md). A validated
 creator DRAFT assignment may be cleared by an explicitly guarded operation:
 NTAG is exactly one English UTF-8 Text `{}` record (complete NDEF bytes

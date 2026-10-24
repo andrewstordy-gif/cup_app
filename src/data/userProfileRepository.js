@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { generateDomainId } from "../utils/secureIdentifiers";
 
-const USER_PROFILE_STORAGE_KEY = "cup_app:r1_103:user_profile";
+const USER_PROFILE_STORAGE_KEY = "cup_app:user_profile";
 let profileQueue = Promise.resolve();
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

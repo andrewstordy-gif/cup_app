@@ -1,10 +1,22 @@
 # CUP app database
 
-Local SQLite, via `expo-sqlite`. Schema lives entirely in
-`src/data/localDatabase.js`; all reads/writes go through
-`src/data/sessionRepository.js`. Five tables, organised around one root
-entity (`sessions`) and one child entity (`samples`), with three further
-tables hanging off each sample.
+The integrated installation-local store is `cup_sessions_v1.db`, via
+`expo-sqlite`; `sessionRepository.js` is its only application consumer.
+`localDatabase.js` initializes the reviewed DDL and
+`integratedSessionSchema.js` validates the complete schema. The base entities
+below are supplemented by the form, issuer, recovery and selection tables in
+the appendices and foundation contract; this is not the encrypted production
+schema required for a future Release 1 release.
+
+R1-137 starts a fresh library. Neither `cup_user_test.db` nor
+`cup_r1_103_sample_codes_test.db` is opened, copied, repaired or deleted. Existing
+main profile `cup_app:user_profile` is retained; the experiment profile and
+unrelated storage/files are untouched. Only a truly empty version0 store may
+initialize. A static token-preserving SHA-256 manifest binds all 42 named schema
+objects, including constraints/indexes/issuer/journals/receipts. Existing marker1,
+foundation marker1 and SQLite user_version5 must match before read cutover.
+Missing/extra/weakened schema is rejected, never repaired or reset. Fresh complete
+schema validation and the final marker insert share one exclusive transaction.
 
 ## `sessions`
 
@@ -38,6 +50,8 @@ One row per physical cup added to a session. Cascades on session delete.
 | `cupping_form` | INTEGER | Numeric key into `CUPPING_FORM_OPTIONS` (currently only "SCA CVA"; extensible). |
 | `cupping_mode` | TEXT | `blind` or `open` — per-sample, not per-session. |
 | `sample_number` | INTEGER | Position within the session (1st, 2nd, ... sample). |
+| `sample_code` | TEXT | Required two-character session-scoped code; never an ordinal or hardware UID. |
+| `sample_metadata_json` | TEXT | Exact validated immutable assignment metadata; neighbour totals/ordinals are not rewritten on removal. |
 | `coffee_name_origin` | TEXT | |
 | `process` | TEXT | Numeric key into `PROCESS_OPTIONS`. |
 | `position_index` | INTEGER | Display/sort order within the session. |
@@ -45,8 +59,8 @@ One row per physical cup added to a session. Cascades on session delete.
 
 **Not stored here:** scores, defects, and flavour notes — those live in
 the three child tables below, not on the sample row itself. There's also
-no `verification_status` column — verification state is in-memory only
-(`sample.verificationStatus`), not persisted. There's also no sample
+no `verification_status` column — physical assignment/check state instead uses
+the durable pending-write journal and verified commit evidence. There's no sample
 colour column anymore — `sample_colour` was removed (it was unused).
 
 ## `sample_feedback_entries`
@@ -112,12 +126,13 @@ All three sample-child tables cascade-delete with their parent sample;
 
 ## What's deliberately *not* in this database
 
-The cup's own hardware telemetry — battery level, firmware version,
-live temperature, brew timer, smart-cup settings (trigger temp, brew time,
-LED brightness, etc.) — is **never persisted**. It's read live from the
+There is no general cache of cup telemetry — battery level, firmware version,
+live temperature or brew timer. It's read live from the
 physical cup's NDEF2/NDEF3 records each time (`Cup Settings`, `Home`,
 `CuppingScreen`) and only ever held in transient React state. The cup
-itself is the source of truth for that data, not this database.
+itself is the source of truth. Purpose-bound durable pending operations retain
+the exact required state/settings needed for guarded write/recovery, never a
+general telemetry cache or permission to replay stale live values.
 # Installation local state foundation additions
 
 R1-061 adds version-5 prototype state tables without rewriting saved scores,

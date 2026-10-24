@@ -319,6 +319,21 @@ This section is the approved behaviour, not a claim of implementation. It supers
 
 #### 6.8.1 Per-session role, screens and controls
 
+**Installation-local integration boundary, R1-137 (24 October 2026):** The
+reviewed local workflow uses explicit SAVE to retain DRAFT setup and explicit
+LOCK SESSION confirmation to move to PENDING without rewriting cups. Only a
+successful write followed by separate successful verification adds a sample.
+The approved two-character code profile and verified DRAFT physical clearing
+contract are canonical in `NDEF_PROTOCOL.md`. Creator and proven enrolled
+participant tastings retain grey known cards after local tasting removal;
+only their current active selection counts for explicit local completion.
+Saved changes reopen/re-hide; notes alone do not constitute a current rating
+(R1-111). This candidate does not implement uploads, service/account authority,
+post-lock setup editing/reassignment or automatic tag repair. Fresh isolated
+storage and retained main-profile ownership follow the R1-137 architecture
+extension; this is not production/encryption conformance or merge approval.
+Outstanding integration findings remain mandatory task gates, not policy changes.
+
 **Per-sample mode clarification, approved 21 October 2026 (R1-105):** Blind/Open
 is chosen independently for each CVA sample, not once for the whole session.
 A valid mixture does not revoke the creator's otherwise permitted DRAFT setup

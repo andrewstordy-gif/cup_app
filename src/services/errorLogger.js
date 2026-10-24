@@ -2,7 +2,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 
 const BASE_DIR = FileSystem.documentDirectory || FileSystem.cacheDirectory || null;
-const LOG_DIR = BASE_DIR ? `${BASE_DIR}error-logs-r1-103/` : null;
+const LOG_DIR = BASE_DIR ? `${BASE_DIR}error-logs-sessions-v1/` : null;
 const LATEST_POINTER_FILE = LOG_DIR ? `${LOG_DIR}latest.txt` : null;
 let latestLogUriInMemory = null;
 
