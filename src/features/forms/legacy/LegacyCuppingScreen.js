@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { TypographyAuditText as Text } from '../../../components/ui/TypographyAuditText';
 import { NotesInput } from '../../../components/ui/NotesInput';
 import { AssessmentHeader } from '../../cupping/components/AssessmentHeader';
@@ -14,7 +14,7 @@ import { ScoreBalloons, useScoreBalloons } from '../../cupping/components/ScoreB
 import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
-import { getLegacyResponse, saveLegacyResponse } from '../../../data/sessionRepository';
+import { getLegacyResponse, saveLegacyResponse, discardLegacyRecoveryDraft } from '../../../data/sessionRepository';
 import { getProcessLabel, normalizeCuppingModeKey } from '../../cupping/constants/sessionDetails';
 import { PROFILE, resolveForm, scoreResponse } from '../contract';
 import { ORDINARY_MARKS, visibleMarks, scoreText, isExtendedMark, revealLowerForSelected, defectDeductionText, unavailableBeanCups } from './legacyQualityPresentation';
@@ -180,12 +180,23 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   const { animations: balloonAnimations, triggerBalloons } = useScoreBalloons();
   const saveQueue = useRef(null);
   const savedFingerprints = useRef(new Map());
+  const saveLineage = useRef(new Map());
+  const leaving = useRef(false);
+  const leavePrompt = useRef(null);
   if (!saveQueue.current) saveQueue.current = createLegacySaveQueue(async command => {
     const key = `${command.sessionId}:${command.sampleId}`;
+    const lineage=saveLineage.current.get(key);
+    if(command.enrolled&&(!lineage||lineage.epoch!==command.loadEpoch||operationEpoch.current!==command.loadEpoch||currentContext.current!==key||
+      lineage.generation!==command.expectedRemovalGeneration||!lineage.acceptedTokens.has(command.expectedTastingContextToken)))return{ok:false,errors:['tasting:stale_context']};
     const expectedFingerprint = savedFingerprints.current.get(key);
     if (!expectedFingerprint) return { ok: false, errors: ['tasting:stale_context'] };
-    const saved = await saveLegacyResponse({ ...command, expectedFingerprint });
-    if (saved?.ok && command.intent === 'save') savedFingerprints.current.set(key, saved.savedFingerprint);
+    const saved = await saveLegacyResponse({ ...command, expectedFingerprint, expectedTastingContextToken:command.enrolled?lineage.currentToken:command.expectedTastingContextToken });
+    const current=!command.enrolled||saveLineage.current.get(key)===lineage&&operationEpoch.current===command.loadEpoch&&currentContext.current===key;
+    if (saved?.ok&&current) {
+      if(command.enrolled){lineage.recoveryRowToken=saved.recoveryRowToken;lineage.currentFingerprint=saved.savedFingerprint;
+        if(command.intent==='save'){lineage.currentToken=saved.tasting.contextToken;lineage.acceptedTokens.add(saved.tasting.contextToken);}}
+      if(command.intent==='save')savedFingerprints.current.set(key,saved.savedFingerprint);
+    }
     return saved;
   });
   const responseRef = useRef(null);
@@ -204,6 +215,9 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   useEffect(() => {
     let cancelled = false;
     operationEpoch.current += 1;
+    if(savedContext?.tasting?.activeSelection)setIsSavingDraft(false);
+    leaving.current=false;
+    leavePrompt.current=null;
     setLoading(true);
     setReadOnly(true);
     setSavedContext(null);
@@ -212,28 +226,32 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       if (cancelled) return;
       const loaded = saved?.recoveryDraft || saved?.response || { quality_ratings: {}, consistent_cups: n === 1 ? [1] : null };
       savedFingerprints.current.set(`${sessionId}:${sampleId}`, saved.savedFingerprint);
+      if(saved.tasting?.activeSelection)saveLineage.current.set(`${sessionId}:${sampleId}`,{epoch:operationEpoch.current,generation:saved.removalGeneration,
+        currentToken:saved.tasting.contextToken,acceptedTokens:new Set([saved.tasting.contextToken]),currentFingerprint:saved.savedFingerprint,recoveryRowToken:saved.recoveryRowToken});
       responseRef.current = loaded;
       setResponse(loaded);
-      setSavedContext(saved);
+      setSavedContext({...saved,loadEpoch:operationEpoch.current});
       setResult(saved?.recoveryDraft ? null : saved?.result || null);
       savedCompleteRef.current = Boolean(saved?.complete && saved?.result?.ok);
-      setReadOnly(Boolean(saved?.sessionComplete) || saved?.access?.canWrite !== true);
+      setReadOnly(Boolean(saved?.sessionComplete)&&!saved?.access?.canEditCompleted || saved?.access?.canWrite !== true);
       setErrors(saved?.errors || []);
       setHasPendingChanges(Boolean(saved?.recoveryDraft));
       setLoading(false);
     }).catch(error => { if (!cancelled) { setMessage(error?.message || 'Could not load Legacy response.'); setLoading(false); } });
-    return () => { cancelled = true; operationEpoch.current += 1; };
+    return () => { cancelled = true; operationEpoch.current += 1;leavePrompt.current=null; };
   }, [sessionId, sampleId, n]);
 
   const edit = change => {
-    if (!responseRef.current || readOnly) return;
+    if (!responseRef.current || readOnly || leaving.current) return;
+    if(savedContext?.tasting?.activeSelection&&(savedContext.loadEpoch!==operationEpoch.current||currentContext.current!==`${sessionId}:${sampleId}`))return;
     const next = change(responseRef.current);
     responseRef.current = next;
     setResponse(next);
     setResult(null);
     setErrors([]);
     setHasPendingChanges(true);
-    const operation = saveQueue.current.enqueue(next, false, { intent: 'recovery', sessionId, sampleId, expectedRemovalGeneration:savedContext?.removalGeneration });
+    const operation = saveQueue.current.enqueue(next, false, { intent: 'recovery', sessionId, sampleId, expectedRemovalGeneration:savedContext?.removalGeneration,
+      enrolled:Boolean(savedContext?.tasting?.activeSelection),loadEpoch:savedContext?.loadEpoch,expectedTastingContextToken:savedContext?.tasting?.contextToken });
     const epoch = operationEpoch.current;
     operation.promise.then(saved => {
       if (epoch !== operationEpoch.current || operation.revision !== saveQueue.current.revision) return;
@@ -243,7 +261,8 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
   };
 
   const saveAssessment = async () => {
-    if (!responseRef.current || readOnly || isSavingDraft) return;
+    if (!responseRef.current || readOnly || isSavingDraft || leaving.current) return;
+    if(savedContext?.tasting?.activeSelection&&(savedContext.loadEpoch!==operationEpoch.current||currentContext.current!==`${sessionId}:${sampleId}`))return;
     if (!form.ok) {
       setMessage('The selected Legacy form is unavailable. No response was saved.');
       return;
@@ -254,7 +273,8 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     const shouldComplete = Boolean(score?.ok);
     const wasComplete = savedCompleteRef.current;
     setIsSavingDraft(true);
-    const operation = saveQueue.current.enqueue(currentResponse, shouldComplete, { intent: 'save', sessionId, sampleId, expectedRemovalGeneration:savedContext?.removalGeneration });
+    const operation = saveQueue.current.enqueue(currentResponse, shouldComplete, { intent: 'save', sessionId, sampleId, expectedRemovalGeneration:savedContext?.removalGeneration,
+      enrolled:Boolean(savedContext?.tasting?.activeSelection),loadEpoch:savedContext?.loadEpoch,expectedTastingContextToken:savedContext?.tasting?.contextToken });
     const epoch = operationEpoch.current;
     try {
       const saved = await operation.promise;
@@ -289,6 +309,33 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
       return;
     }
     if (typeof onScanPress === 'function') onScanPress();
+  };
+
+  const goBack = () => {
+    if(!savedContext?.access?.canEditCompleted)return onBackPress?.();
+    if(savedContext.loadEpoch!==operationEpoch.current||currentContext.current!==`${sessionId}:${sampleId}`)return;
+    if(isSavingDraft||leaving.current){setMessage('Please wait for the current assessment action to finish.');return;}
+    if(!hasPendingChanges)return onBackPress?.();
+    const key=`${sessionId}:${sampleId}`,operation={key,epoch:savedContext.loadEpoch,lineage:saveLineage.current.get(key)};
+    leavePrompt.current=operation;
+    const current=()=>leavePrompt.current===operation&&operationEpoch.current===operation.epoch&&currentContext.current===key&&saveLineage.current.get(key)===operation.lineage;
+    Alert.alert('Leave unsaved edits?','Your last saved assessment is retained. Unsaved edits will be discarded.',[
+      {text:'Stay',style:'cancel',onPress:()=>{if(leavePrompt.current===operation)leavePrompt.current=null;}},
+      {text:'Leave',style:'destructive',onPress:async()=>{
+        if(!current()||leaving.current)return;leaving.current=true;
+        const revision=saveQueue.current.revision;
+        try{
+          await saveQueue.current.drain();
+          if(!current()||revision!==saveQueue.current.revision)return;
+          const lineage=operation.lineage;
+          await discardLegacyRecoveryDraft({sessionId,sampleId,expectedFingerprint:lineage.currentFingerprint,
+            expectedTastingContextToken:lineage.currentToken,expectedRemovalGeneration:lineage.generation,expectedRecoveryRowToken:lineage.recoveryRowToken});
+          if(!current()||revision!==saveQueue.current.revision)return;
+          leavePrompt.current=null;onBackPress?.();
+        }catch{if(current())setMessage('Could not discard these edits. Reopen the session before trying again.');}
+        finally{if(operationEpoch.current===operation.epoch)leaving.current=false;}
+      }},
+    ]);
   };
 
   if (loading || !response) return <View style={styles.screen}><AssessmentHeader sampleNumber={sampleNumber} sampleCode={sampleCode} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} /><Text style={styles.hint}>{message || 'Loading saved assessment…'}</Text></View>;
@@ -357,7 +404,7 @@ export function LegacyCuppingScreen({ sessionId, sampleId, cupCount, coffeeNameO
     </VerticalObservationSection>}
   </View>;
   return <View style={styles.screen}>
-    <AssessmentHeader sampleNumber={sampleNumber} sampleCode={sampleCode} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={onBackPress} scale={scale} />
+    <AssessmentHeader sampleNumber={sampleNumber} sampleCode={sampleCode} cupIndex={cupIndex} temperature={cupStatus?.temp} onBackPress={goBack} scale={scale} />
     {showOpenIdentity ? <AssessmentSampleIdentity name={savedContext.identity.name}
       process={getProcessLabel(savedContext.identity.process) || savedContext.identity.process} scale={scale} /> : null}
     <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

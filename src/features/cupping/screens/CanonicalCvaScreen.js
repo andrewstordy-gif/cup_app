@@ -59,6 +59,8 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, sampleCo
   const editVersion = useRef(0);
   const saving = useRef(false);
   const mounted = useRef(true);
+  const loadEpoch = useRef(0);
+  const exitPrompt = useRef(null);
   const contextKey = `${sessionId}:${sampleId}`;
   const currentContext = useRef(contextKey);
   currentContext.current = contextKey;
@@ -85,19 +87,22 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, sampleCo
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
     let active = true;
+    const epoch=++loadEpoch.current;
+    exitPrompt.current=null;
+    if(saved?.tasting?.activeSelection){saving.current=false;setPending(false);}
     setSaved(null);
     getCvaResponse(sessionId, sampleId).then(value => {
       if (!active) return;
-      setSaved(value); setResponse(value.response || createCvaDraft(value.n)); setDirty(false);
+      setSaved({...value,loadEpoch:epoch}); setResponse(value.response || createCvaDraft(value.n)); setDirty(false);
       setLoadedContext(contextKey);
       setMessage(value.revision && !value.complete ? `Draft saved. Still needed: ${cvaGuidance(value.errors).join('; ')}.` : '');
       setError(false);
     }).catch(() => { if (active) { setError(true); setMessage('Could not load this assessment. Reopen the session to try again.'); } });
-    return () => { active = false; };
+    return () => { active = false;loadEpoch.current+=1;exitPrompt.current=null; };
   }, [sessionId, sampleId, scanRevision]);
   // Route isSessionComplete is also used for response readiness. Only the
   // independently loaded host Session closure locks an already scored response.
-  const disabled = !saved || saved.sessionComplete || saved.access?.canWrite !== true || (cupStateNumber === 2 && !startInFinalMode);
+  const disabled = !saved || saved.sessionComplete&&!saved.access?.canEditCompleted || saved.access?.canWrite !== true || (cupStateNumber === 2 && !startInFinalMode);
   const ratingDisabled = key => disabled || (!startInFinalMode &&
     (captureMode === 'aroma_only' ? !['fragrance', 'aroma'].includes(key) : tagType === 'ntag_cup' ? false
       : cupStateNumber === 1 ? key !== 'fragrance' : cupStateNumber === 3 && response?.ratings?.aroma == null ? !['fragrance', 'aroma'].includes(key) : false));
@@ -127,19 +132,23 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, sampleCo
   });
   const update = change => {
     if (disabled) return;
+    if(saved?.tasting?.activeSelection&&(saved.loadEpoch!==loadEpoch.current||currentContext.current!==contextKey))return;
     editVersion.current += 1;
     setResponse(previous => typeof change === 'function' ? change(previous) : { ...previous, ...change });
     setDirty(true); setError(false); setMessage('');
   };
   const save = async () => {
     if (disabled || saving.current) return;
-    saving.current = true; setPending(true);
+    const scoped=Boolean(saved?.tasting?.activeSelection),submittedEpoch=saved?.loadEpoch,operation={epoch:submittedEpoch,context:contextKey};
+    if(scoped&&(submittedEpoch!==loadEpoch.current||currentContext.current!==contextKey))return;
+    exitPrompt.current=null;
+    saving.current = scoped?operation:true; setPending(true);
     const submittedVersion = editVersion.current;
     const submittedContext = contextKey;
     try {
       const acknowledgement = await saveCvaResponse({ sessionId, sampleId, response,
-        expectedRevision: saved.revision, expectedIdentity: saved.trusted.identity, expectedCupCount: saved.n });
-      if (!mounted.current || currentContext.current !== submittedContext) return;
+        expectedRevision: saved.revision, expectedIdentity: saved.trusted.identity, expectedCupCount: saved.n, expectedTastingContextToken:saved.tasting?.contextToken });
+      if (!mounted.current || currentContext.current !== submittedContext || scoped&&loadEpoch.current!==submittedEpoch) return;
       setSaved(previous => ({ ...previous, ...acknowledgement }));
       const stillCurrent = submittedVersion === editVersion.current;
       setDirty(!stillCurrent);
@@ -148,18 +157,24 @@ export function CanonicalCvaScreen({ sessionId, sampleId, sampleNumber, sampleCo
       setMessage(text); setError(false); AccessibilityInfo.announceForAccessibility(text);
       if (acknowledgement.firstComplete && stillCurrent) triggerBalloons();
     } catch (cause) {
-      if (!mounted.current || currentContext.current !== submittedContext) return;
+      if (!mounted.current || currentContext.current !== submittedContext || scoped&&loadEpoch.current!==submittedEpoch) return;
       const text = cause?.code === 'cva:stale_revision' ? 'This assessment changed elsewhere. Reopen it before saving again; your edits are still here.'
         : 'Could not save the assessment. Your edits are still here. Reopen the session if the problem continues.';
       setMessage(text); setError(true); setDirty(true); AccessibilityInfo.announceForAccessibility(text);
-    } finally { saving.current = false; if (mounted.current) setPending(false); }
+    } finally {if(!scoped||saving.current===operation){saving.current=false;if(mounted.current&&(!scoped||loadEpoch.current===submittedEpoch))setPending(false);}}
   };
   const goBack = () => {
+    const scoped=Boolean(saved?.tasting?.activeSelection);
+    if(scoped&&(saved.loadEpoch!==loadEpoch.current||currentContext.current!==contextKey))return;
     if (pending) { setMessage('Saving the assessment. Please wait before leaving.'); return; }
     if (dirty) {
+      const prompt=scoped?{context:contextKey,epoch:saved.loadEpoch,version:editVersion.current}:null;
+      if(prompt)exitPrompt.current=prompt;
       Alert.alert('Leave unsaved edits?', 'Your last saved assessment is retained. The edits on this screen have not been saved.', [
-        { text: 'Keep editing', style: 'cancel' },
-        { text: 'Discard unsaved edits', style: 'destructive', onPress: onBackPress },
+        { text: 'Keep editing', style: 'cancel',onPress:prompt?()=>{if(exitPrompt.current===prompt)exitPrompt.current=null;}:undefined },
+        { text: 'Discard unsaved edits', style: 'destructive', onPress:prompt?()=>{
+          if(mounted.current&&exitPrompt.current===prompt&&currentContext.current===prompt.context&&loadEpoch.current===prompt.epoch&&editVersion.current===prompt.version){exitPrompt.current=null;onBackPress?.();}
+        }:onBackPress },
       ]);
       return;
     }

@@ -65,7 +65,7 @@ function fixture(filename = ':memory:') {
     async save(id, sampleId, response = value.response()) {
       const loaded = await value.repo.getCvaResponse(id, sampleId);
       return value.repo.saveCvaResponse({ sessionId: id, sampleId, response, expectedRevision: loaded.revision,
-        expectedIdentity: loaded.trusted.identity, expectedCupCount: loaded.n });
+        expectedIdentity: loaded.trusted.identity, expectedCupCount: loaded.n, expectedTastingContextToken: loaded.tasting.contextToken });
     },
     async complete(id) {
       const presentation = await value.repo.getLocalTastingPresentation(id);

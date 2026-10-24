@@ -455,10 +455,25 @@ export async function saveCvaResponse(input) {
   try { response = JSON.parse(canonicalize(input?.response)); } catch { tastingFail('cva:malformed_response'); }
   const command = { sessionId: input?.sessionId, sampleId: input?.sampleId, response,
     expectedRevision: input?.expectedRevision, expectedIdentity: input?.expectedIdentity ? { ...input.expectedIdentity } : null,
-    expectedCupCount: input?.expectedCupCount };
+    expectedCupCount: input?.expectedCupCount, expectedTastingContextToken:input?.expectedTastingContextToken };
   const db = await getLocalDatabase();
   const actor = await getOrCreateLocalProfileIdentity();
-  const result = await saveCanonicalCva(db, command, generateId, cvaDescriptors, async txn => {
+  let result,ackToken=null;
+  await db.withExclusiveTransactionAsync(async txn=>{
+    await requireSameTastingActor(actor);
+    const scope=await enrolledSaveContextWithDb(txn,command.sessionId,command.sampleId,actor,command.expectedTastingContextToken);
+    const prior=await readCanonicalCva(txn,command.sessionId,command.sampleId);
+    if(prior.sessionComplete&&scope){
+      if(!scope.canEditCompleted)tastingFail('cva:session_complete');
+      if(command.expectedRevision!==prior.revision)tastingFail('cva:stale_revision');
+      if(command.expectedCupCount!==prior.n||canonicalize(command.expectedIdentity)!==canonicalize(prior.trusted.identity))tastingFail('cva:session_changed');
+      if(canonicalize(command.response)===canonicalize(prior.response)){
+        result={...prior,saved:true,firstComplete:false,noChange:true};ackToken=scope.presentation.tasting.contextToken;await requireSameTastingActor(actor);return;
+      }
+      await persistHistoryWithDb(txn,command.sessionId);
+      await txn.runAsync("UPDATE sessions SET status='pending' WHERE id=?",[command.sessionId]);
+    }
+    result = await saveCanonicalCva({...txn,withExclusiveTransactionAsync:work=>work(txn)}, command, generateId, cvaDescriptors, async txn => {
     await requireSameTastingActor(actor);
     await assertAssessmentReadyWithDb(txn, command.sessionId, command.sampleId, actor);
     await persistHistoryWithDb(txn, command.sessionId);
@@ -470,11 +485,14 @@ export async function saveCvaResponse(input) {
       await recomputeSessionProgressStatusWithDb(txn, command.sessionId);
       await requireSameTastingActor(actor);
     };
+    });
+    if(scope)ackToken=(await getLocalTastingPresentationWithDb(txn,command.sessionId,'tasting',actor)).tasting.contextToken;
+    await requireSameTastingActor(actor);
   });
   await requireSameTastingActor(actor);
   const acknowledged = await getCvaResponse(command.sessionId, command.sampleId);
   await requireSameTastingActor(actor);
-  if (acknowledged.revision !== result.revision) tastingFail('tasting:ack_changed');
+  if (acknowledged.revision !== result.revision || ackToken&&acknowledged.tasting.contextToken!==ackToken) tastingFail('tasting:ack_changed');
   return { ...result, ...acknowledged, firstComplete: result.firstComplete };
 }
 
@@ -502,10 +520,25 @@ async function withTastingResponseAccess(db, sessionId, sampleId, form, saved, c
   const access = await streamWithDb(db, sessionId, sampleId, form, actor);
   const presentation = await getLocalTastingPresentationWithDb(db, sessionId, 'tasting', actor);
   const sample = presentation.session.samples.find(row => row.id === sampleId);
+  const canEditCompleted=Boolean(saved.sessionComplete&&!saved.historicalReadOnly&&saved.complete&&saved.result?.ok&&
+    presentation.tasting.activeSelection&&presentation.tasting.completed&&presentation.tasting.isLocalCreator&&sample?.tastingActive===true&&access.state==='mine');
   if (actor) await requireSameTastingActor(actor);
-  return { ...saved, access: { state: access.state, canWrite: !saved.historicalReadOnly && access.canWrite, canAdopt: !saved.historicalReadOnly && access.canAdopt, sourceToken: saved.historicalReadOnly ? null : access.sourceToken },
+  return { ...saved, access: { state: access.state, canWrite: !saved.historicalReadOnly && (access.canWrite||canEditCompleted), canEditCompleted, canAdopt: !saved.historicalReadOnly && access.canAdopt, sourceToken: saved.historicalReadOnly ? null : access.sourceToken },
     identity: { visible: Boolean(sample && !sample.identityHidden), name: sample?.coffeeNameOrigin || '', process: sample?.process || '' },
     tasting: presentation.tasting };
+}
+
+async function enrolledSaveContextWithDb(db,sessionId,sampleId,actor,expectedToken){
+  const policy=await assertCreatorTargetActiveWithDb(db,sessionId,sampleId,actor);
+  if(!policy)return null;
+  await requireSameTastingActor(actor);
+  const presentation=await getLocalTastingPresentationWithDb(db,sessionId,'tasting',actor);
+  if(!expectedToken||expectedToken!==presentation.tasting.contextToken)tastingFail('tasting:stale_context');
+  const access=await streamWithDb(db,sessionId,sampleId,policy.cuppingForm,actor);
+  const row=await db.getFirstAsync('SELECT status FROM sessions WHERE id=?',[sessionId]);
+  const canEditCompleted=Boolean(row?.status==='complete'&&presentation.tasting.completed&&presentation.tasting.isLocalCreator&&access.state==='mine');
+  if(row?.status==='complete'&&!canEditCompleted)tastingFail('tasting:read_only');
+  return{policy,presentation,access,canEditCompleted};
 }
 
 async function canonicalCvaForSample(db, sampleId) {
@@ -2188,6 +2221,7 @@ export async function getLegacyResponse(sessionId, sampleId) {
     output.removalGeneration = await creatorRemovalGenerationWithDb(txn,sessionId,sampleId,actor);
     const draft = validActor(actor) ? await txn.getFirstAsync(`SELECT * FROM local_legacy_recovery_drafts
       WHERE session_id=? AND sample_id=? AND local_profile_id=?`, [sessionId, sampleId, actor]) : null;
+    output.recoveryRowToken=null;
     if (draft && draft.base_fingerprint === output.savedFingerprint && output.access.canWrite) {
       let response;
       const session = await getSessionByIdWithDb(txn, sessionId);
@@ -2200,6 +2234,7 @@ export async function getLegacyResponse(sessionId, sampleId) {
       const validation = validateResponse({ ...trustedLegacySession(session), cup_count: sample.cupNumber, response, complete:false },trustedLegacySession(session));
       if (!validation.ok) tastingFail('tasting:damaged_draft');
       output.recoveryDraft = response;
+      output.recoveryRowToken=sha256(canonicalize({...draft}));
     } else output.recoveryDraft = null;
     if (actor) await requireSameTastingActor(actor);
   });
@@ -2217,16 +2252,31 @@ async function legacyFingerprintWithDb(db, sessionId, sampleId, actor) {
   source: semanticSource(stream.source) }));
 }
 
-export async function discardLegacyRecoveryDraft({ sessionId, sampleId, expectedFingerprint }) {
+export async function discardLegacyRecoveryDraft({ sessionId, sampleId, expectedFingerprint, expectedTastingContextToken=null,expectedRemovalGeneration=null,expectedRecoveryRowToken=null }) {
   const db = await getLocalDatabase();
   const actor = await getLocalProfileIdentity();
+  let scoped=false;
   await db.withExclusiveTransactionAsync(async txn => {
     await requireSameTastingActor(actor);
     await assertCreatorTargetActiveWithDb(txn, sessionId, sampleId, actor);
+    const scope=await enrolledSaveContextWithDb(txn,sessionId,sampleId,actor,expectedTastingContextToken);
+    scoped=Boolean(scope);
     if (!expectedFingerprint || expectedFingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
+    if(scope){
+      if(expectedRemovalGeneration!==await creatorRemovalGenerationWithDb(txn,sessionId,sampleId,actor))tastingFail('tasting:stale_removal');
+      const row=await txn.getFirstAsync('SELECT * FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?',[sessionId,sampleId,actor]);
+      const token=row?sha256(canonicalize({...row})):null;
+      if(token!==expectedRecoveryRowToken)tastingFail('tasting:stale_recovery');
+    }
     await txn.runAsync('DELETE FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?', [sessionId, sampleId, actor]);
     await requireSameTastingActor(actor);
   });
+  if(scoped){
+    await requireSameTastingActor(actor);
+    const acknowledged=await getLegacyResponse(sessionId,sampleId);
+    if(acknowledged.tasting.contextToken!==expectedTastingContextToken||acknowledged.savedFingerprint!==expectedFingerprint||acknowledged.recoveryRowToken!==null)tastingFail('tasting:ack_changed');
+    await requireSameTastingActor(actor);
+  }
 }
 
 async function getLegacyResponseWithDb(db, sessionId, sampleId) {
@@ -2256,14 +2306,14 @@ async function getLegacyResponseWithDb(db, sessionId, sampleId) {
     sessionComplete: session.status === 'complete' };
 }
 
-export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false, intent = 'save', expectedFingerprint = null, expectedRemovalGeneration = null }) {
+export async function saveLegacyResponse({ sessionId, sampleId, response, complete = false, intent = 'save', expectedFingerprint = null, expectedRemovalGeneration = null, expectedTastingContextToken=null }) {
   try { response = JSON.parse(canonicalize(response)); } catch { return { ok: false, errors: ['response:invalid_object'] }; }
   const actor = await getOrCreateLocalProfileIdentity();
   if (!['save', 'recovery'].includes(intent)) return { ok: false, errors: ['response:invalid_intent'] };
   const fingerprint = expectedFingerprint ?? await legacyFingerprintWithDb(await getLocalDatabase(), sessionId, sampleId, actor);
   const session = await getSessionById(sessionId);
   const trusted = trustedLegacySession(session);
-  if (session.status === 'complete') {
+  if (session.status === 'complete'&&!(await creatorActivationWithDb(await getLocalDatabase(),sessionId))) {
     return { ok: false, errors: ['session:complete_read_only'] };
   }
   const sample = session.samples.find((row) => row.id === sampleId);
@@ -2281,6 +2331,8 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
   const db = await getLocalDatabase();
   let outcome = null;
   let committedFingerprint = null;
+  let ackToken=null;
+  let committedRecoveryToken=null;
   // The earlier UI/validation read is not authority for a later write. Hold an
   // exclusive transaction while rechecking the current pin, Session state,
   // Sample mode/count, and any response row that an UPSERT would replace.
@@ -2292,7 +2344,7 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
        FROM sessions s JOIN samples sm ON sm.session_id = s.id
        WHERE s.id = ? AND sm.id = ? LIMIT 1`, [sessionId, sampleId]
     );
-    if (current?.status === 'complete') {
+    if (current?.status === 'complete'&&!(await creatorActivationWithDb(txn,sessionId))) {
       outcome = { ok: false, errors: ['session:complete_read_only'] };
       return;
     }
@@ -2319,8 +2371,11 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
     const generation = await creatorRemovalGenerationWithDb(txn,sessionId,sampleId,actor);
     if (generation != null && (!Number.isSafeInteger(expectedRemovalGeneration) || expectedRemovalGeneration !== generation)) tastingFail('tasting:stale_removal');
     if (fingerprint !== await legacyFingerprintWithDb(txn, sessionId, sampleId, actor)) tastingFail('tasting:stale_context');
+    const scope=await enrolledSaveContextWithDb(txn,sessionId,sampleId,actor,expectedTastingContextToken);
     const access = await streamWithDb(txn, sessionId, sampleId, 2, actor);
-    if (!access.canWrite) tastingFail(access.state === 'unattributed' ? 'tasting:review_required' : 'tasting:foreign_stream');
+    if (!access.canWrite&&!scope?.canEditCompleted) tastingFail(access.state === 'unattributed' ? 'tasting:review_required' : 'tasting:foreign_stream');
+    if(scope?.canEditCompleted&&!validateResponse({...input,complete:false},trusted).ok){outcome={ok:false,errors:['response:invalid_draft']};return;}
+    if(scope)ackToken=scope.presentation.tasting.contextToken;
     if (intent === 'recovery') {
       await txn.runAsync(`INSERT INTO local_legacy_recovery_drafts
         (session_id,sample_id,local_profile_id,context_json,base_fingerprint,response_json,updated_at)
@@ -2329,9 +2384,19 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
       [sessionId, sampleId, actor, canonicalize({ sessionId, sampleId, pin: trusted.identity, count: sample.cupNumber }), fingerprint, canonicalize(response), new Date().toISOString()]);
       await requireSameTastingActor(actor);
       committedFingerprint = fingerprint;
+      if(scope){const row=await txn.getFirstAsync('SELECT * FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?',[sessionId,sampleId,actor]);committedRecoveryToken=sha256(canonicalize({...row}));}
+      await requireSameTastingActor(actor);
       outcome = { ok: true, recoverySaved: true }; return;
     }
+    if(scope?.canEditCompleted){
+      const saved=await getLegacyResponseWithDb(txn,sessionId,sampleId);
+      if(canonicalize(response)===canonicalize(saved.response)){
+        await txn.runAsync('DELETE FROM local_legacy_recovery_drafts WHERE session_id=? AND sample_id=? AND local_profile_id=?',[sessionId,sampleId,actor]);
+        committedFingerprint=fingerprint;outcome={ok:true,noChange:true,result:saved.result,errors:saved.errors};await requireSameTastingActor(actor);return;
+      }
+    }
     await persistHistoryWithDb(txn, sessionId);
+    if(scope?.canEditCompleted)await txn.runAsync("UPDATE sessions SET status='pending' WHERE id=?",[sessionId]);
     const before = await revisionWithDb(txn, sessionId, actor);
     if (!before.matches) tastingFail('tasting:stale_content');
     await writeStreamWithDb(txn, { sessionId, sampleId, form: 2, actor });
@@ -2347,6 +2412,7 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
     await commitRevisionWithDb(txn, sessionId, actor, { starts: hasScoreOrNote(response, 2) });
     await recomputeSessionProgressStatusWithDb(txn, sessionId);
     committedFingerprint = await legacyFingerprintWithDb(txn, sessionId, sampleId, actor);
+    if(scope)ackToken=(await getLocalTastingPresentationWithDb(txn,sessionId,'tasting',actor)).tasting.contextToken;
     await requireSameTastingActor(actor);
     outcome = { ok: true, result, errors: validation.errors,
       access: { state: 'mine', canWrite: true, canAdopt: false, sourceToken: null } };
@@ -2355,7 +2421,7 @@ export async function saveLegacyResponse({ sessionId, sampleId, response, comple
   await requireSameTastingActor(actor);
   const acknowledged = await getLegacyResponse(sessionId, sampleId);
   await requireSameTastingActor(actor);
-  if (acknowledged.savedFingerprint !== committedFingerprint) tastingFail('tasting:ack_changed');
+  if (acknowledged.savedFingerprint !== committedFingerprint || ackToken&&(acknowledged.tasting.contextToken!==ackToken||acknowledged.recoveryRowToken!==committedRecoveryToken)) tastingFail('tasting:ack_changed');
   return { ...outcome, ...acknowledged };
 }
 
