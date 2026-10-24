@@ -117,7 +117,7 @@ export function CuppingSessionScreen({
               category: visibleIdentity.sessionType,
               status: row.status || "new",
               statusLabel,
-              uploadStatusLabel: presentation.tasting?.activeSelection === true && presentation.tasting?.isLocalCreator === true &&
+              uploadStatusLabel: presentation.tasting?.activeSelection === true && typeof presentation.tasting?.isLocalCreator === 'boolean' &&
                 ['Pending', 'In Progress', 'Complete'].includes(statusLabel) ? 'Not uploaded' : null,
               date: visibleIdentity.sessionDate,
             };

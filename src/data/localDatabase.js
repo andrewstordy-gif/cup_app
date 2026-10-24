@@ -499,6 +499,42 @@ async function prepareSchema(db) {
     completed_at TEXT NOT NULL,
     UNIQUE(session_id,local_profile_id,snapshot_hash)
   );`);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_participant_tasting_enrollments (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    incarnation TEXT NOT NULL,
+    binding_snapshot TEXT NOT NULL,
+    enrolled_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS local_participant_sample_activations (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    binding_snapshot TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );
+  CREATE TABLE IF NOT EXISTS local_participant_sample_removals (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    binding_snapshot TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    removed_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );
+  CREATE TABLE IF NOT EXISTS local_participant_tasting_completion_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    snapshot_hash TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    UNIQUE(session_id,local_profile_id,snapshot_hash)
+  );`);
 }
 
 async function runMigrations(db) {

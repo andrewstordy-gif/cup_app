@@ -138,3 +138,28 @@ does not initialize the separately specified encrypted production database.
 
 The [foundation contract](LOCAL_SESSION_STATE_FOUNDATION.md) specifies the
 schema, transaction boundaries, historical compatibility and later-stage gaps.
+
+## R1-130 bounded participant selection additions
+
+Additive tables for proven string-code participant imports only; no creator
+columns, setup locks, existing responses or aggregate hashes are migrated.
+
+- `local_participant_tasting_enrollments`: session primary key/cascading FK,
+  non-null local profile, random UUID incarnation, SHA-256 binding snapshot and
+  ISO enrollment time. One installation-local actor stream, not service auth.
+- `local_participant_sample_activations`: session/profile/sample composite key,
+  cascading session/sample FKs, immutable code, binding snapshot and scan time.
+- `local_participant_sample_removals`: same composite key/FKs/code/binding,
+  positive durable removal generation and ISO removal time; remains after
+  deactivation/reactivation to prevent stale-operation ABA.
+- `local_participant_tasting_completion_events`: autoincrement ID, cascading
+  session FK, profile, schema version 1, canonical snapshot JSON/SHA-256 and ISO
+  completion time; unique session/profile/snapshot hash. Append-only historical
+  evidence, qualified against current saved content and exact selection.
+
+All non-key fields above are NOT NULL. Runtime validates canonical pin/mode/
+count/code, actor, UUID/time/hash bindings, stream ownership, generation and
+cross-row consistency. Sessions deletion cascades these sidecars. Participant
+removal retains the sample row/code and clears only target current results,
+notes and recovery; creator sidecars remain unchanged. See the foundation's
+R1-130 extension for enrollment and compatibility limits.

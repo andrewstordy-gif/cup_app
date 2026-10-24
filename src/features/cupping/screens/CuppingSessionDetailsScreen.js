@@ -28,6 +28,7 @@ import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
 import { CheckSampleScreen } from "../components/CheckSampleScreen";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
+import { PreparationSampleCard } from '../components/PreparationSampleCard';
 import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
 import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
 import { SessionTitleSummary } from "../components/SessionTitleSummary";
@@ -298,7 +299,7 @@ export function CuppingSessionDetailsScreen({
     isSessionComplete: isSessionComplete && tastingPresentation?.session?.id === sessionId,
   });
   const canCompleteSession = sessionStatusBadgeLabel === "In Progress";
-  const usesActiveCompletion = Boolean(sessionId && tastingPresentation?.session?.id === sessionId && tastingPresentation.tasting?.activeSelection && tastingPresentation.tasting?.isLocalCreator);
+  const usesActiveCompletion = Boolean(sessionId && tastingPresentation?.session?.id === sessionId && tastingPresentation.tasting?.activeSelection);
 
   useEffect(() => {
     setupEpochRef.current += 1;
@@ -722,7 +723,7 @@ export function CuppingSessionDetailsScreen({
     if (!candidate || candidate !== expected || participantRemovalBusyRef.current || candidate.sessionId !== sessionId || savedSessionIdRef.current !== sessionId || candidate.epoch !== setupEpochRef.current) return;
     participantRemovalBusyRef.current = candidate;
     setIsRemovingParticipantSample(true);
-    const finishRemoval = candidate.kind === 'creator-tasting' ? onLocalTastingRemovalStart?.(candidate.sessionId,candidate.sampleId) : null;
+    const finishRemoval = candidate.kind === 'creator-tasting' || candidate.kind === 'participant-tasting' ? onLocalTastingRemovalStart?.(candidate.sessionId,candidate.sampleId) : null;
     try {
       const remove = candidate.kind === 'creator-tasting' ? removeCreatorTastingSample : removeParticipantSample;
       const result = await remove({sessionId:candidate.sessionId,sampleId:candidate.sampleId,expectedRemovalToken:candidate.token});
@@ -1856,7 +1857,9 @@ export function CuppingSessionDetailsScreen({
             <Text style={styles.samplesHeading}>SAMPLES</Text>
           </View>
 
-          {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
+          {samples.map((sample, index) => sessionStatusBadgeLabel === 'Draft' && canEditSessionSetup ? (
+            <PreparationSampleCard key={sample.id} sample={sessionId ? visibleIdentity.samples[index] : sample} />
+          ) : isSessionFormSupported && isLegacy ? (
             <LegacySampleCard key={sample.tastingActive == null ? sample.id : `${sample.id}:${sample.tastingActive ? 'active' : 'inactive'}`} sample={sessionId ? visibleIdentity.samples[index] : sample} inactive={sample.tastingActive === false} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
               onRemove={handleRemoveSample} canRemove={Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample && !isCompletingSession}
               showRemove={Boolean(sample.localRemoval?.canRemove)}
@@ -2040,11 +2043,11 @@ export function CuppingSessionDetailsScreen({
       />
 
       <WarningDialog visible={Boolean(participantRemoval) && participantRemoval.sessionId === sessionId && tastingPresentation?.session?.id === sessionId && participantRemoval.epoch === setupEpochRef.current}
-        title={participantRemoval?.kind === 'creator-tasting' ? 'Remove Sample' : 'Remove local sample?'}
-        message={participantRemoval?.kind === 'creator-tasting' ? 'Remove this sample from your cupping session.' : `Delete ${participantRemoval?.label || 'this sample'} and its saved scores and notes from this phone? The physical cup and creator's copy will not change.`}
-        okLabel={participantRemoval?.kind === 'creator-tasting' ? 'REMOVE' : 'Cancel'}
-        onOk={()=>participantRemoval?.kind === 'creator-tasting' ? confirmParticipantRemoval(participantRemoval) : dismissParticipantRemoval(participantRemoval)} onDismiss={()=>dismissParticipantRemoval(participantRemoval)}
-        secondaryLabel={participantRemoval?.kind === 'creator-tasting' ? undefined : 'Delete'} onSecondary={participantRemoval?.kind === 'creator-tasting' ? undefined : ()=>confirmParticipantRemoval(participantRemoval)} />
+        title={participantRemoval?.kind === 'creator-tasting' || participantRemoval?.kind === 'participant-tasting' ? 'Remove Sample' : 'Remove local sample?'}
+        message={participantRemoval?.kind === 'creator-tasting' || participantRemoval?.kind === 'participant-tasting' ? 'Remove this sample from your cupping session.' : `Delete ${participantRemoval?.label || 'this sample'} and its saved scores and notes from this phone? The physical cup and creator's copy will not change.`}
+        okLabel={participantRemoval?.kind === 'creator-tasting' || participantRemoval?.kind === 'participant-tasting' ? 'REMOVE' : 'Cancel'}
+        onOk={()=>participantRemoval?.kind === 'creator-tasting' || participantRemoval?.kind === 'participant-tasting' ? confirmParticipantRemoval(participantRemoval) : dismissParticipantRemoval(participantRemoval)} onDismiss={()=>dismissParticipantRemoval(participantRemoval)}
+        secondaryLabel={participantRemoval?.kind === 'creator-tasting' || participantRemoval?.kind === 'participant-tasting' ? undefined : 'Delete'} onSecondary={participantRemoval?.kind === 'creator-tasting' || participantRemoval?.kind === 'participant-tasting' ? undefined : ()=>confirmParticipantRemoval(participantRemoval)} />
 
       <WarningDialog
         visible={isOverwriteDialogVisible}

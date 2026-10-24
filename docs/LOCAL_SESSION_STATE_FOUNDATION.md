@@ -89,6 +89,48 @@ Confirmed removal transactionally deletes only the selected sample, its FK depen
 
 ## Validation and release boundary
 
+### R1-130 participant selection / completed editing extension
+
+For explicitly enrolled, supported two-character-code participant copies only,
+this extension supersedes R1-069's sample-row deletion. An actual validated scan
+may enroll a NULL-creator session with matching current pin, supported per-sample
+mode/count, exact code/metadata, and durable physical observation for every
+already-known sample. Each saved stream must be fresh or owned by the captured
+actor; foreign/unattributed revisions, unknown children or damaged recovery fail
+closed. No roster is inferred from advertised totals, scores or creator flags.
+No creator provenance/setup-lock field is written. Numeric/missing-pin/unproven
+copies are not silently converted, reset or granted completion/edit authority.
+
+Enrollment adds actor/incarnation-bound sidecars only. Already-known proven
+samples are retained active without rewriting responses, revisions, recovery,
+history or raw session status. An exact qualified pre-update full-known core
+completion remains qualified only with all known active and no intervening
+removal generation/new completion evidence; raw COMPLETE alone is insufficient.
+The existing response `sessionComplete` flag retains raw-closure meaning;
+`access.canEditCompleted` is the separate qualified selection permission. Current
+forms use that scoped permission for completed Save/Stay/Leave. No-op Save and
+discard preserve completion; saved score or notes changes reopen/hide atomically.
+
+New scans add only the observed sample; active rescan is idempotent. Removal
+appends a canonical blank CVA revision (or clears current Legacy response),
+clears only that target's notes/recovery, increments durable removal generation
+and retains its known grey card/code. Reactivation starts blank; it never restores
+history as current results. Completion uses at least one active sample and every
+active required saved score, excludes grey, and reveals only active Blind data.
+Historical participant completion vectors may be proper subsets after further
+discovery; they never qualify the current larger/changed selection.
+
+Current completion/context tokens bind actor/session, enrollment incarnation,
+saved revision/hash, all-known code/removal generations and active scan vector.
+Scan capture, Save/recovery/discard/removal/completion and final acknowledgements
+recheck these identities; delete/reimport and blank semantic ABA cannot borrow an
+earlier context. Whole-session deletion cascades sidecars. Existing creator
+selection/completion evidence and full-roster aggregate representation remain
+compatible. No upload consent, NFC write/payload or setup authority is added.
+Latest accepted R1-111 current-rating rule is preserved: notes/defaults/defects
+alone do not create current scored progress; saved notes changes after COMPLETE
+still invalidate completion/reveal, and durable started/completed history stays.
+
 Before runtime edits run all 38 retained scripts on baseline `b280544` with Node 22.13.0 and shared read-only dependencies; preserve exact logs. New checks exercise real in-memory/file SQLite adapters, transaction rollback and module reload, not mocks that only match SQL strings.
 
 Migration fixtures cover fresh empty stores, old version-4 variants, earlier shapes, partially added columns/tables, repeated startup and injected failure/retry. Assert exact original JSON, pins, policies, IDs, timestamps, attribution and completion rows unchanged. Include completed 89.5 and unknown/foreign/corrupt/historical data without automatic claim or reveal.
