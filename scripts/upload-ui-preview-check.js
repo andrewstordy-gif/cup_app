@@ -26,7 +26,7 @@ function load(relative) {
     if (request === 'expo') return { registerRootComponent: component => { registered = component; } };
     if (request === '@expo/vector-icons/Ionicons') return 'Ionicons';
     if (request.endsWith('TypographyAuditText')) return { TypographyAuditText: 'Text' };
-    if (request === './App') { appLoads++; return { default: 'ActualApp' }; }
+    if (request === './App') { appLoads++; return { __esModule: true, default: 'ActualApp' }; }
     assert(request.startsWith('.'), `unexpected dependency ${request}`);
     return load(path.relative(root, path.resolve(path.dirname(file), request + '.js')));
   };
@@ -89,8 +89,6 @@ for (const file of ['r1-118-upload-preview.js', 'r1-062-phone-verification-entry
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   assert(!/useEffect|AsyncStorage|sessionRepository|fetch\s*\(|axios|NfcManager|sqlite|AppNavigator/.test(text));
 }
-states=[];cursor=0;const entry=load('r1-062-phone-verification-entry.js');assert.equal(registered,entry.TestEntry);assert.equal(appLoads,0);
-let mounted=entry.TestEntry();assert.equal(mounted.type,load('r1-122-upload-status-preview.js').UploadStatusPreview);assert.equal(appLoads,0,'new isolated preview does not import App');
-mounted.props.onOpenTestApp();cursor=0;mounted=entry.TestEntry();assert.equal(mounted.type,'ActualApp');assert.equal(appLoads,1);
-states=[];cursor=0;assert.equal(entry.TestEntry().type,load('r1-122-upload-status-preview.js').UploadStatusPreview,'reload returns to isolated fixture');
-console.log('PASS archived R1-118 fixtures/icons/accessibility; R1-122 isolated entry and lazy normal App escape.');
+assert.equal(fs.readFileSync(path.join(root,'r1-062-phone-verification-entry.js'),'utf8'),"import { registerRootComponent } from 'expo';\nimport App from './App';\n\nregisterRootComponent(App);\n",'exact normal App startup with no preview imports or props');
+states=[];cursor=0;const entry=load('r1-062-phone-verification-entry.js');assert.equal(registered,'ActualApp');assert.equal(appLoads,1);assert.deepEqual(Object.keys(entry),[],'no preview entry wrapper exported');
+console.log('PASS archived R1-118 fixtures/icons/accessibility; restored exact direct normal App registration.');
