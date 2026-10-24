@@ -34,6 +34,7 @@ export function UploadStatusPreview({ onOpenTestApp }) {
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const fixture = STATUS_FIXTURES[selected];
+  const canPreviewDeletion = fixture.label === 'Upload queued';
   const finishReplacementPreview = (outcome) => {
     setReplacementVisible(false);
     setReplacementOutcome(`Preview only: ${outcome}. Nothing was replaced, queued or sent.`);
@@ -49,7 +50,7 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       <View style={styles.selectors}>
         {STATUS_FIXTURES.map((status, index) => <Pressable key={status.label} testID={`status-fixture-${index}`}
           accessibilityRole="button" accessibilityLabel={`Preview ${status.label}`} accessibilityState={{ selected: selected === index }}
-          onPress={() => setSelected(index)} style={({ pressed }) => [styles.selector, selected === index && styles.selected, pressed && styles.pressed]}>
+          onPress={() => { setSelected(index); setDeletionVisible(false); }} style={({ pressed }) => [styles.selector, selected === index && styles.selected, pressed && styles.pressed]}>
           <Text style={styles.detail}>{status.label}</Text>
         </Pressable>)}
       </View>
@@ -75,7 +76,9 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       <View style={[styles.sessionCard, { padding: 16 * scale }]}>
         <View style={styles.cardTop}>
           <Text style={styles.sessionTitle} numberOfLines={1}>{SESSION_FIXTURE.name}</Text>
-          <IconButton name="close" color={colors.inkSoft} disabled accessibilityLabel="Delete unavailable in test-data preview" />
+          <IconButton name="close" color={colors.inkSoft} disabled={!canPreviewDeletion}
+            onPress={canPreviewDeletion ? () => { setReplacementVisible(false); setDeletionOutcome(''); setDeletionVisible(true); } : undefined}
+            accessibilityLabel={canPreviewDeletion ? 'Preview delete fictional queued session; nothing is deleted' : 'Delete unavailable in test-data preview'} />
         </View>
         <Text style={styles.sessionCategory}>{SESSION_FIXTURE.category}</Text>
         <View style={styles.cardFooter}>
@@ -90,12 +93,6 @@ export function UploadStatusPreview({ onOpenTestApp }) {
         <Text style={styles.openAppText}>Preview replacement confirmation</Text>
       </Pressable>
       {replacementOutcome ? <Text style={styles.detail} accessibilityLiveRegion="polite">{replacementOutcome}</Text> : null}
-      <Text style={styles.detail}>Fictional scenario: pending upload. Independent of the status selected above.</Text>
-      <Pressable onPress={() => { setReplacementVisible(false); setDeletionOutcome(''); setDeletionVisible(true); }}
-        accessibilityRole="button" accessibilityLabel="Preview pending-upload deletion warning; nothing is deleted"
-        style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
-        <Text style={styles.openAppText}>Preview pending-upload deletion warning</Text>
-      </Pressable>
       {deletionOutcome ? <Text style={styles.detail} accessibilityLiveRegion="polite">{deletionOutcome}</Text> : null}
       <Pressable onPress={onOpenTestApp} accessibilityRole="button" accessibilityLabel="Open unchanged test app, leaving fixtures behind"
         style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
@@ -113,7 +110,7 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       onDismiss={() => finishReplacementPreview('confirmation dismissed')}
       secondaryButtonStyle={styles.confirmationPrimary} secondaryButtonTextStyle={styles.confirmationPrimaryText}
       okButtonStyle={styles.confirmationSecondary} okButtonTextStyle={styles.confirmationSecondaryText} /> : null}
-    {deletionVisible ? <WarningDialog visible title="Delete Session?"
+    {deletionVisible && canPreviewDeletion ? <WarningDialog visible title="Delete Session?"
       message="Deletes local results and cancels the pending upload."
       variant="cupping-choice" secondaryLabel="Delete" onSecondary={() => finishDeletionPreview('Delete selected')}
       okLabel="Cancel" onOk={() => finishDeletionPreview('Cancel selected')}
