@@ -89,9 +89,5 @@ for (const file of ['r1-118-upload-preview.js', 'r1-062-phone-verification-entry
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   assert(!/useEffect|AsyncStorage|sessionRepository|fetch\s*\(|axios|NfcManager|sqlite|AppNavigator/.test(text));
 }
-states = []; cursor = 0;
-const entry = load('r1-062-phone-verification-entry.js'); assert.equal(registered, entry.TestEntry); assert.equal(appLoads, 0);
-let mounted = entry.TestEntry(); assert.equal(mounted.type, preview.UploadUiPreview); assert.equal(appLoads, 0, 'default entry does not even import actual App');
-mounted.props.onOpenTestApp(); cursor = 0; mounted = entry.TestEntry(); assert.equal(mounted.type, 'ActualApp'); assert.equal(appLoads, 1);
-states = []; cursor = 0; mounted = entry.TestEntry(); assert.equal(mounted.type, preview.UploadUiPreview, 'reload returns to preview');
-console.log('PASS R1-118: actual JSX three fixtures/independent COMPLETE/status accessibility, inert grey upload+blueScan, token fonts/44pt selectors, additive icons/existing paths, no side-effect imports, explicit lazy App handoff/reload.');
+load('r1-062-phone-verification-entry.js'); assert.equal(registered.default, 'ActualApp'); assert.equal(appLoads, 1, 'R1-119 restores normal App startup; archived preview is not mounted');
+console.log('PASS archived R1-118 fixtures/icons/accessibility; R1-119 normal App entry restored.');

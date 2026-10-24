@@ -1769,6 +1769,7 @@ export function CuppingSessionDetailsScreen({
               dateLabel={sessionId ? visibleIdentity.sessionDate : sessionDate}
               sessionCode={sessionDisplayId}
               status={sessionStatusBadgeLabel.toUpperCase()}
+              uploadStatusLabel={usesActiveCompletion && isSessionFormSupported ? 'Not uploaded' : null}
             />
             {isSessionFormLoading || !isSessionFormSupported ? (
               <Text style={styles.metaValueMuted}>
@@ -1918,7 +1919,13 @@ export function CuppingSessionDetailsScreen({
 
       </ScreenContainer>
 
-      {usesActiveCompletion && !isSessionComplete ? (
+      {usesActiveCompletion && isSessionComplete && isSessionFormSupported && typeof onScanCupForAssessment === 'function' ? (
+        <ScreenFooterDual primaryLabel="" primaryIcon={<AppIcon name="upload" role="icon_navigation" color={colors.inkSoft} />}
+          primaryIconOnly primaryDisabled primaryAccessibilityLabel="Upload results unavailable; upload is not connected"
+          secondaryLabel="SCAN CUP" onSecondaryPress={onScanCupForAssessment}
+          secondaryDisabled={footerDisabled || typeof onScanCupForAssessment!=='function'} secondaryStyle={styles.scanFooterButton}
+          secondaryTextStyle={styles.scanFooterButtonText} secondaryAccessibilityLabel="Scan cup for assessment" />
+      ) : usesActiveCompletion && !isSessionComplete ? (
         <ScreenFooterDual primaryLabel="COMPLETE SESSION" onPrimaryPress={handleCompleteCreatorTasting}
           primaryLoading={isCompletingSession} primaryDisabled={footerDisabled || !tastingPresentation?.tasting?.canComplete}
           primaryAccessibilityLabel="Complete session" secondaryLabel="SCAN CUP" onSecondaryPress={onScanCupForAssessment}

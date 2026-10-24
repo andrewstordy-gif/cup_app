@@ -1,14 +1,4 @@
 import { registerRootComponent } from 'expo';
-import React, { useState } from 'react';
-import { UploadUiPreview } from './r1-118-upload-preview';
+import App from './App';
 
-export function TestEntry() {
-  const [openApp, setOpenApp] = useState(false);
-  if (openApp) {
-    const App = require('./App').default;
-    return <App />;
-  }
-  return <UploadUiPreview onOpenTestApp={() => setOpenApp(true)} />;
-}
-
-registerRootComponent(TestEntry);
+registerRootComponent(App);
