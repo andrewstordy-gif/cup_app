@@ -30,6 +30,7 @@ import { requireFormRoute, requireFormTag, UNSUPPORTED_MESSAGE } from "../featur
 import { logAppError } from "../services/errorLogger";
 import {
   activateSession,
+  activateVerifiedQuickCupping,
   getSessionSetupAccess,
   findActiveSampleByCupUUID,
   getSessionById,
@@ -934,27 +935,28 @@ export function AppNavigator() {
     goToCupping("Cupping Session Details");
   };
 
-  const handleQuickStartSampleReady = async ({ sessionId, sample } = {}) => {
-    setIsQuickCuppingPending(false);
-
-    if (!sessionId || !sample) {
-      return;
+  const handleQuickStartSampleReady = async ({ sessionId, sample, handoff, isCurrent: setupCurrent } = {}) => {
+    if(!sessionId||!sample||handoff?.sessionId!==sessionId||handoff.sampleId!==sample.id||typeof setupCurrent!=='function')return;
+    const epoch=++assessmentReadEpoch.current,origin=currentRoute.current;
+    const current=()=>epoch===assessmentReadEpoch.current&&origin===currentRoute.current&&origin==='Cupping Session Details'&&setupCurrent()===true;
+    if(!current())return;
+    try{
+      const ready=await activateVerifiedQuickCupping({handoff,isCurrent:current});
+      if(!current())return;
+      const context=buildContextFromSessionSample(ready.sample,0,1,{sessionId,
+        isSessionComplete:ready.sessionStatus==='complete',cupStateNumber:1,
+        cupStatus:{state:'READY',temp:'N/A',time:'00:00'}});
+      if(!context)return;
+      const projected=await projectAssessmentContextForSavedSession(context);
+      if(!current()||!projected)return;
+      setSelectedSessionId(sessionId);
+      setSelectedCupContext(projected);
+      setIsQuickCuppingPending(false);
+      setScanStatusMessage('');
+      if(current())goToCupping('Cupping Session Details');
+    }catch{
+      if(current())showWarning('Quick Cupping','The tasting handoff could not be confirmed. Reopen the saved session before continuing.');
     }
-
-    const context = buildContextFromSessionSample(sample, 0, 1, {
-      sessionId,
-      isSessionComplete: false,
-      cupStateNumber: 1,
-      cupStatus: { state: "READY", temp: "N/A", time: "00:00" },
-    });
-    if (!context || !await canOpenSample(sessionId, sample)) {
-      return;
-    }
-
-    setSelectedSessionId(sessionId);
-    if (!await selectSavedAssessment(context)) return;
-    setScanStatusMessage("");
-    goToCupping("Cupping Session Details");
   };
 
   const content = useMemo(() => {

@@ -334,6 +334,15 @@ storage and retained main-profile ownership follow the R1-137 architecture
 extension; this is not production/encryption conformance or merge approval.
 Outstanding integration findings remain mandatory task gates, not policy changes.
 
+**Quick Cupping exception, approved 24 October 2026 (R1-138):** After the
+explicit Quick flow successfully writes and separately verifies its sole sample,
+automatically lock that owned setup and activate that verified sample atomically,
+then open its tasting form without another NFC scan/write. The session remains
+PENDING until saved current ratings establish scored progress. Failed/cancelled
+write/check does not lock or activate. Normal sessions retain explicit LOCK
+SESSION and scan-to-activate. Duplicate/lost acknowledgements preserve saved
+scores/history and must not reactivate a subsequently removed sample.
+
 **Per-sample mode clarification, approved 21 October 2026 (R1-105):** Blind/Open
 is chosen independently for each CVA sample, not once for the whole session.
 A valid mixture does not revoke the creator's otherwise permitted DRAFT setup

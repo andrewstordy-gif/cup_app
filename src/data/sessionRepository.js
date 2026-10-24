@@ -496,6 +496,84 @@ export async function lockSessionSetup({ sessionId, expectedSnapshot }) {
   return { sessionId, locked: true };
 }
 
+const quickFail=()=>{throw new Error('Quick Cupping handoff changed. Reopen the saved session.');};
+function assertQuickCurrent(check){let current=false;try{current=typeof check==='function'&&check()===true;}catch{}if(!current)quickFail();}
+// A verified addition, not a route flag or a write callback, supplies the proof.
+async function quickHandoffWithDb(db,sessionId,operationId,actor){
+  await assertLocalCreatorWithDb(db,sessionId);
+  const setup=await getSessionByIdWithDb(db,sessionId,{reconcile:false});
+  if(!setup||String(setup.sessionType)!=='7'||!isActiveFormPin(setup,setup.cuppingForm))quickFail();
+  await assertNoRemoval(db,sessionId);
+  const issuer=await db.getFirstAsync('SELECT * FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+  if(issuer?.actor_id!==actor||issuer.profile!==103||!validActor(issuer.incarnation))quickFail();
+  const retired=await removalReceiptsWithDb(db,sessionId,actor,issuer.incarnation);
+  const row=await pendingRowWithDb(db,sessionId);
+  let sample,metadata;
+  if(row){
+    const pending=decodePending(row,actor,setup);
+    if(pending.operationId!==operationId||pending.phase!=='verified'||!pending.writeCompleted||setup.status!=='new'||setup.samples.length!==0||pending.saveInput.samples.length!==1)quickFail();
+    sample=pending.candidate;metadata=pending.payload;
+  }else{
+    if(setup.samples.length!==1)quickFail();
+    sample=setup.samples[0];metadata=parseMetadata(sample.metadataJson);
+    const committed=await db.getFirstAsync('SELECT actor_id,outcome_json FROM sample_code_commit_outcomes WHERE session_id=? AND operation_id=?',[sessionId,operationId]);
+    let outcome;try{outcome=JSON.parse(committed?.outcome_json);}catch{quickFail();}
+    if(committed?.actor_id!==actor||outcome.sessionId!==sessionId||outcome.status!=='new'||outcome.savedSampleCount!==1||
+      (outcome.issuerIncarnation!=null||retired.length)&&(outcome.issuerIncarnation!==issuer.incarnation||outcome.removalGeneration!==retired.length))quickFail();
+  }
+  const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[sessionId,sample.sampleCode]);
+  if(issued?.operation_id!==operationId||retired.some(receipt=>receipt.sample_code===sample.sampleCode)||
+    !validCode(sample.sampleCode)||sample.cuppingForm!==setup.cuppingForm||metadata.u!==sessionId||metadata.z!==sample.sampleCode||metadata.t!==7)quickFail();
+  const intended=buildCompactSessionMetadata({...sample,sessionUUID:sessionId,sessionName:setup.sessionName,sessionType:setup.sessionType,sessionDate:setup.sessionDate,samplesInSession:metadata.i});
+  if(!metadataMatches(metadata,intended))quickFail();
+  return {version:1,sessionId,operationId,actor,incarnation:issuer.incarnation,generation:retired.length,
+    sampleId:sample.id,code:sample.sampleCode,uid:sample.cupUUID,metadataHash:sha256(canonicalize(metadata)),
+    setupHash:sha256(canonicalize([setup.sessionName,setup.sessionType,setup.sessionDate,setup.cuppingForm,setup.formKey,setup.formVersion,setup.formHash,setup.cuppingMode]))};
+}
+
+export async function getVerifiedQuickCuppingHandoff({sessionId,operationId,isCurrent}){
+  if(!validSession(sessionId)||!validActor(operationId))quickFail();
+  const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();let handoff;
+  await db.withExclusiveTransactionAsync(async txn=>{
+    assertQuickCurrent(isCurrent);await requireSameTastingActor(actor);
+    handoff=await quickHandoffWithDb(txn,sessionId,operationId,actor);
+    await requireSameTastingActor(actor);assertQuickCurrent(isCurrent);
+  });
+  await requireSameTastingActor(actor);assertQuickCurrent(isCurrent);return Object.freeze(handoff);
+}
+
+export async function activateVerifiedQuickCupping({handoff,isCurrent}){
+  // Capture the DTO before any await; it is local proof, never authentication.
+  const expected=canonicalize(handoff),captured=JSON.parse(expected);
+  if(!validSession(captured?.sessionId)||!validActor(captured.operationId))quickFail();
+  const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();let token;
+  await db.withExclusiveTransactionAsync(async txn=>{
+    assertQuickCurrent(isCurrent);await requireSameTastingActor(actor);
+    if(expected!==canonicalize(await quickHandoffWithDb(txn,captured.sessionId,captured.operationId,actor)))quickFail();
+    await assertNoPendingWithDb(txn,captured.sessionId);
+    const locked=await setupLockWithDb(txn,captured.sessionId);
+    if(!locked){
+      const context=await removalContextWithDb(txn,captured.sessionId,actor);
+      if(context.incarnation!==captured.incarnation||context.generation!==captured.generation+1)quickFail();
+      await requireSameTastingActor(actor);assertQuickCurrent(isCurrent);
+      await txn.runAsync("UPDATE sessions SET local_setup_locked_at=?,local_setup_lock_snapshot=?,local_creator_activation_policy=1,status='pending' WHERE id=?",[new Date().toISOString(),context.snapshot,captured.sessionId]);
+      await txn.runAsync('INSERT INTO local_creator_sample_activations(session_id,local_profile_id,sample_id,sample_code,lock_snapshot,scanned_at) VALUES (?,?,?,?,?,?)',
+        [captured.sessionId,actor,captured.sampleId,captured.code,context.snapshot,new Date().toISOString()]);
+    }
+    const policy=await creatorActivationWithDb(txn,captured.sessionId);
+    if(!policy||policy.kind==='participant'||policy.creator!==actor||policy.rows.length!==1||!creatorTargetActive(policy,actor,captured.sampleId)||
+      await creatorRemovalGenerationWithDb(txn,captured.sessionId,captured.sampleId,actor,policy)!==0)quickFail();
+    const presentation=await getLocalTastingPresentationWithDb(txn,captured.sessionId,'tasting',actor);
+    token=presentation.tasting.contextToken;
+    await requireSameTastingActor(actor);assertQuickCurrent(isCurrent);
+  });
+  await requireSameTastingActor(actor);assertQuickCurrent(isCurrent);
+  const presentation=await getLocalTastingPresentation(captured.sessionId);
+  if(presentation.tasting.contextToken!==token||presentation.session.samples.length!==1||!presentation.session.samples.some(sample=>sample.id===captured.sampleId&&sample.sampleCode===captured.code&&sample.tastingActive===true))quickFail();
+  await requireSameTastingActor(actor);assertQuickCurrent(isCurrent);
+  return {sessionId:captured.sessionId,sample:presentation.session.samples[0],sessionStatus:presentation.session.status,contextToken:token};
+}
+
 export async function getSessionSetupAccess(sessionId) {
   try {
     const presentation = await getLocalTastingPresentation(sessionId, { purpose: 'setup' });

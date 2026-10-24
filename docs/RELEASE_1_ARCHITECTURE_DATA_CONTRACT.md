@@ -891,6 +891,16 @@ operation rejection. DRAFT physical removal is a separate purpose-bound verified
 clear; it retires the assignment/code and does not reclaim issued codes. No
 completion/removal transition grants setup authority or upload permission.
 
+The R1-138 explicit Quick exception consumes the sole sample's durable verified
+addition proof, bound to current creator/issuer incarnation/issued operation and
+roster generation. Existing setup Lock and sole activation commit together;
+neither a route flag nor write success grants assessment access. First transition
+requires blank never-started setup; replay requires the original existing active
+target and unchanged tasting-removal epoch, never restoring removed results or
+activation. Actor/UI-current checks apply before commit and acknowledgement.
+No schema, NFC payload, upload, response/history event or global DRAFT-read
+permission changes. Normal sessions keep explicit Lock and scan activation.
+
 The pre-release `cup_user_test.db` and related prototype stores are disposable implementation evidence, not a production predecessor schema. Release 1 MUST initialize a distinct, fresh encrypted database and MUST NOT open, import, transform, alias, or expose prototype records through an importer or user-facing migration flow. This contract does not authorise deletion or mutation of any existing prototype data; preservation or archival outside the Release 1 product is a separately scoped operational choice.
 
 ### 13.1 First production schema initialization

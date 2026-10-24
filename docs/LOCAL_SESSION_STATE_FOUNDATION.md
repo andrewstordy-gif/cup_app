@@ -161,6 +161,22 @@ write. Cleared cups are explicitly unassigned, never stale-UID tasting fallback.
 
 Before runtime edits run all 38 retained scripts on baseline `b280544` with Node 22.13.0 and shared read-only dependencies; preserve exact logs. New checks exercise real in-memory/file SQLite adapters, transaction rollback and module reload, not mocks that only match SQL strings.
 
+### R1-138 verified Quick handoff extension
+
+Only explicit Quick type7 with current stored creator and one verified committed
+sample may atomically use existing setup Lock plus sole creator activation.
+Captured proof binds actor, issuer incarnation, physical-removal receipt
+generation, issued operation, sample/code/hardware UID and immutable metadata/
+setup. Pending/failed write or check never suffices. First transition requires
+no saved response/recovery/start history. Locking/activation alone remains
+PENDING and creates no response or tasting history. Current ratings-only progress
+is unchanged. Same-screen verified Save recovery needs no additional NFC read;
+after lost transition acknowledgement the durable active card opens normally.
+Idempotent replay preserves scores/history and rejects a removed/reactivated
+target by its independent tasting-removal generation. Normal DRAFT assessment
+guards and manual Lock/scan activation remain unchanged. No load-time automatic
+navigation or new recovery UI is introduced.
+
 Migration fixtures cover fresh empty stores, old version-4 variants, earlier shapes, partially added columns/tables, repeated startup and injected failure/retry. Assert exact original JSON, pins, policies, IDs, timestamps, attribution and completion rows unchanged. Include completed 89.5 and unknown/foreign/corrupt/historical data without automatic claim or reveal.
 
 State checks cover CVA and Legacy partial and note-only explicit saves, blank/default Save, completion/edit/recompletion/no-op, persisted restart, foreign actor and late actor change, stale completion/context/revision, failed response/projection/completion transactions, new scanned sample versus rescan, empty coverage, preparation privacy and post-completion setup lock. Legacy checks separately cover autosave while COMPLETE, crash recovery, stale draft and Leave/discard retaining committed completion.

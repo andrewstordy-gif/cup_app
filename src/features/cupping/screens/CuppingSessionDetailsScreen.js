@@ -74,6 +74,7 @@ import {
   markPendingSampleAdditionWritten,
   markPendingSampleAdditionVerified,
   commitPendingSampleAddition,
+  getVerifiedQuickCuppingHandoff,
   getDraftSampleRemoval,stageDraftSampleRemoval,beginDraftSampleRemovalWrite,
   markDraftSampleRemovalWritten,inspectDraftSampleRemovalRead,commitDraftSampleRemoval,
   observePendingDraftRemovalRead,
@@ -383,9 +384,9 @@ export function CuppingSessionDetailsScreen({
 
   useEffect(() => {
     const ready = pendingVerifiedQuickStartRef.current;
-    if (!ready || isCheckingCup || pendingAdditionBusyRef.current || !samples.some(sample => sample.id === ready.sample.id)) return;
+    if (!ready || !ready.isCurrent?.() || isCheckingCup || pendingAdditionBusyRef.current || !samples.some(sample => sample.id === ready.sample.id)) return;
     pendingVerifiedQuickStartRef.current = null;
-    requestSetupExit(() => onQuickStartSampleReady?.(ready));
+    requestSetupExit(() => { if(ready.isCurrent()) return onQuickStartSampleReady?.(ready); });
   }, [samples, isCheckingCup, requestSetupExit, onQuickStartSampleReady]);
 
   useEffect(() => {
@@ -1567,6 +1568,10 @@ export function CuppingSessionDetailsScreen({
           pendingAdditionRef.current = marked;
         }
         operation.kind = 'commit';
+        const quickStart=pendingQuickStartReadyRef.current;
+        const quickHandoff=quickStart&&typeof onQuickStartSampleReady==='function'
+          ? await getVerifiedQuickCuppingHandoff({sessionId:pending.sessionId,operationId:pending.operationId,isCurrent:current}) : null;
+        if(!current())return;
         const saved = await commitPendingSampleAddition({sessionId:pending.sessionId,operationId:pending.operationId});
         if (!current()) return;
         const nextSamples = pending.saveInput.samples.map(sample => ({
@@ -1585,9 +1590,11 @@ export function CuppingSessionDetailsScreen({
         setCheckingSampleId(null);
         setCheckSampleStatus("pending");
         setScanStatusMessage("Cup verified and sample saved locally.");
-        const quickStart = pendingQuickStartReadyRef.current;
         pendingQuickStartReadyRef.current = null;
-        if (quickStart && typeof onQuickStartSampleReady === 'function') pendingVerifiedQuickStartRef.current = quickStart;
+        if (quickStart && quickHandoff) pendingVerifiedQuickStartRef.current = Object.freeze({
+          sessionId:saved.sessionId,sample:nextSamples.find(sample=>sample.id===quickHandoff.sampleId),handoff:quickHandoff,
+          isCurrent:()=>operation.epoch===setupEpochRef.current&&savedSessionIdRef.current===saved.sessionId,
+        });
       } catch (error) {
         if (current()) {
           setCheckSampleStatus("pending");
