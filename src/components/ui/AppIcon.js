@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { iconGlyphs, iconography } from "../../theme/iconography";
+import { colors } from "../../theme/colors";
 
 export function AppIcon({
   name,
@@ -13,6 +14,19 @@ export function AppIcon({
   const token = iconography[role] || iconography.icon_action;
   const iconSize = size || token.size;
   const iconColor = color || token.color;
+
+  if (name === "upload" || name === "cloud-check") {
+    return <Ionicons accessible={false} name={name === "upload" ? "cloud-upload-outline" : "cloud-done-outline"}
+      size={iconSize} color={iconColor} style={style} />;
+  }
+
+  if (name === "cloud-clock") {
+    return <View accessible={false} style={[{ width: iconSize, height: iconSize }, style]}>
+      <Ionicons accessible={false} name="cloud-outline" size={iconSize} color={iconColor} />
+      <Ionicons accessible={false} name="time-outline" size={iconSize * 0.58} color={iconColor}
+        style={{ position: "absolute", right: 0, bottom: 0, backgroundColor: colors.surface, borderRadius: iconSize / 2 }} />
+    </View>;
+  }
 
   if (name === "search") {
     return (
