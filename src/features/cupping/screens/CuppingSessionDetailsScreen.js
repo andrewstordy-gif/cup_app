@@ -28,7 +28,6 @@ import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
 import { CheckSampleScreen } from "../components/CheckSampleScreen";
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
-import { PreparationSampleCard } from '../components/PreparationSampleCard';
 import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
 import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
 import { SessionTitleSummary } from "../components/SessionTitleSummary";
@@ -1857,12 +1856,10 @@ export function CuppingSessionDetailsScreen({
             <Text style={styles.samplesHeading}>SAMPLES</Text>
           </View>
 
-          {samples.map((sample, index) => sessionStatusBadgeLabel === 'Draft' && canEditSessionSetup ? (
-            <PreparationSampleCard key={sample.id} sample={sessionId ? visibleIdentity.samples[index] : sample} />
-          ) : isSessionFormSupported && isLegacy ? (
+          {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
             <LegacySampleCard key={sample.tastingActive == null ? sample.id : `${sample.id}:${sample.tastingActive ? 'active' : 'inactive'}`} sample={sessionId ? visibleIdentity.samples[index] : sample} inactive={sample.tastingActive === false} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
-              onRemove={handleRemoveSample} canRemove={Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample && !isCompletingSession}
-              showRemove={Boolean(sample.localRemoval?.canRemove)}
+              onRemove={handleRemoveSample} canRemove={sessionStatusBadgeLabel !== 'Draft' && Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample && !isCompletingSession}
+              showRemove={sessionStatusBadgeLabel !== 'Draft' && Boolean(sample.localRemoval?.canRemove)}
               onPress={sample.tastingActive !== false && sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
                 ? () => requestSetupExit(() => onOpenSample(sample, index, samples.length, { sessionId: savedSessionIdRef.current, isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) }))
                 : undefined} />
@@ -1874,12 +1871,12 @@ export function CuppingSessionDetailsScreen({
               index={index}
               scale={scale}
               onRemove={handleRemoveSample}
-              canRemove={!lockOperationRef.current && !isRemovingParticipantSample && !isCompletingSession && (sample.localRemoval?.canRemove || samples.length > 0 && canEditSessionSetup)}
-              showRemove={canEditSessionSetup || Boolean(sample.localRemoval?.canRemove)}
+              canRemove={sessionStatusBadgeLabel !== 'Draft' && !lockOperationRef.current && !isRemovingParticipantSample && !isCompletingSession && (sample.localRemoval?.canRemove || samples.length > 0 && canEditSessionSetup)}
+              showRemove={sessionStatusBadgeLabel !== 'Draft' && (canEditSessionSetup || Boolean(sample.localRemoval?.canRemove))}
               participantLocalRemoval={Boolean(sample.localRemoval?.canRemove)}
               status={sampleStatusById?.[sample.id]}
               defaultExpanded={isSessionComplete}
-              onEditSample={showInProgressFooter || !canEditSessionSetup ? undefined : lockOperationRef.current ? undefined : () => handleOpenEditSheet(sample)}
+              onEditSample={sessionStatusBadgeLabel === 'Draft' || showInProgressFooter || !canEditSessionSetup ? undefined : lockOperationRef.current ? undefined : () => handleOpenEditSheet(sample)}
               onOpenSample={
                 sample.tastingActive !== false && sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && isSessionFormSupported && sample.cupUUID && typeof onOpenSample === "function"
                   ? () =>
