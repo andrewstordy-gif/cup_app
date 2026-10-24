@@ -29,12 +29,18 @@ export function UploadStatusPreview({ onOpenTestApp }) {
   const [selected, setSelected] = useState(0);
   const [replacementVisible, setReplacementVisible] = useState(false);
   const [replacementOutcome, setReplacementOutcome] = useState('');
+  const [deletionVisible, setDeletionVisible] = useState(false);
+  const [deletionOutcome, setDeletionOutcome] = useState('');
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const fixture = STATUS_FIXTURES[selected];
   const finishReplacementPreview = (outcome) => {
     setReplacementVisible(false);
     setReplacementOutcome(`Preview only: ${outcome}. Nothing was replaced, queued or sent.`);
+  };
+  const finishDeletionPreview = (outcome) => {
+    setDeletionVisible(false);
+    setDeletionOutcome(`Preview only: ${outcome}. Nothing was deleted, cancelled or sent.`);
   };
   return <SafeAreaView style={styles.screen}>
     <ScrollView contentContainerStyle={[styles.previewContent, { paddingHorizontal: 26 * scale }]}>
@@ -78,12 +84,19 @@ export function UploadStatusPreview({ onOpenTestApp }) {
         </View>
         <FixtureStatus fixture={fixture} />
       </View>
-      <Pressable onPress={() => { setReplacementOutcome(''); setReplacementVisible(true); }}
+      <Pressable onPress={() => { setDeletionVisible(false); setReplacementOutcome(''); setReplacementVisible(true); }}
         accessibilityRole="button" accessibilityLabel="Preview replacement confirmation; no upload consent"
         style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
         <Text style={styles.openAppText}>Preview replacement confirmation</Text>
       </Pressable>
       {replacementOutcome ? <Text style={styles.detail} accessibilityLiveRegion="polite">{replacementOutcome}</Text> : null}
+      <Text style={styles.detail}>Fictional scenario: pending upload. Independent of the status selected above.</Text>
+      <Pressable onPress={() => { setReplacementVisible(false); setDeletionOutcome(''); setDeletionVisible(true); }}
+        accessibilityRole="button" accessibilityLabel="Preview pending-upload deletion warning; nothing is deleted"
+        style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
+        <Text style={styles.openAppText}>Preview pending-upload deletion warning</Text>
+      </Pressable>
+      {deletionOutcome ? <Text style={styles.detail} accessibilityLiveRegion="polite">{deletionOutcome}</Text> : null}
       <Pressable onPress={onOpenTestApp} accessibilityRole="button" accessibilityLabel="Open unchanged test app, leaving fixtures behind"
         style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
         <Text style={styles.openAppText}>OPEN TEST APP</Text>
@@ -98,6 +111,13 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       variant="cupping-choice" secondaryLabel="Yes, replace" onSecondary={() => finishReplacementPreview('Yes, replace selected')}
       okLabel="No, keep existing" onOk={() => finishReplacementPreview('No, keep existing selected')}
       onDismiss={() => finishReplacementPreview('confirmation dismissed')}
+      secondaryButtonStyle={styles.confirmationPrimary} secondaryButtonTextStyle={styles.confirmationPrimaryText}
+      okButtonStyle={styles.confirmationSecondary} okButtonTextStyle={styles.confirmationSecondaryText} /> : null}
+    {deletionVisible ? <WarningDialog visible title="Delete Session?"
+      message="This deletes the local session, its saved results and its pending upload. The pending results will not be sent. Any results already uploaded remain unchanged."
+      variant="cupping-choice" secondaryLabel="Delete" onSecondary={() => finishDeletionPreview('Delete selected')}
+      okLabel="Cancel" onOk={() => finishDeletionPreview('Cancel selected')}
+      onDismiss={() => finishDeletionPreview('warning dismissed')}
       secondaryButtonStyle={styles.confirmationPrimary} secondaryButtonTextStyle={styles.confirmationPrimaryText}
       okButtonStyle={styles.confirmationSecondary} okButtonTextStyle={styles.confirmationSecondaryText} /> : null}
   </SafeAreaView>;
