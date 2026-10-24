@@ -5,6 +5,7 @@ import { TypographyAuditText as Text } from './src/components/ui/TypographyAudit
 import { AppIcon } from './src/components/ui/AppIcon';
 import { IconButton } from './src/components/ui/IconButton';
 import { ScreenFooterDual } from './src/components/ui/ScreenFooter';
+import { WarningDialog } from './src/components/ui/WarningDialog';
 import { SessionStatusBadge } from './src/features/style-guide/components/SessionStatusBadge';
 import { colors } from './src/theme/colors';
 import { spacing } from './src/theme/spacing';
@@ -26,9 +27,15 @@ function FixtureStatus({ fixture, inSummary = false }) {
 
 export function UploadStatusPreview({ onOpenTestApp }) {
   const [selected, setSelected] = useState(0);
+  const [replacementVisible, setReplacementVisible] = useState(false);
+  const [replacementOutcome, setReplacementOutcome] = useState('');
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const fixture = STATUS_FIXTURES[selected];
+  const finishReplacementPreview = (outcome) => {
+    setReplacementVisible(false);
+    setReplacementOutcome(`Preview only: ${outcome}. Nothing was replaced, queued or sent.`);
+  };
   return <SafeAreaView style={styles.screen}>
     <ScrollView contentContainerStyle={[styles.previewContent, { paddingHorizontal: 26 * scale }]}>
       <Text style={styles.previewTitle} accessibilityRole="header">UI preview · test data</Text>
@@ -71,6 +78,12 @@ export function UploadStatusPreview({ onOpenTestApp }) {
         </View>
         <FixtureStatus fixture={fixture} />
       </View>
+      <Pressable onPress={() => { setReplacementOutcome(''); setReplacementVisible(true); }}
+        accessibilityRole="button" accessibilityLabel="Preview replacement confirmation; no upload consent"
+        style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
+        <Text style={styles.openAppText}>Preview replacement confirmation</Text>
+      </Pressable>
+      {replacementOutcome ? <Text style={styles.detail} accessibilityLiveRegion="polite">{replacementOutcome}</Text> : null}
       <Pressable onPress={onOpenTestApp} accessibilityRole="button" accessibilityLabel="Open unchanged test app, leaving fixtures behind"
         style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
         <Text style={styles.openAppText}>OPEN TEST APP</Text>
@@ -80,6 +93,13 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       primaryIconOnly primaryDisabled primaryAccessibilityLabel="Upload unavailable in test-data preview; nothing is sent"
       secondaryLabel="SCAN CUP" secondaryDisabled secondaryAccessibilityLabel="Scan cup unavailable in test-data preview; no NFC"
       secondaryStyle={styles.scanFooterButton} secondaryTextStyle={styles.scanFooterButtonText} />
+    {replacementVisible ? <WarningDialog visible title="Replace previous results?"
+      message="Results for this session are already queued for upload or have previously been uploaded. Replace them with your latest completed results?"
+      variant="cupping-choice" secondaryLabel="Yes, replace" onSecondary={() => finishReplacementPreview('Yes, replace selected')}
+      okLabel="No, keep existing" onOk={() => finishReplacementPreview('No, keep existing selected')}
+      onDismiss={() => finishReplacementPreview('confirmation dismissed')}
+      secondaryButtonStyle={styles.confirmationPrimary} secondaryButtonTextStyle={styles.confirmationPrimaryText}
+      okButtonStyle={styles.confirmationSecondary} okButtonTextStyle={styles.confirmationSecondaryText} /> : null}
   </SafeAreaView>;
 }
 
@@ -111,4 +131,8 @@ const styles = StyleSheet.create({
   scanFooterButtonText: { color: colors.surface },
   openApp: { minHeight: 44, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.quietBorder, borderRadius: 8 },
   openAppText: { ...typography.text_button_primary, color: colors.ink },
+  confirmationPrimary: { backgroundColor: colors.ink },
+  confirmationPrimaryText: { color: colors.surface },
+  confirmationSecondary: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.quietBorder },
+  confirmationSecondaryText: { color: colors.ink },
 });
