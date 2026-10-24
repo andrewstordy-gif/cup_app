@@ -89,5 +89,8 @@ for (const file of ['r1-118-upload-preview.js', 'r1-062-phone-verification-entry
   const text = fs.readFileSync(path.join(root, file), 'utf8');
   assert(!/useEffect|AsyncStorage|sessionRepository|fetch\s*\(|axios|NfcManager|sqlite|AppNavigator/.test(text));
 }
-load('r1-062-phone-verification-entry.js'); assert.equal(registered.default, 'ActualApp'); assert.equal(appLoads, 1, 'R1-119 restores normal App startup; archived preview is not mounted');
-console.log('PASS archived R1-118 fixtures/icons/accessibility; R1-119 normal App entry restored.');
+states=[];cursor=0;const entry=load('r1-062-phone-verification-entry.js');assert.equal(registered,entry.TestEntry);assert.equal(appLoads,0);
+let mounted=entry.TestEntry();assert.equal(mounted.type,load('r1-122-upload-status-preview.js').UploadStatusPreview);assert.equal(appLoads,0,'new isolated preview does not import App');
+mounted.props.onOpenTestApp();cursor=0;mounted=entry.TestEntry();assert.equal(mounted.type,'ActualApp');assert.equal(appLoads,1);
+states=[];cursor=0;assert.equal(entry.TestEntry().type,load('r1-122-upload-status-preview.js').UploadStatusPreview,'reload returns to isolated fixture');
+console.log('PASS archived R1-118 fixtures/icons/accessibility; R1-122 isolated entry and lazy normal App escape.');
