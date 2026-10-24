@@ -60,7 +60,7 @@ export function LocalTastingActions({ sessionId, sampleId, access, tasting, disa
     }
   };
   const canAdopt = access?.state === 'unattributed' && access.canAdopt === true && Boolean(access.sourceToken);
-  const canComplete = showCompletion && Boolean(tasting?.contextToken) && tasting?.canComplete && tasting?.started && !tasting.completed;
+  const canComplete = showCompletion && !tasting?.activeSelection && Boolean(tasting?.contextToken) && tasting?.canComplete && tasting?.started && !tasting.completed;
   const blocked = disabled || pending;
   const dismiss = expected => {
     if (currentDialog.current !== expected) return;

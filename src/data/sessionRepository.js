@@ -102,6 +102,8 @@ async function creatorRemovalGenerationWithDb(db, sessionId, sampleId, actor, po
 }
 
 async function creatorHasSavedScoreWithDb(db, sessionId, form) {
+  const selected=await creatorStatusesWithDb(db,sessionId);
+  if (selected) return Object.values(selected).some(value=>value.hasAnyFeedback);
   if (form === 1) return Object.values(await canonicalCvaStatuses(db, sessionId)).some(value => value.hasAnyFeedback);
   const samples = await db.getAllAsync('SELECT id FROM samples WHERE session_id=?', [sessionId]);
   for (const sample of samples) {
@@ -109,6 +111,77 @@ async function creatorHasSavedScoreWithDb(db, sessionId, form) {
     if (Object.values(saved.response?.quality_ratings || {}).some(value => value != null)) return true;
   }
   return false;
+}
+
+async function creatorStatusesWithDb(db,sessionId,policy=undefined,actor=undefined) {
+  if (policy===undefined) policy=await creatorActivationWithDb(db,sessionId);
+  if (!policy) return null;
+  if (actor===undefined) actor=await getLocalProfileIdentity();
+  await requireSameTastingActor(actor);
+  const samples=await db.getAllAsync('SELECT id FROM samples WHERE session_id=?',[sessionId]),output={};
+  for (const sample of samples) {
+    output[sample.id]={isComplete:false,finalScore:null,resultLabel:null,hasAnyFeedback:false,scoresByField:{},noteGroups:[]};
+    if (!creatorTargetActive(policy,actor,sample.id)) continue;
+    const saved=policy.cuppingForm===1 ? await readCanonicalCva(db,sessionId,sample.id) : await getLegacyResponseWithDb(db,sessionId,sample.id);
+    output[sample.id]={isComplete:Boolean(saved.complete&&saved.result?.ok),finalScore:saved.result?.display_score??null,resultLabel:saved.result?.label??null,
+      hasAnyFeedback:Object.values(policy.cuppingForm===1?saved.response?.ratings||{}:saved.response?.quality_ratings||{}).some(value=>value!=null),
+      scoresByField:policy.cuppingForm===1?Object.fromEntries(Object.entries(RATINGS).filter(([,key])=>saved.response?.ratings?.[key]!=null).map(([label,key])=>[label,saved.response.ratings[key]])):{},
+      noteGroups:policy.cuppingForm===1?cvaNoteGroups(saved.response):[],...(policy.cuppingForm===1?{canonicalCva:true,revision:saved.revision}:{})};
+  }
+  await requireSameTastingActor(actor);
+  return output;
+}
+
+// Additive completion coverage: the existing full-roster aggregate/revision
+// stays byte-for-byte compatible with previously saved results and recovery.
+async function creatorCompletionWithDb(db, sessionId, actor, prior = null) {
+  const policy = await creatorActivationWithDb(db,sessionId);
+  if (!policy) return null;
+  const state = prior || await tastingStateWithDb(db,sessionId,actor);
+  if (!validActor(actor) || policy.creator !== actor) return {...state,completed:false,revealed:false,completedAt:null,contextToken:null,activeSelection:true,activeCount:0};
+  const session = await getSessionByIdWithDb(db,sessionId);
+  if (session.cuppingMode != null && !['open','blind'].includes(session.cuppingMode) ||
+      session.cuppingForm === 2 && session.cuppingMode !== 'open' ||
+      session.samples.some(sample => sample.cuppingForm !== session.cuppingForm || !['open','blind'].includes(sample.cuppingMode) ||
+        session.cuppingForm === 2 && sample.cuppingMode !== 'open' || !Number.isInteger(sample.cupNumber) || sample.cupNumber < 1 || sample.cupNumber > 8 || !validCode(sample.sampleCode))) tastingFail('tasting:unsupported');
+  const active = [],known=[];
+  for (const sample of session.samples) {
+    const generation = await creatorRemovalGenerationWithDb(db,sessionId,sample.id,actor,policy);
+    known.push({id:sample.id,code:sample.sampleCode,generation});
+    const activation = policy.rows.find(row=>row.sample_id===sample.id);
+    if (activation) active.push({id:sample.id,code:sample.sampleCode,generation,scannedAt:activation.scanned_at});
+  }
+  active.sort((a,b)=>a.id.localeCompare(b.id));
+  known.sort((a,b)=>a.id.localeCompare(b.id));
+  const base = await revisionWithDb(db,sessionId,actor);
+  if (!base.matches) tastingFail('tasting:stale_content');
+  const snapshot = {schema:1,actor,sessionId,lockSnapshot:policy.snapshot,baseSavedRevision:base.revision,baseContentHash:base.hash,known,active};
+  const json = canonicalize(snapshot), hash = sha256(json);
+  const events = await db.getAllAsync('SELECT * FROM local_creator_tasting_completion_events WHERE session_id=? AND local_profile_id=? ORDER BY id',[sessionId,actor]);
+  let matching = null;
+  for (const event of events) {
+    let saved;
+    try { saved=JSON.parse(event.snapshot_json); if (canonicalize(saved)!==event.snapshot_json) tastingFail('tasting:damaged_completion'); }
+    catch { tastingFail('tasting:damaged_completion'); }
+    if (event.schema_version!==1 || sha256(event.snapshot_json)!==event.snapshot_hash || saved.schema!==1 || saved.actor!==actor ||
+        saved.sessionId!==sessionId || saved.lockSnapshot!==policy.snapshot || !Number.isSafeInteger(saved.baseSavedRevision) || saved.baseSavedRevision<1 ||
+        typeof saved.baseContentHash!=='string' || !/^[a-f0-9]{64}$/.test(saved.baseContentHash) || !Array.isArray(saved.active) || !saved.active.length ||
+        !Array.isArray(saved.known) || saved.known.length!==session.samples.length || saved.known.some((sample,index)=>!sample ||
+          !session.samples.some(row=>row.id===sample.id&&row.sampleCode===sample.code) || !Number.isSafeInteger(sample.generation)||sample.generation<0 ||
+          index>0&&saved.known[index-1].id.localeCompare(sample.id)>=0) ||
+        typeof event.completed_at!=='string' || !Number.isFinite(Date.parse(event.completed_at)) || new Date(event.completed_at).toISOString()!==event.completed_at ||
+        saved.active.some((sample,index)=>!sample || typeof sample.id!=='string' || !session.samples.some(row=>row.id===sample.id&&row.sampleCode===sample.code) ||
+          !Number.isSafeInteger(sample.generation)||sample.generation<0 || typeof sample.scannedAt!=='string' || !Number.isFinite(Date.parse(sample.scannedAt)) ||
+          new Date(sample.scannedAt).toISOString()!==sample.scannedAt || index>0&&saved.active[index-1].id.localeCompare(sample.id)>=0)) tastingFail('tasting:damaged_completion');
+    if (event.snapshot_hash===hash && event.snapshot_json===json) matching=event;
+  }
+  // A pre-update, valid full-roster completion remains readable without a
+  // backfill. Once new evidence exists, it must never fall back to old reveal.
+  const oldComplete = !events.length && state.completed && active.length===session.samples.length && active.length>0;
+  const completed = Boolean(matching||oldComplete);
+  return {...state,completed,revealed:completed,completedAt:matching?.completed_at||(oldComplete?state.completedAt:null),
+    contextToken:sha256(canonicalize(['creator-active-completion-v1',actor,sessionId,base.revision,base.hash,hash])),
+    activeSelection:true,activeCount:active.length,snapshot,json,hash,base};
 }
 
 // Read-only readiness proof. Each member retains its own original on-tag total.
@@ -1114,7 +1187,9 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   if (!raw) tastingFail('tasting:unavailable');
   const creator = await db.getFirstAsync('SELECT local_creator_profile_id AS creator FROM sessions WHERE id = ?', [sessionId]);
   const isLocalCreator = validActor(actor) && creator?.creator === actor;
-  const state = await tastingStateWithDb(db, sessionId, actor);
+  const originalState = await tastingStateWithDb(db, sessionId, actor);
+  const creatorCompletion = await creatorCompletionWithDb(db,sessionId,actor,originalState);
+  const state = creatorCompletion ? Object.fromEntries(Object.entries(creatorCompletion).filter(([key])=>!['snapshot','json','hash','base'].includes(key))) : originalState;
   const samples = raw.samples || [];
   const activation = await creatorActivationWithDb(db, sessionId);
   const targetActive = sample => creatorTargetActive(activation, actor, sample.id);
@@ -1149,9 +1224,10 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     for (const sample of samples) localRemoval[sample.id] = await participantRemovalContextWithDb(db, sessionId, sample.id, actor);
   }
   let displayStatus = state.completed ? 'complete' : raw.status === 'complete' ? 'complete' : state.started && raw.status !== 'new' ? 'in_progress' : raw.status;
+  if (activation) displayStatus = state.completed ? 'complete' : await creatorHasSavedScoreWithDb(db,sessionId,raw.cuppingForm) ? 'in_progress' : 'pending';
   // Current ratings control active CVA progress only. Historical start still
   // governs setup/privacy; reading an older already-cleared row never writes.
-  if (activePin && isCanonicalCvaReadPin(raw) && samples.length && !['new', 'complete'].includes(displayStatus)) {
+  if (!activation && activePin && isCanonicalCvaReadPin(raw) && samples.length && !['new', 'complete'].includes(displayStatus)) {
     const statuses = await canonicalCvaStatuses(db, sessionId);
     displayStatus = Object.values(statuses).some(sample => sample.hasAnyFeedback) ? 'in_progress' : 'pending';
   }
@@ -1174,7 +1250,7 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
     process: showSample(sample) ? sample.process : null, identityHidden: !showSample(sample),
   })) };
   return { session: projected, identityHidden,
-    tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(activePin && validActor(actor) && supported && validMode && samples.length && !state.completed && raw.status !== 'complete' && !(creator?.creator && raw.status === 'new')),
+    tasting: { ...state, assessmentReady: !(creator?.creator && raw.status === 'new'), canComplete: Boolean(activePin && validActor(actor) && supported && validMode && (activation ? isLocalCreator && state.activeCount>0 : samples.length) && !state.completed && (activation || raw.status !== 'complete') && !(creator?.creator && raw.status === 'new')),
       canManageSetup, isLocalCreator } };
 }
 
@@ -1363,6 +1439,35 @@ export async function completeLocalTasting(sessionId, { expectedContextToken } =
     const session = await getSessionByIdWithDb(txn, sessionId);
     if ((!isActiveFormPin(session, 1) && !isActiveFormPin(session, 2)) ||
         !['new', 'pending', 'in_progress', 'complete'].includes(session.status)) tastingFail('tasting:unsupported');
+    const creatorCompletion = await creatorCompletionWithDb(txn,sessionId,actor);
+    if (creatorCompletion) {
+      if (!creatorCompletion.activeCount || !creatorCompletion.snapshot) tastingFail('tasting:unavailable');
+      const incompleteSamples=[];
+      // Validate only active saved assessments, never the inactive roster's
+      // response/finality or UI summaries. Recovery is not a saved result.
+      for (const target of creatorCompletion.snapshot.active) {
+        const access=await streamWithDb(txn,sessionId,target.id,session.cuppingForm,actor);
+        const saved=session.cuppingForm===1 ? await readCanonicalCva(txn,sessionId,target.id) : await getLegacyResponseWithDb(txn,sessionId,target.id);
+        if (access.state!=='mine' || !saved.complete || !saved.result?.ok) incompleteSamples.push({sampleId:target.id,label:target.code});
+      }
+      if (incompleteSamples.length) {
+        await requireSameTastingActor(actor);
+        output={status:'incomplete',incompleteSamples,tasting:presentation.tasting};return;
+      }
+      if (!creatorCompletion.base.row) tastingFail('tasting:stale_content');
+      if (!creatorCompletion.completed) {
+        await persistHistoryWithDb(txn,sessionId,{completed:true});
+        await txn.runAsync(`INSERT INTO local_creator_tasting_completion_events
+          (session_id,local_profile_id,schema_version,snapshot_json,snapshot_hash,completed_at) VALUES (?,?,1,?,?,?)`,
+        [sessionId,actor,creatorCompletion.json,creatorCompletion.hash,new Date().toISOString()]);
+        await txn.runAsync("UPDATE sessions SET status='complete',updated_at=? WHERE id=?",[new Date().toISOString(),sessionId]);
+      }
+      await requireSameTastingActor(actor);
+      const acknowledged=await getLocalTastingPresentationWithDb(txn,sessionId,'tasting',actor);
+      if (!acknowledged.tasting.completed || acknowledged.tasting.contextToken!==expectedContextToken) tastingFail('tasting:ack_changed');
+      await requireSameTastingActor(actor);
+      output={status:'complete',tasting:acknowledged.tasting};return;
+    }
     if (presentation.tasting.completed) {
       if (presentation.session.samples.some(sample => sample.identityHidden)) tastingFail('tasting:unsupported');
       await requireSameTastingActor(actor);
@@ -1386,6 +1491,12 @@ export async function completeLocalTasting(sessionId, { expectedContextToken } =
     output = { status: 'complete', tasting: (await getLocalTastingPresentationWithDb(txn, sessionId, 'tasting', actor)).tasting };
     await requireSameTastingActor(actor);
   });
+  if (output?.tasting?.activeSelection) {
+    await requireSameTastingActor(actor);
+    const acknowledged=await getLocalTastingPresentation(sessionId);
+    if (acknowledged.tasting.contextToken!==expectedContextToken || output.status==='complete'&&!acknowledged.tasting.completed) tastingFail('tasting:ack_changed');
+    await requireSameTastingActor(actor);
+  }
   return output;
 }
 
@@ -1901,16 +2012,23 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=nul
       await recomputeSessionProgressStatusWithDb(txn,session.id);
       sample={id,cupUUID:target,cupNumber:observed.y,cuppingForm:observed.f,cuppingMode:mode,sampleNumber:index+1,sampleCode:observed.z,coffeeNameOrigin:observed.n,process:String(observed.p),positionIndex:index};
     }
-    const saved=await getSessionByIdWithDb(txn,session.id);
+    let saved=await getSessionByIdWithDb(txn,session.id);
     const activation = await creatorActivationWithDb(txn, session.id);
     if (activation) {
       assertScanCurrent();
       if (activation.creator !== actor) tastingFail('tasting:foreign_activation');
       if (!creatorTargetActive(activation, actor, sample.id)) {
-        if (saved.status === 'complete') tastingFail('tasting:complete_activation_unavailable');
+        if (saved.status === 'complete') {
+          const completion=await creatorCompletionWithDb(txn,session.id,actor);
+          if (!completion?.completed) tastingFail('tasting:damaged_completion');
+          await persistHistoryWithDb(txn,session.id);
+          await txn.runAsync("UPDATE sessions SET status='pending' WHERE id=?",[session.id]);
+        }
         await txn.runAsync(`INSERT INTO local_creator_sample_activations
           (session_id,local_profile_id,sample_id,sample_code,lock_snapshot,scanned_at) VALUES (?,?,?,?,?,?)`,
         [session.id,actor,sample.id,sample.sampleCode,activation.snapshot,new Date().toISOString()]);
+        await recomputeSessionProgressStatusWithDb(txn,session.id);
+        saved=await getSessionByIdWithDb(txn,session.id);
       }
     }
     await txn.runAsync('INSERT OR IGNORE INTO physical_code_observations(session_id,code,physical_uid) VALUES (?,?,?)',[session.id,observed.z,target]);
@@ -2252,6 +2370,8 @@ async function getSessionSampleFinalStatusWithDb(db, sessionId) {
   }
 
   const session = await getSessionByIdWithDb(db, normalizedSessionId);
+  const selected=await creatorStatusesWithDb(db,normalizedSessionId);
+  if (selected) return selected;
   if (isCanonicalCvaReadPin(session)) return canonicalCvaStatuses(db, normalizedSessionId);
   if (isPinnedForm(session, 2)) {
     trustedLegacySession(session);

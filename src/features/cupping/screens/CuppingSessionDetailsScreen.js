@@ -59,6 +59,7 @@ import {
   deleteSessionById,
   removeParticipantSample,
   removeCreatorTastingSample,
+  completeLocalTasting,
   findPendingSessionByCupUUID,
   getLocalTastingPresentation,
   getSessionSampleFinalStatus,
@@ -240,6 +241,7 @@ export function CuppingSessionDetailsScreen({
   const [setupExitMessage, setSetupExitMessage] = useState("");
   const [isSessionDirty, setIsSessionDirty] = useState(false);
   const [isCompletingSession, setIsCompletingSession] = useState(false);
+  const creatorCompletionOperationRef = useRef(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [overwriteDialogMessage, setOverwriteDialogMessage] = useState("");
   const [isOverwriteDialogVisible, setIsOverwriteDialogVisible] = useState(false);
@@ -296,6 +298,7 @@ export function CuppingSessionDetailsScreen({
     isSessionComplete: isSessionComplete && tastingPresentation?.session?.id === sessionId,
   });
   const canCompleteSession = sessionStatusBadgeLabel === "In Progress";
+  const usesActiveCompletion = Boolean(sessionId && tastingPresentation?.session?.id === sessionId && tastingPresentation.tasting?.activeSelection && tastingPresentation.tasting?.isLocalCreator);
 
   useEffect(() => {
     setupEpochRef.current += 1;
@@ -310,6 +313,7 @@ export function CuppingSessionDetailsScreen({
     pendingSetupExitRef.current = null;
     saveOperationRef.current = null;
     completionBusyRef.current = null;
+    creatorCompletionOperationRef.current = null;
     lockOperationRef.current = null;
     setLockReadiness(null);
     setLockConfirmation(null);
@@ -327,6 +331,7 @@ export function CuppingSessionDetailsScreen({
       pendingSetupExitRef.current = null;
       saveOperationRef.current = null;
       completionBusyRef.current = null;
+      creatorCompletionOperationRef.current = null;
       lockOperationRef.current = null;
     };
   }, [sessionId, quickStartSessionTypeValue]);
@@ -669,7 +674,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleRemoveSample = (sampleId) => {
-    if (lockOperationRef.current) return;
+    if (lockOperationRef.current || creatorCompletionOperationRef.current) return;
     const permission = samples.find(sample=>sample.id===sampleId)?.localRemoval;
     if (permission?.canRemove && permission.removalToken && !participantRemovalBusyRef.current && savedSessionIdRef.current === sessionId && tastingPresentation?.session?.id === sessionId) {
       const candidate = { sessionId, sampleId, token:permission.removalToken, label:permission.label, kind:permission.kind, epoch:setupEpochRef.current };
@@ -686,6 +691,31 @@ export function CuppingSessionDetailsScreen({
     if (participantRemovalRef.current !== expected || participantRemovalBusyRef.current && !settled) return;
     participantRemovalRef.current = null;
     setParticipantRemoval(null);
+  };
+
+  const handleCompleteCreatorTasting = async () => {
+    if (!usesActiveCompletion || !tastingPresentation?.tasting?.canComplete || creatorCompletionOperationRef.current ||
+        isSessionDirty || isSaving || isNfcWriting || isRemovingParticipantSample || participantRemovalRef.current || lockOperationRef.current) return;
+    const operation={sessionId,token:tastingPresentation.tasting.contextToken,epoch:setupEpochRef.current};
+    creatorCompletionOperationRef.current=operation;setIsCompletingSession(true);
+    const current=()=>creatorCompletionOperationRef.current===operation && setupEpochRef.current===operation.epoch && savedSessionIdRef.current===operation.sessionId;
+    try {
+      const result=await completeLocalTasting(operation.sessionId,{expectedContextToken:operation.token});
+      if (!current()) return;
+      if (result.status!=='complete') {
+        const codes=(result.incompleteSamples||[]).map(item=>item.label).filter(code=>/^[A-Z0-9]{2}$/.test(code));
+        setCompleteSessionMessage(`Finish and save the required scores${codes.length ? ` for ${codes.join(', ')}` : ''} before completing the session.`);
+        setIsCompleteSessionDialogVisible(true);return;
+      }
+      const presentation=await getLocalTastingPresentation(operation.sessionId,{purpose:'tasting'});
+      if (!current() || presentation.tasting.contextToken!==operation.token || !presentation.tasting.completed) return;
+      setTastingPresentation(presentation);setSamples(presentation.session.samples);setSessionStatus(presentation.session.status);
+      setSetupAccess({sessionId:operation.sessionId,...presentation.tasting});setPresentationRevision(value=>value+1);
+    } catch {
+      if (current()) {setCompleteSessionMessage('The saved tasting changed. Reopen the session and try again.');setIsCompleteSessionDialogVisible(true);}
+    } finally {
+      if (creatorCompletionOperationRef.current===operation) {creatorCompletionOperationRef.current=null;if(setupEpochRef.current===operation.epoch)setIsCompletingSession(false);}
+    }
   };
   const confirmParticipantRemoval = async (expected = participantRemovalRef.current) => {
     const candidate = participantRemovalRef.current;
@@ -1827,7 +1857,7 @@ export function CuppingSessionDetailsScreen({
 
           {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
             <LegacySampleCard key={sample.tastingActive == null ? sample.id : `${sample.id}:${sample.tastingActive ? 'active' : 'inactive'}`} sample={sessionId ? visibleIdentity.samples[index] : sample} inactive={sample.tastingActive === false} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
-              onRemove={handleRemoveSample} canRemove={Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample}
+              onRemove={handleRemoveSample} canRemove={Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample && !isCompletingSession}
               showRemove={Boolean(sample.localRemoval?.canRemove)}
               onPress={sample.tastingActive !== false && sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
                 ? () => requestSetupExit(() => onOpenSample(sample, index, samples.length, { sessionId: savedSessionIdRef.current, isSessionComplete: Boolean(sampleStatusById?.[sample.id]?.isComplete) }))
@@ -1840,7 +1870,7 @@ export function CuppingSessionDetailsScreen({
               index={index}
               scale={scale}
               onRemove={handleRemoveSample}
-              canRemove={!lockOperationRef.current && !isRemovingParticipantSample && (sample.localRemoval?.canRemove || samples.length > 0 && canEditSessionSetup)}
+              canRemove={!lockOperationRef.current && !isRemovingParticipantSample && !isCompletingSession && (sample.localRemoval?.canRemove || samples.length > 0 && canEditSessionSetup)}
               showRemove={canEditSessionSetup || Boolean(sample.localRemoval?.canRemove)}
               participantLocalRemoval={Boolean(sample.localRemoval?.canRemove)}
               status={sampleStatusById?.[sample.id]}
@@ -1888,7 +1918,13 @@ export function CuppingSessionDetailsScreen({
 
       </ScreenContainer>
 
-      {sessionId && (!ownsSavedSetup || tastingPresentation?.tasting?.started || isSessionComplete) ? (isSessionFormSupported && typeof onScanCupForAssessment === 'function' ? (
+      {usesActiveCompletion && !isSessionComplete ? (
+        <ScreenFooterDual primaryLabel="COMPLETE SESSION" onPrimaryPress={handleCompleteCreatorTasting}
+          primaryLoading={isCompletingSession} primaryDisabled={footerDisabled || !tastingPresentation?.tasting?.canComplete}
+          primaryAccessibilityLabel="Complete session" secondaryLabel="SCAN CUP" onSecondaryPress={onScanCupForAssessment}
+          secondaryDisabled={footerDisabled || typeof onScanCupForAssessment!=='function'} secondaryStyle={styles.scanFooterButton}
+          secondaryTextStyle={styles.scanFooterButtonText} secondaryAccessibilityLabel="Scan cup for assessment" />
+      ) : sessionId && (!ownsSavedSetup || tastingPresentation?.tasting?.started || isSessionComplete) ? (isSessionFormSupported && typeof onScanCupForAssessment === 'function' ? (
         <ScreenFooter label="SCAN CUP" onPress={onScanCupForAssessment} disabled={footerDisabled}
           accessibilityLabel="Scan cup for assessment" buttonStyle={styles.scanFooterButton} />
       ) : null) : sessionId && !isSessionFormSupported ? null : showScanFooter ? (
@@ -2014,7 +2050,7 @@ export function CuppingSessionDetailsScreen({
 
       <WarningDialog
         visible={isCompleteSessionDialogVisible}
-        title="Complete Session"
+        title={usesActiveCompletion ? 'Session not complete' : 'Complete Session'}
         message={completeSessionMessage}
         okLabel="OK"
         onDismiss={() => setIsCompleteSessionDialogVisible(false)}
