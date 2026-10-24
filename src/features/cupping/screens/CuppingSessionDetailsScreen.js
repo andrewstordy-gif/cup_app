@@ -2016,6 +2016,9 @@ export function CuppingSessionDetailsScreen({
           : setupAccess.isLocalCreator && setupAccess.started ? "Tasting has already begun, so session setup is read-only. You can still review available tasting assessments."
           : "Session setup is read-only on this profile. You can still open available tasting assessments."
           : "Checking local session ownership…"}</Text> : null}
+        {draftRemoval ? <Text style={styles.scanStatusText}>{draftRemoval.phase==='verified'
+          ? 'Removal is verified but not saved. Press REMOVE SAMPLE to retry saving; no cup write is needed.'
+          : 'Removal is unfinished. Keep the same cup and press REMOVE SAMPLE to rescan and continue.'}</Text> : null}
         {scanStatusMessage ? <Text style={styles.scanStatusText}>{scanStatusMessage}</Text> : null}
         {sessionId && tastingPresentation?.session?.id === sessionId && isSessionFormSupported ?
           <LocalTastingActions sessionId={sessionId} tasting={tastingPresentation.tasting}

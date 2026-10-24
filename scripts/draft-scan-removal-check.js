@@ -20,6 +20,12 @@ function dialogRender(){
   assert.equal(button.props.label,label);assert.equal(button.props.disabled,true);assert.strictEqual(button.props.onPress,action);assert.equal(dismiss.props.disabled,true);assert.strictEqual(dismiss.props.onPress,close);
   assert.equal(button.props.style?.backgroundColor,mode==='save'?undefined:mocks['../../../theme/colors'].colors.action);
  }
+ const screenAst=require('@babel/parser').parse(fs.readFileSync(path.join(__dirname,'../src/features/cupping/screens/CuppingSessionDetailsScreen.js'),'utf8'),{sourceType:'module',plugins:['jsx']}),generate=require('@babel/generator').default;
+ const astFind=node=>{if(!node||typeof node!=='object')return null;if(node.type==='ConditionalExpression'&&node.test?.name==='draftRemoval'&&node.consequent?.type==='JSXElement')return node;for(const value of Object.values(node))for(const child of Array.isArray(value)?value:[value]){const hit=astFind(child);if(hit)return hit;}return null;};
+ const notice=astFind(screenAst);assert(notice,'actual Details has a pending removal recovery notice');
+ const expression=transformSync(generate(notice).code,{babelrc:false,configFile:false,plugins:['@babel/plugin-transform-react-jsx']}).code.replace(/;$/,'');
+ const renderNotice=pending=>new Function('draftRemoval','Text','styles','React',`return (${expression});`)(pending,'Text',{scanStatusText:'existing-status-style'},react);
+ assert.equal(renderNotice(null),null);for(const phase of ['writing','verified']){const tree=renderNotice({phase});assert.equal(tree.props.style,'existing-status-style');assert(tree.props.children[0].includes('REMOVE SAMPLE'));assert(tree.props.children[0].includes(phase==='verified'?'retry saving':'rescan'));}
 }
 async function uiRemoval(){
  const env=fixture(),h=harness(env,1),S=h.sessionUUID;
