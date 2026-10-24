@@ -93,8 +93,8 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       primaryIconOnly primaryDisabled primaryAccessibilityLabel="Upload unavailable in test-data preview; nothing is sent"
       secondaryLabel="SCAN CUP" secondaryDisabled secondaryAccessibilityLabel="Scan cup unavailable in test-data preview; no NFC"
       secondaryStyle={styles.scanFooterButton} secondaryTextStyle={styles.scanFooterButtonText} />
-    {replacementVisible ? <WarningDialog visible title="Replace previous results?"
-      message="Results for this session are already queued for upload or have previously been uploaded. Replace them with your latest completed results?"
+    {replacementVisible ? <WarningDialog visible title="Replace your queued or uploaded results?"
+      message=""
       variant="cupping-choice" secondaryLabel="Yes, replace" onSecondary={() => finishReplacementPreview('Yes, replace selected')}
       okLabel="No, keep existing" onOk={() => finishReplacementPreview('No, keep existing selected')}
       onDismiss={() => finishReplacementPreview('confirmation dismissed')}

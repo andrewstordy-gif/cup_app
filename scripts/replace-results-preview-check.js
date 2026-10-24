@@ -4,7 +4,7 @@ const root=path.resolve(__dirname,'..'),file=path.join(__dirname,'upload-ui-prev
 const h=mod.exports,{load,all,native}=h;let width=375;native.Modal='Modal';native.useWindowDimensions=()=>({width});const {UploadStatusPreview}=load('r1-122-upload-status-preview.js'),{colors}=load('src/theme/colors.js'),{typography}=load('src/theme/typography.js');let opens=0;
 const render=()=>h.render(UploadStatusPreview,{onOpenTestApp:()=>opens++});
 const flatten=styles=>Object.assign({},...[styles].flat(Infinity).filter(v=>v&&typeof v==='object'));
-const title='Replace previous results?',message='Results for this session are already queued for upload or have previously been uploaded. Replace them with your latest completed results?';
+const title='Replace your queued or uploaded results?',message='';
 const choice=(tree,label)=>all(tree,n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
 function unchanged(tree,label){assert.equal(all(tree,n=>n.props?.accessibilityLabel===`Test data upload status: ${label}`).length,2);assert.equal(all(tree,n=>n.type==='Text'&&n.props.children.includes('COMPLETE')).length,2);for(const n of all(tree,n=>n.type==='Pressable'&&n.props.disabled))assert.equal(n.props.onPress,undefined);assert.equal(opens,0);}
 for(width of [320,375,430])for(const [index,label] of ['Not uploaded','Upload queued','Uploaded'].entries()){
@@ -19,6 +19,6 @@ for(width of [320,375,430])for(const [index,label] of ['Not uploaded','Upload qu
 }
 assert.equal(h.appLoads(),0,'preview confirmation never loads App');
 const content=fs.readFileSync(path.join(root,'r1-122-upload-status-preview.js'),'utf8');assert(!/useEffect|sessionRepository|AsyncStorage|fetch\s*\(|axios|NfcManager|sqlite|experimentalUploadSnapshot|onUpload|onSave|onDelete/.test(content));
-const spec=fs.readFileSync('/private/tmp/cup-r1-101-code-space-docs/docs/PRODUCT_SPEC.md','utf8');assert(spec.includes(`**${title}** ${message} **Yes, replace / No, keep existing**`),'canonical exact approved wording');
+const spec=fs.readFileSync(path.join(root,'docs/tasks/R1-124.md'),'utf8');assert(spec.includes(`title ${title} and no explanation`)&&message==='','latest approved title-only fixture wording');
 require('node:child_process').execFileSync('git',['diff','--exit-code','20f0114','--','src','App.js','r1-062-phone-verification-entry.js','scripts/upload-status-fixtures-check.js','scripts/upload-ui-preview-check.js','scripts/upload-details-ui-check.js'],{cwd:root,stdio:'pipe'});assert(!fs.existsSync(path.join(root,'src/data/experimentalUploadSnapshot.js')));
 console.log('PASS R1-123 actual shared replacement dialog: exact wording/neutral tokens, open/reopen/bothchoices/close/native/backdrop, all3 fixtures+COMPLETE preserved at320/375/430, preview-only outcomes and no production/entry/R120 changes.');
