@@ -131,6 +131,34 @@ Latest accepted R1-111 current-rating rule is preserved: notes/defaults/defects
 alone do not create current scored progress; saved notes changes after COMPLETE
 still invalidate completion/reveal, and durable started/completed history stays.
 
+### R1-133 verified physical DRAFT removal extension
+
+This separate creator setup command never reuses tasting removal or grants
+participant setup authority. Current stored creator, issuer incarnation, saved
+supported DRAFT, unstarted/unlocked history, exact assignment proof and absence
+of saved response/recovery children are rechecked transactionally. A current
+strict physical tag family/state/settings is captured; original addition rows
+do not retain historical family/settings, so no historical match is claimed.
+
+The versioned journal stages before dispatch and persists `writing` immediately
+before the guarded native call. Write success is not verification. Recovery is
+read-first and never automatically writes: exact original state/settings and
+assignment permit explicit frozen retry, valid cleared read permits verified
+commit, other data stays unfinished. Smart frozen retry cannot rewind evolved
+state. After separate verified read, a local commit failure is save-only retry.
+Known same-UID contradictory/malformed observations revoke verified readiness
+durably before an outside assessment/write workflow is rejected; wrong-UID
+observations do not revoke the target. Outside scans never grant verification.
+
+Commit removes the target only, updates actual count and aggregate revision,
+retains immutable neighbouring metadata/codes/ordinals and spent issuance, and
+keeps setup DRAFT. Retained retirement receipt/generation blocks stale Save,
+old-add acknowledgement and retired-payload reuse; cleared re-add receives a
+fresh code. Session/UID pending conflicts are checked in both directions.
+Actor/issuer/snapshot/operation and UI epochs reject late callbacks; deletion
+cascades local journal/receipts but cannot recall an already dispatched radio
+write. Cleared cups are explicitly unassigned, never stale-UID tasting fallback.
+
 Before runtime edits run all 38 retained scripts on baseline `b280544` with Node 22.13.0 and shared read-only dependencies; preserve exact logs. New checks exercise real in-memory/file SQLite adapters, transaction rollback and module reload, not mocks that only match SQL strings.
 
 Migration fixtures cover fresh empty stores, old version-4 variants, earlier shapes, partially added columns/tables, repeated startup and injected failure/retry. Assert exact original JSON, pins, policies, IDs, timestamps, attribution and completion rows unchanged. Include completed 89.5 and unknown/foreign/corrupt/historical data without automatic claim or reveal.

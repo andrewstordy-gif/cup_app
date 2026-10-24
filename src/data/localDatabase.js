@@ -2,6 +2,7 @@ import * as SQLite from "expo-sqlite";
 import { migrateFoundationWithDb } from './localSessionStateMigration';
 import { PENDING_SAMPLE_SCHEMA } from './pendingSampleAdditionStore';
 import { SCHEMA as SAMPLE_CODE_SCHEMA } from './sampleCodeProfile';
+import { SCHEMA as DRAFT_REMOVAL_SCHEMA } from './pendingDraftRemovalStore';
 
 const DATABASE_NAME = "cup_r1_103_sample_codes_test.db";
 
@@ -470,6 +471,7 @@ async function prepareSchema(db) {
   await migrateFoundationWithDb(db);
   await db.execAsync(PENDING_SAMPLE_SCHEMA);
   await db.execAsync(SAMPLE_CODE_SCHEMA);
+  await db.execAsync(DRAFT_REMOVAL_SCHEMA);
   await db.execAsync(`CREATE TABLE IF NOT EXISTS local_creator_sample_activations (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     local_profile_id TEXT NOT NULL,

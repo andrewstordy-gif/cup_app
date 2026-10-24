@@ -200,3 +200,20 @@ The following files show current implementation behaviour and are useful for con
 - `src/services/nfcTagClassifier.js` — smart-cup versus NTAG classification and single-record metadata detection.
 - `README.md` — descriptive protocol overview and firmware integration notes.
 - Do not treat `archive/original-root-app` as the current protocol. It documents an older long-key schema.
+
+### R1-133 isolated DRAFT-removal clearing profile
+
+Approved only for the separate two-character-code client; see
+[the clearing contract](DRAFT_SAMPLE_REMOVAL_NFC_CONTRACT_DRAFT.md). A validated
+creator DRAFT assignment may be cleared by an explicitly guarded operation:
+NTAG is exactly one English UTF-8 Text `{}` record (complete NDEF bytes
+`D1 01 05 54 02 65 6E 7B 7D`). Smart Cup is four ordered Text records:
+captured `{s:S}`, `{}`, exact validated existing settings, `{}`. Preserve state
+0–4 and settings including optional `k` presence/value; never replay telemetry.
+Freeze and revalidate the complete encoded bytes/hash, writable status and
+capacity; no automatic uncertain-write retry. Separate read verifies same
+hardware UID/family, empty metadata and unchanged settings. Valid evolved state
+and strict compact live telemetry are allowed; aliases, duplicates, malformed
+or partial records never prove clearing. An explicit frozen retry additionally
+requires current original state/settings equality, so it cannot rewind state.
+No general repair/reset/reassignment or neighbour-tag rewrite is authorized.

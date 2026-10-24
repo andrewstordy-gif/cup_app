@@ -1,4 +1,5 @@
 import { parseMetadata, decodeTextPayload, tagContext } from '../data/sampleCodeProfile';
+import { readRemovalTag } from '../data/draftSampleRemovalCodec';
 
 export const NFC_TAG_TYPES = {
   SMART_CUP: "smart_cup",
@@ -82,6 +83,16 @@ export function findNdef4MetadataPayload(parsed) {
 }
 
 export function classifyNfcTagReadResult(readResult) {
+  const candidateRecords=readResult?.tag?.ndefMessage;
+  let emptyMetadataCandidate=false;
+  if(Array.isArray(candidateRecords)&&[1,4].includes(candidateRecords.length)){
+    try{const value=JSON.parse(decodeTextPayload(candidateRecords[candidateRecords.length-1]?.payload));emptyMetadataCandidate=Boolean(value&&typeof value==='object'&&!Array.isArray(value)&&!Object.keys(value).length);}catch{ /* existing strict wire checks below */ }
+  }
+  if(emptyMetadataCandidate){
+    const clear=readRemovalTag(readResult); // malformed clear-like cups cannot fall through to UID recovery.
+    return {type:clear.kind==='smart'?NFC_TAG_TYPES.SMART_CUP:NFC_TAG_TYPES.NTAG_CUP,
+      reason:'cleared_unassigned',isCleared:true,metadataPayload:null};
+  }
   const parsed = readResult?.parsed || {};
   const recordCount = Number(readResult?.recordCount) || 0;
   if(![0,1,4].includes(recordCount))throw new Error('Unsupported CUP record count. No cup was written.');

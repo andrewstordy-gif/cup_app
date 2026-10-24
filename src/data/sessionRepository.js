@@ -2,8 +2,10 @@ import { getLocalDatabase } from "./localDatabase";
 import { getLocalProfileIdentity, getOrCreateLocalProfileIdentity } from "./userProfileRepository";
 import { generateDomainId } from "../utils/secureIdentifiers";
 import { validCode, validSession, reserveWithDb, validateMetadata, parseMetadata, metadataMatches, wireProof } from './sampleCodeProfile';
-import { assertNoPendingWithDb, decodePending, pendingRowWithDb, pendingSaveInput,
+import { assertNoPendingWithDb as assertNoAdditionWithDb, decodePending, pendingRowWithDb, pendingSaveInput,
   pendingSampleFields, stagePendingWithDb } from './pendingSampleAdditionStore';
+import { assertNoRemoval, pendingRemovalRow, decodeRemoval, writeRemoval, validVerification } from './pendingDraftRemovalStore';
+import { readRemovalTag, freezeClear, compareRemovalRead, hardwareUid } from './draftSampleRemovalCodec';
 import { fail as tastingFail, validActor, contextToken, stateWithDb as tastingStateWithDb,
   assertUnstartedWithDb, startWithDb as startTastingWithDb, hasStartedWithDb,
   persistHistoryWithDb, historyWithDb, revisionWithDb, commitRevisionWithDb, semanticSource, hasScoreOrNote,
@@ -29,6 +31,11 @@ import {
 
 function generateId() {
   return generateDomainId();
+}
+
+async function assertNoPendingWithDb(db,sessionId) {
+  await assertNoAdditionWithDb(db,sessionId);
+  await assertNoRemoval(db,sessionId);
 }
 
 const SETUP_PERMISSION_ERROR = "Only the local profile that created this session can manage its setup.";
@@ -268,11 +275,12 @@ async function creatorCompletionWithDb(db, sessionId, actor, prior = null) {
 }
 
 // Read-only readiness proof. Each member retains its own original on-tag total.
-async function lockSnapshotWithDb(db, sessionId, actor) {
+async function lockSnapshotWithDb(db, sessionId, actor, removal = false) {
   await assertLocalCreatorWithDb(db, sessionId);
   await assertSetupUnlockedWithDb(db, sessionId);
   await assertUnstartedWithDb(db, sessionId);
-  await assertNoPendingWithDb(db, sessionId);
+  if(removal)await assertNoAdditionWithDb(db,sessionId);
+  else await assertNoPendingWithDb(db, sessionId);
   await creatorActivationWithDb(db, sessionId);
   const setup = await getSessionByIdWithDb(db, sessionId, { reconcile: false });
   if (setup.status !== 'new' || !setup.samples.length ||
@@ -311,6 +319,162 @@ export async function getSessionLockReadiness(sessionId) {
   });
   await requireSameTastingActor(actor);
   return { sessionId, snapshot };
+}
+
+// Physical setup removal is deliberately separate from tasting removal. A
+// durable verified read, never a write callback, authorizes this one deletion.
+const removalFail=()=>{throw new Error('removal:context_changed');};
+function assertRemovalReadCurrent(check){if(check==null)return;let current=false;try{current=typeof check==='function'&&check()===true;}catch{ /* revoked */ }if(!current)removalFail();}
+async function removalReceiptsWithDb(db,sessionId,actor,incarnation){
+  const rows=await db.getAllAsync('SELECT * FROM local_draft_removal_receipts WHERE session_id=? ORDER BY generation',[sessionId]);
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i];let value;try{value=JSON.parse(row.receipt_json);}catch{removalFail();}
+    if(!value||Object.keys(value).sort().join(',')!=='actor,additionOperationId,bytesHash,code,generation,incarnation,operationId,sampleId,schema,sessionId,verification'||value.schema!==1||
+      !validSession(value.sessionId)||![value.actor,value.incarnation,value.operationId,value.sampleId,value.additionOperationId].every(validActor)||
+      !validCode(value.code)||!validVerification(value.verification,value.bytesHash)||
+      row.actor_id!==actor||row.issuer_incarnation!==incarnation||row.generation!==i+1||
+      canonicalize(value)!==row.receipt_json||sha256(row.receipt_json)!==row.receipt_hash||
+      value.sessionId!==sessionId||value.actor!==actor||value.incarnation!==incarnation||value.generation!==row.generation||
+      value.operationId!==row.operation_id||value.sampleId!==row.sample_id||value.code!==row.sample_code||
+      value.additionOperationId!==row.addition_operation_id)removalFail();
+    const proof=await db.getFirstAsync(`SELECT i.operation_id,c.actor_id FROM issued_sample_codes i JOIN sample_code_commit_outcomes c
+      ON c.session_id=i.session_id AND c.operation_id=i.operation_id WHERE i.session_id=? AND i.code=?`,[sessionId,value.code]);
+    if(proof?.operation_id!==value.additionOperationId||proof.actor_id!==actor)removalFail();
+  }
+  return rows;
+}
+async function removalContextWithDb(db,sessionId,actor){
+  const snapshot=await lockSnapshotWithDb(db,sessionId,actor,true);
+  const setup=await getSessionByIdWithDb(db,sessionId,{reconcile:false});
+  const issuer=await db.getFirstAsync('SELECT incarnation FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+  const receipts=await removalReceiptsWithDb(db,sessionId,actor,issuer.incarnation);
+  // Even a blank saved response/recovery is not an unstarted setup assignment.
+  // Check sample ownership from either direction, including malformed children.
+  for(const table of ['cva_response_revisions','legacy_responses','sample_feedback_entries','sample_defect_entries',
+    'sample_flavour_observations','local_response_streams','local_legacy_recovery_drafts','sample_feedback']){
+    if(!await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name=?",[table]))continue;
+    if(await db.getFirstAsync(`SELECT 1 FROM ${table} WHERE session_id=? OR sample_id IN (SELECT id FROM samples WHERE session_id=?) LIMIT 1`,[sessionId,sessionId]))removalFail();
+  }
+  return {snapshot,setup,incarnation:issuer.incarnation,generation:receipts.length+1};
+}
+async function currentRemovalWithDb(db,sessionId,actor,operationId){
+  const pending=decodeRemoval(await pendingRemovalRow(db,sessionId));
+  if(!pending||pending.actor!==actor||operationId&&pending.operationId!==operationId)removalFail();
+  const current=await removalContextWithDb(db,sessionId,actor);
+  if(pending.snapshot!==current.snapshot||pending.incarnation!==current.incarnation||pending.generation!==current.generation||
+    !current.setup.samples.some(sample=>sample.id===pending.sampleId&&sample.sampleCode===pending.code&&sample.cupUUID===pending.frozen.uid&&metadataMatches(JSON.parse(sample.metadataJson),pending.frozen.metadata)))removalFail();
+  const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[sessionId,pending.code]);
+  if(issued?.operation_id!==pending.additionOperationId)removalFail();
+  return pending;
+}
+async function removalTransaction(sessionId,operation){
+  if(!validSession(sessionId))removalFail();
+  const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();let result;
+  await db.withExclusiveTransactionAsync(async txn=>{result=await operation(txn,actor);await requireSameTastingActor(actor);});
+  await requireSameTastingActor(actor);return result;
+}
+export async function getDraftSampleRemoval(sessionId){
+  return removalTransaction(sessionId,async(db,actor)=>{
+    if(!await pendingRemovalRow(db,sessionId))return null;
+    return currentRemovalWithDb(db,sessionId,actor);
+  });
+}
+export async function stageDraftSampleRemoval({sessionId,readResult}){
+  const frozen=freezeClear(readRemovalTag(readResult));
+  return removalTransaction(sessionId,async(db,actor)=>{
+    await assertNoRemoval(db,sessionId);
+    const current=await removalContextWithDb(db,sessionId,actor);
+    const sample=current.setup.samples.find(row=>row.cupUUID===frozen.uid);
+    if(!sample||!metadataMatches(JSON.parse(sample.metadataJson),frozen.metadata))removalFail();
+    if(await db.getFirstAsync('SELECT session_id FROM local_pending_sample_additions WHERE cup_uuid=?',[frozen.uid]))throw new Error('removal:unfinished');
+    const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[sessionId,sample.sampleCode]);
+    return writeRemoval(db,{schema:1,sessionId,actor,incarnation:current.incarnation,generation:current.generation,
+      snapshot:current.snapshot,operationId:generateId(),sampleId:sample.id,code:sample.sampleCode,
+      additionOperationId:issued.operation_id,frozen,verification:null},'staged');
+  });
+}
+export async function beginDraftSampleRemovalWrite({sessionId,operationId,expectedBytesHash}){
+  return removalTransaction(sessionId,async(db,actor)=>{
+    const pending=await currentRemovalWithDb(db,sessionId,actor,operationId);
+    if(pending.phase==='verified'||pending.frozen.bytesHash!==expectedBytesHash)removalFail();
+    return writeRemoval(db,pending,'writing');
+  });
+}
+export async function markDraftSampleRemovalWritten({sessionId,operationId}){
+  return removalTransaction(sessionId,async(db,actor)=>{
+    const pending=await currentRemovalWithDb(db,sessionId,actor,operationId);
+    if(pending.phase!=='writing')removalFail();return writeRemoval(db,pending,'written');
+  });
+}
+export async function inspectDraftSampleRemovalRead({sessionId,operationId,readResult,isReadCurrent=null}){
+  let read=null,uid=null;try{uid=hardwareUid(readResult?.tag);read=readRemovalTag(readResult);}catch{ /* same-UID malformed read revokes prior proof below */ }
+  return removalTransaction(sessionId,async(db,actor)=>{
+    assertRemovalReadCurrent(isReadCurrent);
+    const pending=await currentRemovalWithDb(db,sessionId,actor,operationId);
+    assertRemovalReadCurrent(isReadCurrent);
+    const disposition=read?compareRemovalRead(pending.frozen,read):'mismatch';
+    if(disposition==='cleared'){
+      const verified=await writeRemoval(db,{...pending,verification:{bytesHash:pending.frozen.bytesHash,readHash:sha256(canonicalize(read)),at:new Date().toISOString()}},'verified');
+      assertRemovalReadCurrent(isReadCurrent);
+      return {pending:verified,disposition};
+    }
+    const uncertain=pending.phase==='verified'&&uid===pending.frozen.uid?await writeRemoval(db,{...pending,verification:null},'writing'):pending;
+    assertRemovalReadCurrent(isReadCurrent);
+    return {pending:uncertain,disposition};
+  });
+}
+// A different scan entry point may observe a contradiction after verification.
+// Commit this observation before the caller rejects its assessment workflow.
+export async function observePendingDraftRemovalRead(readResult,{isReadCurrent=null}={}){
+  let uid;try{uid=hardwareUid(readResult?.tag);}catch{return false;}
+  let capturedRead=null;try{capturedRead=readRemovalTag(readResult);}catch{ /* keep captured UID for malformed contradiction */ }
+  const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();
+  const row=await db.getFirstAsync('SELECT session_id,operation_id,actor_id FROM local_pending_draft_removals WHERE cup_uuid=?',[uid]);
+  if(!row)return false;
+  if(row.actor_id!==actor)throw new Error('removal:unfinished');
+  await removalTransaction(row.session_id,async(txn,currentActor)=>{
+    assertRemovalReadCurrent(isReadCurrent);
+    const pending=await currentRemovalWithDb(txn,row.session_id,currentActor,row.operation_id);
+    const cleared=Boolean(capturedRead&&compareRemovalRead(pending.frozen,capturedRead)==='cleared');
+    assertRemovalReadCurrent(isReadCurrent);
+    if(!cleared&&pending.phase==='verified')await writeRemoval(txn,{...pending,verification:null},'writing');
+    assertRemovalReadCurrent(isReadCurrent);
+  });
+  return true;
+}
+export async function commitDraftSampleRemoval({sessionId,operationId}){
+  let acknowledgement;
+  const result=await removalTransaction(sessionId,async(db,actor)=>{
+    const prior=await db.getFirstAsync('SELECT * FROM local_draft_removal_receipts WHERE session_id=? AND operation_id=?',[sessionId,operationId]);
+    if(prior){
+      await assertLocalCreatorWithDb(db,sessionId);
+      const issuer=await db.getFirstAsync('SELECT incarnation FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+      await removalReceiptsWithDb(db,sessionId,actor,issuer?.incarnation);
+      if(await db.getFirstAsync('SELECT id FROM samples WHERE id=? OR (session_id=? AND sample_code=?)',[prior.sample_id,sessionId,prior.sample_code]))removalFail();
+      acknowledgement=prior.receipt_hash;return {sessionId,sampleId:prior.sample_id,removed:true};
+    }
+    const pending=await currentRemovalWithDb(db,sessionId,actor,operationId);
+    if(pending.phase!=='verified')removalFail();
+    const receipt={schema:1,sessionId,actor,incarnation:pending.incarnation,generation:pending.generation,
+      operationId,sampleId:pending.sampleId,code:pending.code,additionOperationId:pending.additionOperationId,
+      bytesHash:pending.frozen.bytesHash,verification:pending.verification};
+    const json=canonicalize(receipt);acknowledgement=sha256(json);
+    await db.runAsync(`INSERT INTO local_draft_removal_receipts VALUES(?,?,?,?,?,?,?,?,?,?)`,
+      [sessionId,operationId,actor,pending.incarnation,pending.generation,pending.sampleId,pending.code,pending.additionOperationId,json,acknowledgement]);
+    await db.runAsync('DELETE FROM samples WHERE session_id=? AND id=?',[sessionId,pending.sampleId]);
+    await db.runAsync("UPDATE sessions SET samples_in_session=(SELECT COUNT(*) FROM samples WHERE session_id=?),status='new',updated_at=? WHERE id=?",[sessionId,new Date().toISOString(),sessionId]);
+    await commitRevisionWithDb(db,sessionId,actor);
+    await db.runAsync('DELETE FROM local_pending_draft_removals WHERE session_id=? AND operation_id=?',[sessionId,operationId]);
+    return {sessionId,sampleId:pending.sampleId,removed:true};
+  });
+  // Re-check after commit: a late native/UI acknowledgement cannot refer to a
+  // deleted/reimported incarnation, even when the session ID was reused.
+  await removalTransaction(sessionId,async(db,actor)=>{
+    const issuer=await db.getFirstAsync('SELECT incarnation FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+    const receipts=await removalReceiptsWithDb(db,sessionId,actor,issuer?.incarnation);
+    if(!receipts.some(row=>row.operation_id===operationId&&row.receipt_hash===acknowledgement))removalFail();
+  });
+  return result;
 }
 
 export async function lockSessionSetup({ sessionId, expectedSnapshot }) {
@@ -364,6 +528,7 @@ async function withPendingSetup(sessionId, operation) {
     await assertLocalCreatorWithDb(txn,sessionId);
     await assertSetupUnlockedWithDb(txn,sessionId);
     await assertUnstartedWithDb(txn,sessionId);
+    await assertNoRemoval(txn,sessionId);
     const presentation=await getLocalTastingPresentationWithDb(txn,sessionId,'setup',actor);
     if(!presentation.tasting.canManageSetup)throw new Error(SETUP_PERMISSION_ERROR);
     const setup=await getSessionByIdWithDb(txn,sessionId);
@@ -382,9 +547,13 @@ export async function stagePendingSampleAddition({sessionId,expectedOperationId=
   ({candidate,saveInput,tagContext,observedMetadata}=JSON.parse(JSON.stringify({candidate,saveInput,tagContext,observedMetadata})));
   return withPendingSetup(sessionId,async(db,actor,setup)=>{
     const input=pendingSaveInput(saveInput), sample=pendingSampleFields(candidate);
+    if(await db.getFirstAsync('SELECT session_id FROM local_pending_draft_removals WHERE cup_uuid=?',[sample.cupUUID]))throw new Error('removal:unfinished');
     if(canonicalize(input.samples.slice(0,-1))!==canonicalize(setup.samples.map(pendingSampleFields)))throw new Error('Session samples changed before writing. No cup was written.');
     if(observedMetadata){
       const observed=validateMetadata(observedMetadata);
+      const issuer=await db.getFirstAsync('SELECT incarnation FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+      const retired=await removalReceiptsWithDb(db,sessionId,actor,issuer?.incarnation);
+      if(retired.some(row=>row.sample_code===observed.z&&observed.u===sessionId))throw new Error('removal:retired_assignment');
       const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[sessionId,observed.z]);
       const committed=await db.getFirstAsync('SELECT id FROM samples WHERE session_id=? AND sample_code=?',[sessionId,observed.z]);
       if(observed.u!==sessionId||!issued||committed)throw new Error('This cup has another assignment. Use a fresh or manually cleared cup. No cup was written.');
@@ -451,12 +620,35 @@ export async function commitPendingSampleAddition({sessionId,operationId}) {
   if(!pending) {
     const db=await getLocalDatabase();
     const outcome=await db.getFirstAsync('SELECT actor_id,outcome_json FROM sample_code_commit_outcomes WHERE session_id=? AND operation_id=?',[sessionId,operationId]);
-    if(outcome?.actor_id===actor){await requireSameTastingActor(actor);return JSON.parse(outcome.outcome_json);}
+    if(outcome?.actor_id===actor){
+      let result,replaySnapshot;
+      await db.withExclusiveTransactionAsync(async txn=>{
+        await assertLocalCreatorWithDb(txn,sessionId);
+        await assertSetupUnlockedWithDb(txn,sessionId);
+        await assertUnstartedWithDb(txn,sessionId);
+        await assertNoRemoval(txn,sessionId);
+        const issuer=await txn.getFirstAsync('SELECT incarnation FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+        const retired=await removalReceiptsWithDb(txn,sessionId,actor,issuer?.incarnation);
+        const issued=await txn.getFirstAsync('SELECT code FROM issued_sample_codes WHERE session_id=? AND operation_id=?',[sessionId,operationId]);
+        if(!issued||retired.some(row=>row.addition_operation_id===operationId||row.sample_code===issued.code)||
+          !await txn.getFirstAsync('SELECT id FROM samples WHERE session_id=? AND sample_code=?',[sessionId,issued.code]))throw new Error('removal:retired_assignment');
+        const parsed=JSON.parse(outcome.outcome_json),count=await txn.getFirstAsync('SELECT COUNT(*) AS count FROM samples WHERE session_id=?',[sessionId]);
+        if(parsed.sessionId!==sessionId||parsed.status!=='new'||parsed.savedSampleCount!==count.count||
+          (retired.length||parsed.removalGeneration!=null||parsed.issuerIncarnation!=null)&&
+          (parsed.removalGeneration!==retired.length||parsed.issuerIncarnation!==issuer?.incarnation))throw new Error('removal:context_changed');
+        replaySnapshot=await lockSnapshotWithDb(txn,sessionId,actor);
+        result={sessionId:parsed.sessionId,status:parsed.status,savedSampleCount:parsed.savedSampleCount};await requireSameTastingActor(actor);
+      });
+      if((await getSessionLockReadiness(sessionId)).snapshot!==replaySnapshot)throw new Error('removal:context_changed');
+      await requireSameTastingActor(actor);return result;
+    }
   }
   if(!pending || pending.operationId!==operationId || pending.phase!=='verified')throw new Error('Pending cup check changed. No sample was added.');
-  const saved=await saveSessionWithSamples({...pending.saveInput,pendingSampleOperationId:operationId});
+  await saveSessionWithSamples({...pending.saveInput,pendingSampleOperationId:operationId});
   await requireSameTastingActor(actor);
-  return saved;
+  // Reuse the guarded current-outcome readback rather than acknowledging an
+  // addition which was removed/locked/changed after its commit settled.
+  return commitPendingSampleAddition({sessionId,operationId});
 }
 
 async function ownedMutation(sessionId, operation) {
@@ -928,6 +1120,7 @@ export async function saveSessionWithSamples({
   const creatorId = existingSessionId ? null : await getOrCreateLocalProfileIdentity();
   await db.withExclusiveTransactionAsync(async txn => {
     const db = txn;
+    await assertNoRemoval(db,sessionId);
     let pendingActor = null;
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
     const pendingRow = await pendingRowWithDb(db, sessionId);
@@ -949,6 +1142,11 @@ export async function saveSessionWithSamples({
       await assertLocalCreatorWithDb(db, sessionId);
       await assertSetupUnlockedWithDb(db, sessionId);
       await assertUnstartedWithDb(db, sessionId);
+      const roster=await db.getAllAsync('SELECT id,cup_uuid,sample_code FROM samples WHERE session_id=?',[sessionId]);
+      if(roster.some(row=>!normalizedSamples.some(sample=>sample.id===row.id&&sample.cupUUID===row.cup_uuid&&sample.sampleCode===row.sample_code)))throw new Error('Session samples changed. Reopen the session.');
+      const currentIssuer=await db.getFirstAsync('SELECT incarnation FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+      const retired=await removalReceiptsWithDb(db,sessionId,await getLocalProfileIdentity(),currentIssuer?.incarnation);
+      if(retired.some(row=>normalizedSamples.some(sample=>sample.id===row.sample_id||sample.sampleCode===row.sample_code)))throw new Error('removal:retired_assignment');
     }
     else if (existingSessionId) throw new Error('This saved session is unavailable. No new session was created.');
     if (existingSession && isPinnedForm(existingSession, existingSession.cuppingForm) &&
@@ -1098,6 +1296,8 @@ export async function saveSessionWithSamples({
     const keepCupUuids = normalizedSamples.map((sample) => sample.cupUUID);
     if (keepCupUuids.length === 0) {
       await db.runAsync('DELETE FROM samples WHERE session_id = ?', [sessionId]);
+      const actor=await getLocalProfileIdentity();
+      if(await db.getFirstAsync('SELECT 1 FROM local_tasting_revisions WHERE session_id=? AND local_profile_id=?',[sessionId,actor]))await commitRevisionWithDb(db,sessionId,actor);
       return;
     }
 
@@ -1108,13 +1308,17 @@ export async function saveSessionWithSamples({
     );
 
     await recomputeSessionProgressStatusWithDb(db, sessionId);
+    const setupActor=await getLocalProfileIdentity();
+    if(await db.getFirstAsync('SELECT 1 FROM local_tasting_revisions WHERE session_id=? AND local_profile_id=?',[sessionId,setupActor]))await commitRevisionWithDb(db,sessionId,setupActor);
     if (pendingSampleOperationId) {
       const actor = pendingActor;
       await assertLocalCreatorWithDb(db,sessionId);
       const row = await pendingRowWithDb(db,sessionId);
       if (!row || row.actor_id !== actor || row.operation_id !== pendingSampleOperationId) throw new Error('Pending cup check changed. No sample was added.');
       await requireSameTastingActor(actor);
-      await db.runAsync('INSERT INTO sample_code_commit_outcomes(session_id,operation_id,actor_id,outcome_json) VALUES (?,?,?,?)',[sessionId,pendingSampleOperationId,actor,JSON.stringify({sessionId,status:sessionStatusValue,savedSampleCount:normalizedSamples.length})]);
+      const issuer=await db.getFirstAsync('SELECT incarnation FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+      const receipts=await removalReceiptsWithDb(db,sessionId,actor,issuer?.incarnation);
+      await db.runAsync('INSERT INTO sample_code_commit_outcomes(session_id,operation_id,actor_id,outcome_json) VALUES (?,?,?,?)',[sessionId,pendingSampleOperationId,actor,JSON.stringify({sessionId,status:sessionStatusValue,savedSampleCount:normalizedSamples.length,issuerIncarnation:issuer.incarnation,removalGeneration:receipts.length})]);
       await db.runAsync('DELETE FROM local_pending_sample_additions WHERE session_id=? AND operation_id=?', [sessionId,pendingSampleOperationId]);
       await requireSameTastingActor(actor);
     }
@@ -1320,12 +1524,17 @@ async function getLocalTastingPresentationWithDb(db, sessionId, purpose, actor) 
   const open = validMode && raw.cuppingMode === 'open';
   // An empty, unassigned CVA draft chooses mode when its first sample is added.
   // NULL here is not the same as malformed non-null or conflicting assigned mode.
-  const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked);
+  let verifiedEmptyRemoval=false;
+  if(!samples.length&&raw.status==='new'&&isLocalCreator&&raw.cuppingForm===1&&raw.cuppingMode==null){
+    const issuer=await db.getFirstAsync('SELECT incarnation,actor_id FROM sample_code_issuers WHERE session_id=?',[sessionId]);
+    if(issuer?.actor_id===actor)verifiedEmptyRemoval=(await removalReceiptsWithDb(db,sessionId,actor,issuer.incarnation)).length>0;
+  }
+  const setupModeValid = validMode || (!samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && (!raw.formLocked||verifiedEmptyRemoval));
   let setupUnlocked = false;
   try { setupUnlocked = !(await setupLockWithDb(db, sessionId)); } catch { /* damaged lock denies setup */ }
   const canManageSetup = Boolean(activePin && supported && setupModeValid && isLocalCreator && !state.started && setupUnlocked && raw.status !== 'complete');
   const emptyCvaDraftSetup = purpose === 'setup' && canManageSetup && raw.status === 'new' &&
-    !samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && !raw.formLocked;
+    !samples.length && raw.cuppingForm === 1 && raw.cuppingMode == null && (!raw.formLocked||verifiedEmptyRemoval);
   const preparation = purpose === 'setup' && canManageSetup;
   const showSample = sample => Boolean(supported && validMode && (sample.cuppingMode === 'open' || targetActive(sample) && state.revealed || preparation));
   // This aggregate is conservative metadata only. Never use it for a target's
@@ -2119,6 +2328,7 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=nul
   let output,ackToken,observedContext;
   await db.withExclusiveTransactionAsync(async txn=>{
     assertScanCurrent();await requireSameTastingActor(actor);
+    if(await txn.getFirstAsync('SELECT session_id FROM local_pending_draft_removals WHERE cup_uuid=?',[target]))throw new Error('removal:unfinished');
     const existing=await findSessionBySessionUUIDWithDb(txn,observed.u);
     const enrollment=existing?await txn.getFirstAsync('SELECT incarnation FROM local_participant_tasting_enrollments WHERE session_id=?',[existing.id]):null;
     const revision=existing?await revisionWithDb(txn,existing.id,actor):null;
@@ -2128,6 +2338,7 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=nul
   });
   await db.withExclusiveTransactionAsync(async txn=>{
     await requireSameTastingActor(actor);assertScanCurrent();
+    if(await txn.getFirstAsync('SELECT session_id FROM local_pending_draft_removals WHERE cup_uuid=?',[target]))throw new Error('removal:unfinished');
     let session=await findSessionBySessionUUIDWithDb(txn,observed.u);
     if(observedContext){
       if(!session)tastingFail('tasting:stale_membership');
@@ -2190,7 +2401,7 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=nul
       }
     }
     await txn.runAsync('INSERT OR IGNORE INTO physical_code_observations(session_id,code,physical_uid) VALUES (?,?,?)',[session.id,observed.z,target]);
-    output={sessionId:saved.id,sessionUUID:saved.sessionUUID,sessionDisplayId:saved.sessionDisplayId,sessionName:saved.sessionName,sessionType:saved.sessionType,sessionStatus:saved.status,sessionDate:saved.sessionDate,sampleId:sample.id,cupUUID:target,cupNumber:sample.cupNumber,cuppingForm:sample.cuppingForm,cuppingMode:sample.cuppingMode,sampleNumber:sample.sampleNumber,sampleCode:sample.sampleCode,coffeeNameOrigin:sample.coffeeNameOrigin,coffeeProcess:sample.process,cupIndex:sample.positionIndex,cupTotal:saved.samples.length};
+    output={sessionId:saved.id,sessionUUID:saved.sessionUUID,sessionDisplayId:saved.sessionDisplayId,sessionName:saved.sessionName,sessionType:saved.sessionType,sessionStatus:saved.status,sessionDate:saved.sessionDate,sampleId:sample.id,cupUUID:target,cupNumber:sample.cupNumber,cuppingForm:sample.cuppingForm,cuppingMode:sample.cuppingMode,sampleNumber:sample.sampleNumber,sampleCode:sample.sampleCode,coffeeNameOrigin:sample.coffeeNameOrigin,coffeeProcess:sample.process,cupIndex:saved.samples.findIndex(row=>row.id===sample.id),cupTotal:saved.samples.length};
     await requireSameTastingActor(actor);
     if (activation) assertScanCurrent();
     if(activation)ackToken=(await getLocalTastingPresentationWithDb(txn,session.id,'tasting',actor)).tasting.contextToken;

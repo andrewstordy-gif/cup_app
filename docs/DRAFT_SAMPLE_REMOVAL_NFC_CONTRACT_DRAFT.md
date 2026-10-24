@@ -1,10 +1,10 @@
 # DRAFT sample removal NFC clearing contract
 
-Draft for Andrew to agree before implementation. Applies only to the separate
-two-character-code test client, based on fc987a2. It does not change the current
-NDEF protocol, working app or main.
+Approved by Andrew for R1-133 implementation in the separate two-character-code
+test client, based on fc987a2. The historical filename is retained. This does
+not authorize working-app/main integration or change other protocol profiles.
 
-## Proposed user flow
+## Approved user flow
 
 In a saved creator DRAFT, **REMOVE SAMPLE** opens the scanner directly. The cup
 identifies the sample; there is no sample picker. A matching scan durably records
@@ -187,12 +187,12 @@ to open a stale UID-matched tasting; existing local review remains local.
 
 ## Agreement and implementation gates
 
-Agree three choices: use `{}` as the unassigned representation; preserve Smart
+Approved choices: use `{}` as the unassigned representation; preserve Smart
 Cup state/settings rather than Reset to OFF; leave other tags untouched and
-treat their `i` as historical hints. Also agree verification success immediately
+treat their `i` as historical hints. Verification success immediately
 commits the local removal and incomplete physical work persists after closing.
 
-After agreement, a separate implementation task updates canonical contracts,
+R1-133 implements these approved choices and updates canonical contracts,
 journal/schema, reader/writer and UI in the test copy. Tests must inject failure
 at every stage/write/verify/commit boundary, including restart, wrong/changed
 cup, both forms, mixed modes, retained spent codes, empty DRAFT, concurrent Lock/

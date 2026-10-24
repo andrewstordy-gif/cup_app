@@ -163,3 +163,35 @@ cross-row consistency. Sessions deletion cascades these sidecars. Participant
 removal retains the sample row/code and clears only target current results,
 notes and recovery; creator sidecars remain unchanged. See the foundation's
 R1-130 extension for enrollment and compatibility limits.
+
+## R1-133 verified DRAFT physical removal
+
+Two additive, versioned sidecars apply only to saved never-started/unlocked
+creator code-profile DRAFTs. `local_pending_draft_removals` has a cascading
+session primary key, unique operation and hardware UID, actor, format version1,
+phase (`staged`, `writing`, `written`, `verified`), canonical content JSON and
+SHA-256. Content binds issuer incarnation, monotonic removal generation, full
+saved setup snapshot, target row/code/issued-add operation, strict original tag
+family/metadata/state/settings and exact frozen complete clear bytes/hash.
+Verification stores the separate decoded-read hash and canonical ISO time.
+Smart state/settings are captured solely for this durable physical operation;
+they are not a general telemetry cache. No live telemetry is journalled.
+
+`local_draft_removal_receipts` retains session/operation/actor/incarnation,
+positive generation, retired row/code/original-add operation and canonical
+receipt/hash. Its only FK is the cascading session FK: deleting the target
+sample must not delete its retirement receipt. Session/code is the primary key;
+operation is unique. Runtime validates declared schema, exact content shapes,
+types/hashes and ledger/provenance relationships, not hashes alone.
+
+Verified commit deletes only the target row, updates actual roster count and
+actor aggregate revision atomically, and retains DRAFT, pin/form-lock policy,
+spent code ledger and original outcomes. Subsequent legitimate setup saves
+maintain an existing aggregate revision. A validated receipt permits the empty
+creator DRAFT to remain editable without resetting its form pin/lock/history.
+Neither stale full-roster Save nor a late original addition acknowledgement can
+restore a retired assignment. Whole-session deletion cascades both sidecars.
+New addition outcome JSON also carries private issuer-incarnation/removal-
+generation replay evidence; old rows are not backfilled. Public acknowledgement
+DTO remains sessionId/status/savedSampleCount. Changed roster/generation or a
+retired assignment rejects replay rather than acknowledging an obsolete add.

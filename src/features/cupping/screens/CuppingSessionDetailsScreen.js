@@ -15,6 +15,7 @@ import { cvaIdentity, formIdentity, isSessionFormReady, UNSUPPORTED_MESSAGE } fr
 import { typography } from "../../../theme/typography";
 import {
   readAndWriteNdefMinimal,
+  readAndClearNdefMinimal,
   readNdefMinimal,
 } from "../../../services/nfcServiceMinimal";
 import {
@@ -27,6 +28,7 @@ import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
 import { AddCoffeeSampleSheet } from "../components/AddCoffeeSampleSheet";
 import { CheckSampleScreen } from "../components/CheckSampleScreen";
+import { CheckRemovalDialog } from '../components/CheckRemovalDialog';
 import { CoffeeSampleCard } from "../components/CoffeeSampleCard";
 import { LegacySampleCard } from "../../forms/legacy/LegacySampleCard";
 import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
@@ -72,6 +74,9 @@ import {
   markPendingSampleAdditionWritten,
   markPendingSampleAdditionVerified,
   commitPendingSampleAddition,
+  getDraftSampleRemoval,stageDraftSampleRemoval,beginDraftSampleRemovalWrite,
+  markDraftSampleRemovalWritten,inspectDraftSampleRemovalRead,commitDraftSampleRemoval,
+  observePendingDraftRemovalRead,
 } from "../../../data/sessionRepository";
 
 const RECOVERED_SMART_CUP_TEXT3 = {
@@ -261,6 +266,13 @@ export function CuppingSessionDetailsScreen({
   const pendingAdditionRef = useRef(null);
   const verifiedObservationRef = useRef(null);
   const pendingAdditionBusyRef = useRef(null);
+  const draftRemovalRef=useRef(null);
+  const draftRemovalBusyRef=useRef(null);
+  const draftRemovalDialogRef=useRef(null);
+  const [draftRemoval,setDraftRemoval]=useState(null);
+  const [draftRemovalDialog,setDraftRemovalDialog]=useState(null);
+  const [isRemovingDraftSample,setIsRemovingDraftSample]=useState(false);
+  const draftRemovalRenderEpoch=setupEpochRef.current;
   const reopenPendingDrawerRef = useRef(false);
   const [pendingSaveError, setPendingSaveError] = useState("");
   const quickStartSessionTypeValue = normalizeSessionTypeKey(quickStartSessionTypeKey);
@@ -302,6 +314,10 @@ export function CuppingSessionDetailsScreen({
 
   useEffect(() => {
     setupEpochRef.current += 1;
+    draftRemovalRef.current=null;
+    draftRemovalBusyRef.current=null;
+    draftRemovalDialogRef.current=null;
+    setDraftRemoval(null);setDraftRemovalDialog(null);setIsRemovingDraftSample(false);
     if (pendingAdditionBusyRef.current) pendingAdditionBusyRef.current.cancelled = true;
     pendingAdditionRef.current = null;
     pendingVerifiedQuickStartRef.current = null;
@@ -337,7 +353,7 @@ export function CuppingSessionDetailsScreen({
   }, [sessionId, quickStartSessionTypeValue]);
 
   const requestSetupExit = (action) => {
-    const pendingSetupWork = lockOperationRef.current || saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
+    const pendingSetupWork = draftRemovalBusyRef.current || lockOperationRef.current || saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
       isCompletingSession || isDeleting || participantRemovalBusyRef.current || isRemovingParticipantSample || verifyingSampleId || rewritingSampleId;
     if (!setupContinuationRef.current && !pendingSetupWork && !isSessionDirty) return action?.();
     if (pendingSetupWork) {
@@ -480,7 +496,10 @@ export function CuppingSessionDetailsScreen({
         );
         setSessionTypeAnchor(null);
         if (access.canManageSetup) {
-          const pending = await getPendingSampleAddition(loaded.id);
+          const removing=await getDraftSampleRemoval(loaded.id);
+          if(isCancelled)return;
+          draftRemovalRef.current=removing;setDraftRemoval(removing);
+          const pending = removing?null:await getPendingSampleAddition(loaded.id);
           if (isCancelled) return;
           if (pending) {
             pendingAdditionRef.current = pending;
@@ -578,10 +597,11 @@ export function CuppingSessionDetailsScreen({
   const isLegacy = selectedForm === 2;
   const isSessionFormSupported = isSessionFormReady(sessionId, sessionForm) && (!isLegacy || sessionMode === 'open');
   const isSessionFormLoading = Boolean(sessionId) && sessionForm?.loadedSessionId !== sessionId;
-  const canEditSessionSetup = !sessionId || (isSessionFormSupported && ownsSavedSetup);
+  const canEditSessionSetup = !draftRemoval && !isRemovingDraftSample && (!sessionId || (isSessionFormSupported && ownsSavedSetup));
   const canSelectSessionForm = !isSessionLocked && !isQuickStartSession && canEditSessionSetup;
   const lockInputKey = currentSetupInputKeyRef.current;
   const canLockSession = Boolean(sessionId && savedSessionIdRef.current === sessionId && !isQuickStartSession &&
+    !draftRemoval && !isRemovingDraftSample &&
     sessionStatus === 'new' && ownsSavedSetup && isSessionFormSupported && !isSessionDirty && samples.length &&
     !isSaving && !isLockingSession && !isNfcWriting && !isCheckingCup && !isAddSheetVisible &&
     !isCompletingSession && !isDeleting && !isRemovingParticipantSample &&
@@ -638,6 +658,7 @@ export function CuppingSessionDetailsScreen({
     });
   };
   const selectSessionForm = (f) => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (!canSelectSessionForm) return;
     const pin = formIdentity(f);
     setSessionForm(sessionId ? { loadedSessionId: sessionId, cuppingForm: f, formKey: pin.form_key, formVersion: pin.form_version, formHash: pin.form_hash } : pin);
@@ -647,6 +668,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const openSessionTypeMenu = () => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (isSessionLocked || !canEditSessionSetup) {
       return;
     }
@@ -657,6 +679,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleUpdateSample = (sampleId, field, value) => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
     setIsSessionDirty(true);
@@ -674,6 +697,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleRemoveSample = (sampleId) => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current || creatorCompletionOperationRef.current) return;
     const permission = samples.find(sample=>sample.id===sampleId)?.localRemoval;
     if (permission?.canRemove && permission.removalToken && !participantRemovalBusyRef.current && savedSessionIdRef.current === sessionId && tastingPresentation?.session?.id === sessionId) {
@@ -778,6 +802,7 @@ export function CuppingSessionDetailsScreen({
     String(pending.candidate.process) === String(normalizeProcessKey(sheetProcess)) &&
     pending.candidate.cupNumber === sheetCupNumber && pending.candidate.cuppingMode === normalizeCuppingModeKey(sheetCuppingMode);
   const handleOpenAddSheet = () => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
     if (saveOperationRef.current || pendingAdditionBusyRef.current) return;
@@ -831,6 +856,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleOpenEditSheet = (sample) => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
     if (pendingAdditionRef.current) { handleOpenAddSheet(); return; }
@@ -936,6 +962,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleScanCup = async () => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     const setupEpoch = setupEpochRef.current;
     if (pendingAdditionBusyRef.current || saveOperationRef.current) return;
@@ -993,6 +1020,7 @@ export function CuppingSessionDetailsScreen({
       await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
       setScanStatusMessage("Scan cup to write session data...");
       const writeResult = await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current&&!additionOperation.cancelled}))throw new Error('removal:unfinished');
         if (setupEpoch !== setupEpochRef.current || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup changed. No cup was written.');
         await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
         const parsed = result?.parsed || {};
@@ -1214,6 +1242,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleVerifySample = async (sampleId) => {
+    const setupEpoch=setupEpochRef.current;
     verifiedObservationRef.current=null;
     const pending = pendingAdditionRef.current?.candidate.id === sampleId ? pendingAdditionRef.current : null;
     const sample = pending?.candidate || samples.find((entry) => entry.id === sampleId);
@@ -1230,6 +1259,7 @@ export function CuppingSessionDetailsScreen({
     try {
       setScanStatusMessage(`Scan cup ${sample.cupUUID} to verify its session data...`);
       const result = await readNdefMinimal();
+      if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('removal:unfinished');
       const parsed = result?.parsed || {};
       const tag = result?.tag;
       const tagClassification = classifyNfcTagReadResult(result);
@@ -1370,6 +1400,7 @@ export function CuppingSessionDetailsScreen({
       if (!(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup is read-only on this profile.');
       setScanStatusMessage(`Scan cup ${expectedCupUUID} to rewrite its session data...`);
       await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('removal:unfinished');
         if (setupEpoch !== setupEpochRef.current || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup changed. No cup was written.');
         if (pending) {
           const current = await getPendingSampleAddition(pending.sessionId);
@@ -1630,7 +1661,77 @@ export function CuppingSessionDetailsScreen({
     }
   };
 
+  const handleCloseDraftRemoval = expected => {
+    if(!expected||draftRemovalDialogRef.current!==expected||draftRemovalBusyRef.current||expected.epoch!==setupEpochRef.current)return;
+    draftRemovalDialogRef.current=null;setDraftRemovalDialog(null);
+  };
+  const handleDraftRemoval = async (retry=false,expectedDialog=null) => {
+    if(expectedDialog&&(draftRemovalDialogRef.current!==expectedDialog||expectedDialog.sessionId!==sessionId||
+      expectedDialog.operationId!==draftRemovalRef.current?.operationId||expectedDialog.epoch!==setupEpochRef.current))return;
+    if(draftRemovalRenderEpoch!==setupEpochRef.current||draftRemovalBusyRef.current||saveOperationRef.current||lockOperationRef.current||pendingAdditionRef.current||pendingAdditionBusyRef.current||
+      isAddSheetVisible||isNfcWriting||isCheckingCup||isDeleting||!sessionId||!ownsSavedSetup||sessionStatus!=='new')return;
+    if(isSessionDirty){setScanStatusMessage('Save or discard your setup changes before removing a sample.');return;}
+    const operation={epoch:setupEpochRef.current,sessionId};
+    const current=()=>draftRemovalBusyRef.current===operation&&operation.epoch===setupEpochRef.current;
+    draftRemovalBusyRef.current=operation;setIsRemovingDraftSample(true);
+    let release=null;
+    const remember=pending=>{if(!current())throw new Error('removal:context_changed');draftRemovalRef.current=pending;setDraftRemoval(pending);return pending;};
+    const showDialog=value=>{const dialog=value?{...value,sessionId,operationId:draftRemovalRef.current?.operationId,epoch:operation.epoch}:null;draftRemovalDialogRef.current=dialog;setDraftRemovalDialog(dialog);};
+    try{
+      release=onLocalTastingRemovalStart?.(sessionId,draftRemovalRef.current?.sampleId);
+      let pending=draftRemovalRef.current;
+      if(!pending||retry){
+        await readAndClearNdefMinimal(async readResult=>{
+          if(!current())throw new Error('removal:context_changed');
+          pending=remember(pending?await getDraftSampleRemoval(sessionId):await stageDraftSampleRemoval({sessionId,readResult}));
+          return {frozen:pending.frozen,beforeWrite:async()=>{
+            if(!current())throw new Error('removal:context_changed');
+            remember(await beginDraftSampleRemovalWrite({sessionId,operationId:pending.operationId,expectedBytesHash:pending.frozen.bytesHash}));
+            if(!current())throw new Error('removal:context_changed');
+          }};
+        },{onRead:async readResult=>{
+          if(!current())throw new Error('removal:context_changed');
+          if(await observePendingDraftRemovalRead(readResult,{isReadCurrent:current})&&!pending)throw new Error('removal:unfinished');
+        }});
+        if(!current())return;
+        remember(await markDraftSampleRemovalWritten({sessionId,operationId:pending.operationId}));
+        showDialog({mode:'verify'});return;
+      }
+      if(pending.phase!=='verified'){
+        const readResult=await readNdefMinimal();if(!current())return;
+        const checked=await inspectDraftSampleRemovalRead({sessionId,operationId:pending.operationId,readResult,isReadCurrent:current});
+        pending=remember(checked.pending);
+        if(checked.disposition!=='cleared'){
+          showDialog({mode:checked.disposition==='original'?'retry':'verify',message:checked.disposition==='original'?'':'Removal is unfinished. Scan the same cup again to verify its cleared assignment.'});return;
+        }
+      }
+      await commitDraftSampleRemoval({sessionId,operationId:pending.operationId});
+      if(!current())return;
+      draftRemovalRef.current=null;setDraftRemoval(null);showDialog(null);
+      setScanStatusMessage('Sample removed. Session remains DRAFT.');
+      setPresentationRevision(value=>value+1);
+    }catch{
+      if(current()){
+        // A failed mark/commit never manufactures a transient verification.
+        // Reload the durable phase; next user action is read-first or save-only.
+        let pending=null;try{pending=await getDraftSampleRemoval(sessionId);}catch{
+          if(current())setSetupAccess({sessionId,canManageSetup:false,failed:true});
+        }
+        if(current()){
+          draftRemovalRef.current=pending;setDraftRemoval(pending);
+          showDialog(pending?{mode:pending.phase==='verified'?'save':'verify',message:pending.phase==='verified'?'':'Removal is unfinished. Keep this cup and rescan to verify before trying a clear again.'}:null);
+          setScanStatusMessage('Removal status could not be confirmed. Reopen the saved session before continuing.');
+          if(!pending)setPresentationRevision(value=>value+1);
+        }
+      }
+    }finally{
+      if(typeof release==='function')release();
+      if(draftRemovalBusyRef.current===operation){draftRemovalBusyRef.current=null;if(operation.epoch===setupEpochRef.current)setIsRemovingDraftSample(false);}
+    }
+  };
+
   const handleSave = async () => {
+    if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     if (pendingAdditionRef.current || pendingAdditionBusyRef.current) {
       setScanStatusMessage("Finish the pending cup check from Add Sample before saving.");
@@ -1713,6 +1814,7 @@ export function CuppingSessionDetailsScreen({
     }
 
     setIsDeleting(true);
+    setupEpochRef.current+=1;
 
     try {
       const result = await deleteSessionById(sessionId);
@@ -1746,7 +1848,7 @@ export function CuppingSessionDetailsScreen({
 
   const showScanFooter = sessionStatusBadgeLabel === "Pending" && !isSessionDirty;
   const showInProgressFooter = canCompleteSession;
-  const footerDisabled = isLockingSession || isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample;
+  const footerDisabled = isLockingSession || isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample || isRemovingDraftSample || Boolean(draftRemoval);
   const showCompactSessionTitle = ["Pending", "In Progress", "Complete"].includes(sessionStatusBadgeLabel);
 
   return (
@@ -1783,7 +1885,7 @@ export function CuppingSessionDetailsScreen({
             <Text style={styles.metaLabel}>Session Name</Text>
             <TextInput
               value={sessionId ? visibleIdentity.sessionName : sessionName}
-              onChangeText={value => { setSessionName(value); setIsSessionDirty(true); }}
+              onChangeText={value => { if(draftRemovalRef.current||draftRemovalBusyRef.current)return; setSessionName(value); setIsSessionDirty(true); }}
               placeholder="Enter session name"
               placeholderTextColor={colors.action}
               style={[styles.input, { marginTop: 4 * scale }, (isSessionLocked || !canEditSessionSetup) && styles.metaInputDisabled]}
@@ -1898,12 +2000,15 @@ export function CuppingSessionDetailsScreen({
             <FullPageButton
               label="ADD SAMPLE"
               onPress={handleOpenAddSheet}
-              disabled={isLockingSession}
+              disabled={isLockingSession || isRemovingDraftSample || Boolean(draftRemoval)}
               accessibilityLabel="Open add sample sheet"
               style={[styles.addSampleButton, { marginTop: 24 * scale }]}
               textStyle={styles.addSampleButtonText}
             />
           ) : null}
+          {sessionId && sessionStatus==='new' && sessionStatusBadgeLabel==='Draft' && ownsSavedSetup && isSessionFormSupported && (samples.length>0||draftRemoval) ?
+            <FullPageButton label="REMOVE SAMPLE" onPress={()=>handleDraftRemoval()} disabled={isRemovingDraftSample||isSaving||isLockingSession||isNfcWriting||Boolean(pendingAdditionRef.current)||Boolean(pendingAdditionBusyRef.current)}
+              accessibilityLabel="Scan cup to remove sample" style={[styles.scanFooterButton,{marginTop:spacing.md}]} textStyle={styles.scanFooterButtonText}/> : null}
         </View>
 
         {sessionId && !ownsSavedSetup ? <Text style={styles.scanStatusText}>{setupAccess?.sessionId === sessionId
@@ -1989,6 +2094,11 @@ export function CuppingSessionDetailsScreen({
           saveError={pendingSaveError}
           retrySave={pendingAdditionRef.current?.phase === 'verified'}
         />
+      </Modal>
+
+      <Modal visible={Boolean(draftRemovalDialog)} transparent animationType="fade" onRequestClose={()=>handleCloseDraftRemoval(draftRemovalDialog)}>
+        <CheckRemovalDialog mode={draftRemovalDialog?.mode} message={draftRemovalDialog?.message} busy={isRemovingDraftSample}
+          onAction={()=>handleDraftRemoval(draftRemovalDialog?.mode==='retry',draftRemovalDialog)} onClose={()=>handleCloseDraftRemoval(draftRemovalDialog)}/>
       </Modal>
 
       <AddCoffeeSampleSheet
@@ -2077,7 +2187,7 @@ export function CuppingSessionDetailsScreen({
       <SessionTypeDropdown
         anchorRect={sessionTypeAnchor}
         selected={sessionType}
-        onSelect={value => { setSessionType(value); setIsSessionDirty(true); }}
+        onSelect={value => { if(draftRemovalRef.current||draftRemovalBusyRef.current)return; setSessionType(value); setIsSessionDirty(true); }}
         onDismiss={() => setSessionTypeAnchor(null)}
         scale={scale}
       />

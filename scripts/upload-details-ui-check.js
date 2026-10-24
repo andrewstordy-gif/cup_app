@@ -31,6 +31,11 @@ for(width of [320,375,430]){const props=jsx(footer,deps()).props,actual=expand(S
 const summary=load('src/features/cupping/components/SessionTitleSummary.js');
 const summaryTree=expand(summary.SessionTitleSummary({name:'Saved session',status:'COMPLETE',uploadStatusLabel:jsx(status,deps())}));
 const statusText=rendered(summaryTree,n=>n.type==='Text'&&n.props.children.includes('Not uploaded'))[0];assert(statusText,'actual compact summary exposes readable native Text');assert.equal(statusText.props.style.fontSize,typography.text_secondary_body.fontSize);assert.equal(statusText.props.style.fontWeight,typography.text_secondary_body.fontWeight);assert.equal(summary.SessionTitleSummary({status:'DRAFT',uploadStatusLabel:'Not uploaded'}),null,'Draft cannot render compact upload summary');
-const base=require('node:child_process').execFileSync('git',['show','0dcbd0c:'+file],{cwd:root,encoding:'utf8'}),baseAst=parse(base,{sourceType:'module',plugins:['jsx']});assert.deepEqual(tree.program.body.filter(n=>n.type==='ImportDeclaration').map(n=>generate(n).code),baseAst.program.body.filter(n=>n.type==='ImportDeclaration').map(n=>generate(n).code),'no data/API import added');
+const base=require('node:child_process').execFileSync('git',['show','0dcbd0c:'+file],{cwd:root,encoding:'utf8'}),baseAst=parse(base,{sourceType:'module',plugins:['jsx']});
+// R1-133 permits only these physical-removal imports; all original upload UI
+// and unrelated import boundaries remain byte-equivalent after that allowance.
+const removalNames=new Set(['readAndClearNdefMinimal','getDraftSampleRemoval','stageDraftSampleRemoval','beginDraftSampleRemovalWrite','markDraftSampleRemovalWritten','inspectDraftSampleRemovalRead','commitDraftSampleRemoval','observePendingDraftRemovalRead']);
+const imports=ast=>ast.program.body.filter(n=>n.type==='ImportDeclaration'&&n.source.value!=='../components/CheckRemovalDialog').map(n=>generate({...n,specifiers:n.specifiers.filter(s=>!removalNames.has(s.imported?.name))}).code);
+assert.deepEqual(imports(tree),imports(baseAst),'only explicit approved removal imports added');
 assert(!/onPrimaryPress/.test(generate(footer.consequent).code));
-console.log('PASS R1-119 actual Details scope/status/footer/scan bindings, Draft/old/unsupported missing handlers, exact responsive dual shell, disabled centered symbol, unchanged default button branch, token typography/no new imports.');
+console.log('PASS R1-119 actual Details scope/status/footer/scan bindings, Draft/old/unsupported missing handlers, exact responsive dual shell, disabled centered symbol, unchanged default button branch, token typography/only approved removal imports.');

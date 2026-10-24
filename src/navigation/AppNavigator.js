@@ -36,6 +36,7 @@ import {
   getLocalTastingPresentation,
   resetSessionToPending,
   resolveActiveSampleFromCupMetadata,
+  observePendingDraftRemovalRead,
 } from "../data/sessionRepository";
 
 // Map session status to the route name used by AppNavigator.
@@ -385,9 +386,12 @@ export function AppNavigator() {
         addFlowEvent(flowEvents, "SCAN_ABORT_STALE_ACTION");
         return;
       }
+      if(await observePendingDraftRemovalRead(readResult,{isReadCurrent:()=>isCurrentNfcAction(actionToken)}))throw new Error('Removal is unfinished. Return to the draft session and use REMOVE SAMPLE to continue.');
+      if(!isCurrentNfcAction(actionToken))return;
       const parsed = readResult?.parsed || {};
       const recordCount = Number(readResult?.recordCount) || 0;
       const tagClassification = classifyNfcTagReadResult(readResult);
+      if(tagClassification.isCleared)throw new Error('This cup has no sample assignment. Add it to a draft session first.');
       addFlowEvent(flowEvents, `TAG_CLASSIFIED type=${tagClassification.type} reason=${tagClassification.reason}`);
 
       if (isNtagCupLike(tagClassification, readResult?.tag)) {
@@ -706,6 +710,7 @@ export function AppNavigator() {
   };
 
   const handleResetCupToOffFromMenu = async () => {
+    const removalReadToken=nfcActionTokenRef.current;
     closeDrawer();
     setRoute("Home");
     setSelectedCupContext(null);
@@ -714,14 +719,16 @@ export function AppNavigator() {
     setScanStatusMessage("Scan cup to reset it to OFF...");
     try {
       await delay(HOME_WRITE_HANDOFF_MS);
-      await readAndWriteNdefMinimal(async (result) => ({
+      await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>nfcActionTokenRef.current===removalReadToken}))throw new Error('removal:unfinished');
+        return ({
         records: {
           text1: { state: 0 },
           text2: {},
           text3: {},
           text4: result?.parsed?.text4 || {},
         },
-      }));
+      });});
       setHomeStateLabel("Off");
       setHomeTimeLabel("00:00");
       setHomeSampleNumber(null);
@@ -743,6 +750,7 @@ export function AppNavigator() {
   };
 
   const handleSwitchCupToBrewingFromMenu = async () => {
+    const removalReadToken=nfcActionTokenRef.current;
     closeDrawer();
     setRoute("Home");
     setSelectedCupContext(null);
@@ -751,14 +759,16 @@ export function AppNavigator() {
     setScanStatusMessage("Scan cup to switch it to BREWING...");
     try {
       await delay(HOME_WRITE_HANDOFF_MS);
-      await readAndWriteNdefMinimal(async (result) => ({
+      await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>nfcActionTokenRef.current===removalReadToken}))throw new Error('removal:unfinished');
+        return ({
         records: {
           text1: { state: BREWING_STATE },
           text2: {},
           text3: {},
           text4: result?.parsed?.text4 || {},
         },
-      }));
+      });});
       setHomeStateLabel("Brewing");
       setHomeTimeLabel("00:00");
       setHomeElapsedSeconds(0);

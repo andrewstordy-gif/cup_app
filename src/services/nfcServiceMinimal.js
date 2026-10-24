@@ -1,6 +1,7 @@
 import NfcManager, { Ndef, NfcTech } from "react-native-nfc-manager";
 import { Platform } from "react-native";
 import { validCode, validateMetadata, encodeUtf8, decodeTextPayload } from '../data/sampleCodeProfile';
+import { readRemovalTag, freezeClear, validateFrozen, compareRemovalRead } from '../data/draftSampleRemovalCodec';
 
 let started = false;
 let nextNfcSessionAllowedAt = 0;
@@ -840,6 +841,40 @@ export async function readAndWriteNdefMinimal(buildWritePayload, options = {}) {
     if (Platform.OS === "ios") {
       await delay(IOS_SESSION_SETTLE_MS);
     }
+  }
+}
+
+// Purpose-bound clear: no assignment-code shortcut and no automatic retry of a
+// possibly dispatched write. The repository persists writing in beforeWrite.
+export async function readAndClearNdefMinimal(prepare,options={}) {
+  try {
+    await startMinimal();
+    await requestNdefTechnology('Hold your phone near the cup to remove its sample assignment.');
+    const tag=await getCurrentTagWithRetry('read+write');
+    const readResult={tag,recordCount:Array.isArray(tag?.ndefMessage)?tag.ndefMessage.length:0};
+    if(typeof options.onRead==='function')await options.onRead(readResult);
+    const original=readRemovalTag(readResult);
+    const expected=freezeClear(original);
+    const status=await NfcManager.ndefHandler.getNdefStatus();
+    const capacity=status?.capacity??tag?.maxSize;
+    if(status?.status!==2||!Number.isSafeInteger(capacity)||capacity<expected.bytes.length)throw new Error('removal:unwritable');
+    const command=await prepare(readResult);
+    const frozen=validateFrozen(command?.frozen);
+    if(typeof command?.beforeWrite!=='function'||compareRemovalRead(frozen,original)!=='original')throw new Error('removal:context_changed');
+    const bytes=[...frozen.bytes];
+    if(status?.status!==2||!Number.isSafeInteger(capacity)||capacity<bytes.length)throw new Error('removal:unwritable');
+    await command.beforeWrite();
+    // Validate the private copy again at dispatch. Caller mutations cannot
+    // substitute arbitrary clear bytes after durable authorization.
+    validateFrozen({...frozen,bytes});
+    await NfcManager.ndefHandler.writeNdefMessage(bytes);
+    await closeIosSessionNow();
+    return {ok:true,result:command.result};
+  } catch {
+    throw new Error('removal:unfinished');
+  } finally {
+    await cancelMinimal();
+    if(Platform.OS==='ios')await delay(IOS_SESSION_SETTLE_MS);
   }
 }
 
