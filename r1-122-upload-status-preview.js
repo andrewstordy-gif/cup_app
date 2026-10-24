@@ -35,6 +35,7 @@ export function UploadStatusPreview({ onOpenTestApp }) {
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const fixture = STATUS_FIXTURES[selected];
   const canPreviewDeletion = fixture.label === 'Upload queued';
+  const canPreviewReplacement = selected !== 0;
   const finishReplacementPreview = (outcome) => {
     setReplacementVisible(false);
     setReplacementOutcome(`Preview only: ${outcome}. Nothing was replaced, queued or sent.`);
@@ -50,7 +51,7 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       <View style={styles.selectors}>
         {STATUS_FIXTURES.map((status, index) => <Pressable key={status.label} testID={`status-fixture-${index}`}
           accessibilityRole="button" accessibilityLabel={`Preview ${status.label}`} accessibilityState={{ selected: selected === index }}
-          onPress={() => { setSelected(index); setDeletionVisible(false); }} style={({ pressed }) => [styles.selector, selected === index && styles.selected, pressed && styles.pressed]}>
+          onPress={() => { setSelected(index); setDeletionVisible(false); setReplacementVisible(false); }} style={({ pressed }) => [styles.selector, selected === index && styles.selected, pressed && styles.pressed]}>
           <Text style={styles.detail}>{status.label}</Text>
         </Pressable>)}
       </View>
@@ -87,11 +88,6 @@ export function UploadStatusPreview({ onOpenTestApp }) {
         </View>
         <FixtureStatus fixture={fixture} />
       </View>
-      <Pressable onPress={() => { setDeletionVisible(false); setReplacementOutcome(''); setReplacementVisible(true); }}
-        accessibilityRole="button" accessibilityLabel="Preview replacement confirmation; no upload consent"
-        style={({ pressed }) => [styles.openApp, pressed && styles.pressed]}>
-        <Text style={styles.openAppText}>Preview replacement confirmation</Text>
-      </Pressable>
       {replacementOutcome ? <Text style={styles.detail} accessibilityLiveRegion="polite">{replacementOutcome}</Text> : null}
       {deletionOutcome ? <Text style={styles.detail} accessibilityLiveRegion="polite">{deletionOutcome}</Text> : null}
       <Pressable onPress={onOpenTestApp} accessibilityRole="button" accessibilityLabel="Open unchanged test app, leaving fixtures behind"
@@ -100,10 +96,12 @@ export function UploadStatusPreview({ onOpenTestApp }) {
       </Pressable>
     </ScrollView>
     <ScreenFooterDual primaryLabel="" primaryIcon={<AppIcon name="upload" role="icon_navigation" color={colors.inkSoft} />}
-      primaryIconOnly primaryDisabled primaryAccessibilityLabel="Upload unavailable in test-data preview; nothing is sent"
+      primaryIconOnly primaryDisabled={!canPreviewReplacement} primaryStyle={styles.uploadFooterButton}
+      onPrimaryPress={canPreviewReplacement ? () => { setDeletionVisible(false); setReplacementOutcome(''); setReplacementVisible(true); } : undefined}
+      primaryAccessibilityLabel={canPreviewReplacement ? 'Preview replacement from fictional upload; nothing is sent' : 'Upload unavailable in test-data preview; nothing is sent'}
       secondaryLabel="SCAN CUP" secondaryDisabled secondaryAccessibilityLabel="Scan cup unavailable in test-data preview; no NFC"
       secondaryStyle={styles.scanFooterButton} secondaryTextStyle={styles.scanFooterButtonText} />
-    {replacementVisible ? <WarningDialog visible title="Replace your queued or uploaded results?"
+    {replacementVisible && canPreviewReplacement ? <WarningDialog visible title="Replace your queued or uploaded results?"
       message=""
       variant="cupping-choice" secondaryLabel="Yes, replace" onSecondary={() => finishReplacementPreview('Yes, replace selected')}
       okLabel="No, keep existing" onOk={() => finishReplacementPreview('No, keep existing selected')}
@@ -145,6 +143,7 @@ const styles = StyleSheet.create({
   sessionCategory: { ...typography.text_secondary_body, color: colors.inkSoft, letterSpacing: 0 },
   sessionDate: { ...typography.text_secondary_body, color: colors.inkSoft, letterSpacing: 0 },
   scanFooterButton: { backgroundColor: colors.action },
+  uploadFooterButton: { backgroundColor: colors.muted },
   scanFooterButtonText: { color: colors.surface },
   openApp: { minHeight: 44, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: colors.quietBorder, borderRadius: 8 },
   openAppText: { ...typography.text_button_primary, color: colors.ink },

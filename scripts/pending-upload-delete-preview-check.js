@@ -5,7 +5,7 @@ const h=mod.exports,{load,all,native}=h;let width=375;native.Modal='Modal';nativ
 const render=()=>h.render(UploadStatusPreview,{onOpenTestApp:()=>opens++});const flatten=styles=>Object.assign({},...[styles].flat(Infinity).filter(v=>v&&typeof v==='object'));
 const body='Deletes local results and cancels the pending upload.';
 const button=(tree,label)=>all(tree,n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
-const opener='Preview delete fictional queued session; nothing is deleted',replacement='Preview replacement confirmation; no upload consent';
+const opener='Preview delete fictional queued session; nothing is deleted',replacement='Preview replacement from fictional upload; nothing is sent';
 function preserved(tree,label){assert.equal(all(tree,n=>n.props?.accessibilityLabel===`Test data upload status: ${label}`).length,2);assert.equal(all(tree,n=>n.type==='Text'&&n.props.children.includes('COMPLETE')).length,2);assert.equal(all(tree,n=>n.type==='Text'&&n.props.children.includes('Fixture tasting')).length,2,'both fictional cards retained');for(const n of all(tree,n=>n.type==='Pressable'&&n.props.disabled))assert.equal(n.props.onPress,undefined);assert.equal(opens,0);}
 for(width of [320,375,430])for(const [index,label] of ['Not uploaded','Upload queued','Uploaded'].entries()){
  h.reset();let tree=render();all(tree,n=>n.props?.testID===`status-fixture-${index}`)[0].props.onPress();tree=render();assert.equal(all(tree,n=>n.props?.accessibilityLabel==='Preview pending-upload deletion warning; nothing is deleted').length,0);assert.equal(all(tree,n=>n.type==='Text'&&n.props.children.includes('Fictional scenario: pending upload. Independent of the status selected above.')).length,0);preserved(tree,label);
