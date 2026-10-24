@@ -1118,8 +1118,10 @@ export async function saveSessionWithSamples({
   const sessionStatusValue = intent === 'setup' || !normalizedSamples.length ? 'new' : 'pending';
 
   const creatorId = existingSessionId ? null : await getOrCreateLocalProfileIdentity();
+  const savingActor = creatorId || await getLocalProfileIdentity();
   await db.withExclusiveTransactionAsync(async txn => {
     const db = txn;
+    await requireSameTastingActor(savingActor);
     await assertNoRemoval(db,sessionId);
     let pendingActor = null;
     await assertSessionReferenceAvailableWithDb(db, sessionId, existingSessionId);
@@ -1298,6 +1300,7 @@ export async function saveSessionWithSamples({
       await db.runAsync('DELETE FROM samples WHERE session_id = ?', [sessionId]);
       const actor=await getLocalProfileIdentity();
       if(await db.getFirstAsync('SELECT 1 FROM local_tasting_revisions WHERE session_id=? AND local_profile_id=?',[sessionId,actor]))await commitRevisionWithDb(db,sessionId,actor);
+      await requireSameTastingActor(savingActor);
       return;
     }
 
@@ -1322,7 +1325,9 @@ export async function saveSessionWithSamples({
       await db.runAsync('DELETE FROM local_pending_sample_additions WHERE session_id=? AND operation_id=?', [sessionId,pendingSampleOperationId]);
       await requireSameTastingActor(actor);
     }
+    await requireSameTastingActor(savingActor);
   });
+  await requireSameTastingActor(savingActor);
 
   return {
     sessionId,
