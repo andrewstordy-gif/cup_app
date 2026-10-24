@@ -1,9 +1,14 @@
 import * as SQLite from "expo-sqlite";
+import { migrateFoundationWithDb } from './localSessionStateMigration';
+import { PENDING_SAMPLE_SCHEMA } from './pendingSampleAdditionStore';
+import { SCHEMA as SAMPLE_CODE_SCHEMA } from './sampleCodeProfile';
+import { SCHEMA as DRAFT_REMOVAL_SCHEMA } from './pendingDraftRemovalStore';
 
-const DATABASE_NAME = "cup_user_test.db";
+const DATABASE_NAME = "cup_r1_103_sample_codes_test.db";
 
 let dbPromise = null;
 let isMigrated = false;
+let migrationPromise = null;
 
 function readUserVersion(row) {
   const rawValue = row?.user_version ?? Object.values(row || {})[0];
@@ -49,13 +54,22 @@ async function backfillSessionProgressStatuses(db) {
   }
 }
 
-async function runMigrations(db) {
-  if (isMigrated) {
-    return;
+async function prepareSchema(db) {
+  const existing = await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'");
+  if (existing) {
+    const marker = await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name='r1_103_profile'");
+    if (!marker) throw new Error('Incompatible test storage. No database was reset.');
+    const profile = await db.getFirstAsync('SELECT version FROM r1_103_profile');
+    if (profile?.version !== 103) throw new Error('Unsupported test storage. No database was reset.');
+    for(const name of ['samples','sample_code_issuers','issued_sample_codes','sample_code_commit_outcomes','physical_code_observations']) {
+      if(!await db.getFirstAsync("SELECT name FROM sqlite_master WHERE type='table' AND name=?",[name]))throw new Error('Incomplete test storage. No database was reset.');
+    }
+    const columns=await db.getAllAsync('PRAGMA table_info(samples)');
+    if(!columns.some(column=>column.name==='sample_code'&&column.type==='TEXT'&&column.notnull===1)||!columns.some(column=>column.name==='sample_metadata_json'&&column.type==='TEXT'))throw new Error('Incompatible sample-code storage. No database was reset.');
   }
-
-  await db.execAsync("PRAGMA foreign_keys = ON;");
+  await db.execAsync('CREATE TABLE IF NOT EXISTS r1_103_profile(version INTEGER PRIMARY KEY CHECK(version=103)); INSERT OR IGNORE INTO r1_103_profile VALUES(103);');
   const initialUserVersion = readUserVersion(await db.getFirstAsync("PRAGMA user_version;"));
+  if (initialUserVersion > 5) throw new Error('tasting:unsupported_schema');
 
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS sessions (
@@ -71,6 +85,8 @@ async function runMigrations(db) {
       form_key TEXT,
       form_version TEXT,
       form_hash TEXT,
+      cupping_mode TEXT,
+      form_locked INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -85,12 +101,14 @@ async function runMigrations(db) {
       cupping_form INTEGER NOT NULL DEFAULT 1,
       cupping_mode TEXT NOT NULL DEFAULT 'blind',
       sample_number INTEGER NOT NULL DEFAULT 0,
+      sample_code TEXT NOT NULL CHECK(length(sample_code)=2 AND sample_code NOT GLOB '*[^A-Z0-9]*'),
+      sample_metadata_json TEXT NOT NULL,
       coffee_name_origin TEXT NOT NULL,
       process TEXT NOT NULL,
       position_index INTEGER NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      UNIQUE(session_id, cup_uuid),
+      UNIQUE(session_id, sample_code),
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
   `);
@@ -132,6 +150,9 @@ async function runMigrations(db) {
       non_uniform_mask TEXT NOT NULL DEFAULT '',
       defective_mask TEXT NOT NULL DEFAULT '',
       defect_type_masks TEXT NOT NULL DEFAULT '',
+      score_policy TEXT,
+      calculation_policy TEXT,
+      defect_description TEXT,
       number_of_cups INTEGER NOT NULL DEFAULT 1,
       temp_snapshot TEXT,
       time_snapshot TEXT,
@@ -154,6 +175,47 @@ async function runMigrations(db) {
       elapsed_seconds INTEGER,
       source_field TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
+    );
+  `);
+
+  // Append-only CVA successor evidence. Prototype rows retain their original meaning.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS cva_response_revisions (
+      id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      sample_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      form_key TEXT NOT NULL,
+      form_version TEXT NOT NULL,
+      form_hash TEXT NOT NULL,
+      cup_count INTEGER NOT NULL,
+      response_json TEXT NOT NULL,
+      is_complete INTEGER NOT NULL,
+      result_json TEXT,
+      calculation_policy TEXT NOT NULL,
+      defect_policy TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(sample_id, revision),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cva_response_current ON cva_response_revisions(session_id, sample_id, revision);
+  `);
+
+  // Distinct raw Legacy response: never coerce these judgments into CVA feedback rows.
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS legacy_responses (
+      sample_id TEXT PRIMARY KEY NOT NULL,
+      session_id TEXT NOT NULL,
+      form_key TEXT NOT NULL,
+      form_version TEXT NOT NULL,
+      form_hash TEXT NOT NULL,
+      cup_count INTEGER NOT NULL,
+      response_json TEXT NOT NULL,
+      is_complete INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
       FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
       FOREIGN KEY (sample_id) REFERENCES samples(id) ON DELETE CASCADE
     );
@@ -267,6 +329,17 @@ async function runMigrations(db) {
       "ALTER TABLE sample_defect_entries ADD COLUMN defect_type_masks TEXT NOT NULL DEFAULT '';"
     );
   }
+  const defectColumnsAfterPolicy = await db.getAllAsync("PRAGMA table_info(sample_defect_entries);");
+  if (!defectColumnsAfterPolicy.some((column) => column?.name === "score_policy")) {
+    await db.execAsync("ALTER TABLE sample_defect_entries ADD COLUMN score_policy TEXT;");
+  }
+  if (!defectColumnsAfterPolicy.some((column) => column?.name === "calculation_policy")) {
+    await db.execAsync("ALTER TABLE sample_defect_entries ADD COLUMN calculation_policy TEXT;");
+  }
+  const defectColumnsAfterDescription = await db.getAllAsync("PRAGMA table_info(sample_defect_entries);");
+  if (!defectColumnsAfterDescription.some((column) => column?.name === "defect_description")) {
+    await db.execAsync("ALTER TABLE sample_defect_entries ADD COLUMN defect_description TEXT;");
+  }
 
   const sessionColumns = await db.getAllAsync("PRAGMA table_info(sessions);");
   const hasStatusColumn = Array.isArray(sessionColumns)
@@ -287,6 +360,9 @@ async function runMigrations(db) {
   for (const [name, type] of [
     ["cupping_form", "INTEGER"], ["form_key", "TEXT"],
     ["form_version", "TEXT"], ["form_hash", "TEXT"],
+    ["local_creator_profile_id", "TEXT"],
+    ["local_setup_locked_at", "TEXT"], ["local_setup_lock_snapshot", "TEXT"],
+    ["local_creator_activation_policy", "INTEGER"],
   ]) {
     if (!sessionColumns.some((column) => column?.name === name)) {
       await db.execAsync(`ALTER TABLE sessions ADD COLUMN ${name} ${type};`);
@@ -297,15 +373,11 @@ async function runMigrations(db) {
   let userVersion = initialUserVersion;
   if (userVersion < 1) {
     // Run in this order: rename old 'pending' (setup) → 'new', then old 'active' (in-progress) → 'pending'.
-    await db.execAsync("UPDATE sessions SET status = 'new' WHERE status IS NULL OR status = '';");
-    await db.execAsync("UPDATE sessions SET status = 'new' WHERE status = 'pending';");
-    await db.execAsync("UPDATE sessions SET status = 'pending' WHERE status = 'active';");
     await db.execAsync("PRAGMA user_version = 1;");
     userVersion = 1;
   }
 
   if (userVersion < 2) {
-    await backfillSessionProgressStatuses(db);
     await db.execAsync("PRAGMA user_version = 2;");
     userVersion = 2;
   }
@@ -323,25 +395,22 @@ async function runMigrations(db) {
       if (!hasSampleCuppingModeColumn) {
         await db.execAsync("ALTER TABLE samples ADD COLUMN cupping_mode TEXT NOT NULL DEFAULT 'blind';");
       }
-      await db.execAsync(`
-        UPDATE samples
-        SET cupping_mode = (
-          SELECT sessions.cupping_mode
-          FROM sessions
-          WHERE sessions.id = samples.session_id
-        )
-        WHERE EXISTS (
-          SELECT 1
-          FROM sessions
-          WHERE sessions.id = samples.session_id
-            AND sessions.cupping_mode IS NOT NULL
-            AND sessions.cupping_mode != ''
-        );
-      `);
-      await db.execAsync("ALTER TABLE sessions DROP COLUMN cupping_mode;");
+      // Retain old mode evidence; copying it into samples could reinterpret
+      // saved results. Unpinned historical contexts remain unsupported.
     }
     await db.execAsync("PRAGMA user_version = 3;");
     userVersion = 3;
+  }
+
+  // Earlier prototype migration removes the old sample-inferred Session mode.
+  // Add the new trusted mode only after that migration; old rows stay NULL.
+  const modeColumns = await db.getAllAsync('PRAGMA table_info(sessions);');
+  if (!modeColumns.some((column) => column?.name === 'cupping_mode')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN cupping_mode TEXT;');
+  }
+  if (!modeColumns.some((column) => column?.name === 'form_locked')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN form_locked INTEGER NOT NULL DEFAULT 0;');
+    await db.execAsync('UPDATE sessions SET form_locked = 1 WHERE EXISTS (SELECT 1 FROM samples WHERE samples.session_id = sessions.id);');
   }
 
   if (userVersion < 4) {
@@ -350,7 +419,7 @@ async function runMigrations(db) {
       ? sampleColumnsForSampleColour.some((column) => column?.name === "sample_colour")
       : false;
     if (hasSampleColourColumn) {
-      await db.execAsync("ALTER TABLE samples DROP COLUMN sample_colour;");
+      // Retain historical colour evidence; it is not part of new writes.
     }
     await db.execAsync("PRAGMA user_version = 4;");
     userVersion = 4;
@@ -376,7 +445,117 @@ async function runMigrations(db) {
     await db.execAsync("ALTER TABLE samples ADD COLUMN cupping_mode TEXT NOT NULL DEFAULT 'blind';");
   }
 
-  isMigrated = true;
+  const tastingColumns = await db.getAllAsync('PRAGMA table_info(sessions);');
+  if (!tastingColumns.some(column => column.name === 'local_tasting_started_at')) {
+    await db.execAsync('ALTER TABLE sessions ADD COLUMN local_tasting_started_at TEXT;');
+  }
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_response_streams (
+    session_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL UNIQUE,
+    local_profile_id TEXT NOT NULL,
+    bound_at TEXT NOT NULL,
+    recovery_source_json TEXT,
+    adoption_source_token TEXT,
+    PRIMARY KEY(session_id, sample_id),
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY(sample_id) REFERENCES samples(id) ON DELETE CASCADE
+  );
+  CREATE TABLE IF NOT EXISTS local_tasting_completions (
+    session_id TEXT NOT NULL,
+    local_profile_id TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    identity_revealed_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, local_profile_id),
+    FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+  );`);
+  await migrateFoundationWithDb(db);
+  await db.execAsync(PENDING_SAMPLE_SCHEMA);
+  await db.execAsync(SAMPLE_CODE_SCHEMA);
+  await db.execAsync(DRAFT_REMOVAL_SCHEMA);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_creator_sample_activations (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    lock_snapshot TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );`);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_creator_sample_removals (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    lock_snapshot TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    removed_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );`);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_creator_tasting_completion_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    snapshot_hash TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    UNIQUE(session_id,local_profile_id,snapshot_hash)
+  );`);
+  await db.execAsync(`CREATE TABLE IF NOT EXISTS local_participant_tasting_enrollments (
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    incarnation TEXT NOT NULL,
+    binding_snapshot TEXT NOT NULL,
+    enrolled_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS local_participant_sample_activations (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    binding_snapshot TEXT NOT NULL,
+    scanned_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );
+  CREATE TABLE IF NOT EXISTS local_participant_sample_removals (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    sample_id TEXT NOT NULL REFERENCES samples(id) ON DELETE CASCADE,
+    sample_code TEXT NOT NULL,
+    binding_snapshot TEXT NOT NULL,
+    generation INTEGER NOT NULL,
+    removed_at TEXT NOT NULL,
+    PRIMARY KEY(session_id,local_profile_id,sample_id)
+  );
+  CREATE TABLE IF NOT EXISTS local_participant_tasting_completion_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    local_profile_id TEXT NOT NULL,
+    schema_version INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL,
+    snapshot_hash TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    UNIQUE(session_id,local_profile_id,snapshot_hash)
+  );`);
+}
+
+async function runMigrations(db) {
+  if (isMigrated) return;
+  if (!migrationPromise) migrationPromise = (async () => {
+    await db.execAsync('PRAGMA foreign_keys = ON;');
+    await db.withExclusiveTransactionAsync(async txn => {
+      // Native Expo transactions expose execAsync. The test adapters implement
+      // prepared single statements; these are trusted static schema statements.
+      const handle = { getFirstAsync: (...args) => txn.getFirstAsync(...args),
+        getAllAsync: (...args) => txn.getAllAsync(...args), runAsync: (...args) => txn.runAsync(...args) };
+      handle.execAsync = txn.execAsync ? sql => txn.execAsync(sql) : async sql => {
+        for (const statement of sql.split(';').map(value => value.trim()).filter(Boolean)) await txn.runAsync(statement);
+      };
+      await prepareSchema(handle);
+    });
+    isMigrated = true;
+  })().catch(error => { migrationPromise = null; throw error; });
+  await migrationPromise;
 }
 
 export async function getLocalDatabase() {

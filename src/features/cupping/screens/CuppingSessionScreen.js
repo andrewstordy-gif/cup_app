@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
-import AntDesign from "@expo/vector-icons/AntDesign";
+import { IconButton } from "../../../components/ui/IconButton";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
@@ -11,17 +11,17 @@ import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
 import {
   deleteSessionById,
-  getSessionById,
+  getSessionSetupAccess,
+  getLocalTastingPresentation,
   getSessionSampleFinalStatus,
   listSessions,
 } from "../../../data/sessionRepository";
 import { logAppError } from "../../../services/errorLogger";
 import {
-  getSessionDateLabel,
   getSessionStatusBadgeLabel,
-  getSessionTypeLabel,
 } from "../constants/sessionDetails";
 import { SessionStatusBadge } from "../../style-guide/components/SessionStatusBadge";
+import { projectSavedSessionIdentity } from "./savedSessionIdentity";
 
 function CuppingSessionCard({ item, scale, onPress, onDelete }) {
   return (
@@ -33,29 +33,27 @@ function CuppingSessionCard({ item, scale, onPress, onDelete }) {
         pressed && styles.sessionCardPressed,
       ]}
       accessibilityRole="button"
-      accessibilityLabel={`Open session ${item.title}`}
+      accessibilityLabel={`Open session ${item.title}${item.code ? `, ${item.code}` : ""}${item.uploadStatusLabel ? `, ${item.uploadStatusLabel}` : ""}`}
     >
       <View style={styles.cardTop}>
         <Text style={styles.sessionTitle} numberOfLines={1}>
           {item.title}
         </Text>
-        <Pressable
+        <IconButton name="close" color={colors.inkSoft}
           onPress={(event) => {
             event?.stopPropagation?.();
             onDelete(item);
           }}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel={`Delete session ${item.title}`}
-        >
-          <AntDesign name="close" size={18} color={colors.inkSoft} />
-        </Pressable>
+          accessibilityLabel={`Delete session ${item.title}${item.code ? `, ${item.code}` : ""}`}
+        />
       </View>
       <Text style={styles.sessionCategory}>{item.category}</Text>
+      {item.code ? <Text style={styles.sessionDate}>{item.code}</Text> : null}
       <View style={styles.cardFooter}>
         <Text style={styles.sessionDate}>{item.date}</Text>
         <SessionStatusBadge status={item.statusLabel} />
       </View>
+      {item.uploadStatusLabel ? <Text style={styles.sessionDate}>{item.uploadStatusLabel}</Text> : null}
     </Pressable>
   );
 }
@@ -81,6 +79,7 @@ export function CuppingSessionScreen({
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState(null);
+  const deleteOperationRef = useRef(null);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
 
   useEffect(() => {
@@ -92,24 +91,35 @@ export function CuppingSessionScreen({
       try {
         const rows = await listSessions();
         const sessionRows = await Promise.all(
-          rows.map(async (row) => {
-            const [loadedSession, sampleStatusById] = await Promise.all([
-              getSessionById(row.id),
+          rows.map(async (row, index) => {
+            const [presentation, sampleStatusById] = await Promise.all([
+              getLocalTastingPresentation(row.id, { purpose: 'tasting' }),
               getSessionSampleFinalStatus(row.id),
             ]);
+            const loadedSession = presentation.session;
+            if (!loadedSession || loadedSession.id !== row.id) throw new Error('Session presentation is unavailable.');
             const samples = loadedSession?.samples || [];
+            const visibleIdentity = projectSavedSessionIdentity(loadedSession, { allowOpen: true });
+            const access = await getSessionSetupAccess(row.id);
+            const statusLabel = getSessionStatusBadgeLabel({
+              sessionId: row.id,
+              tastingPresentation: presentation,
+              samples,
+              sampleStatusById,
+              isSessionComplete: String(row.status || "").toLowerCase() === "complete",
+            });
 
             return {
               id: row.id,
-              title: row.sessionName || row.sessionDisplayId || "Untitled Session",
-              category: getSessionTypeLabel(row.sessionType) || "Other",
+              canManageSetup: access.canManageSetup,
+              title: visibleIdentity.sessionName || row.sessionDisplayId || "Untitled Session",
+              code: visibleIdentity.identityHidden ? `Session ${index + 1}` : "",
+              category: visibleIdentity.sessionType,
               status: row.status || "new",
-              statusLabel: getSessionStatusBadgeLabel({
-                samples,
-                sampleStatusById,
-                isSessionComplete: String(row.status || "").toLowerCase() === "complete",
-              }),
-              date: getSessionDateLabel(row.sessionDate) || row.sessionDate || "",
+              statusLabel,
+              uploadStatusLabel: presentation.tasting?.activeSelection === true && typeof presentation.tasting?.isLocalCreator === 'boolean' &&
+                ['Pending', 'In Progress', 'Complete'].includes(statusLabel) ? 'Not uploaded' : null,
+              date: visibleIdentity.sessionDate,
             };
           })
         );
@@ -117,7 +127,7 @@ export function CuppingSessionScreen({
         setSessions(sessionRows);
       } catch (error) {
         if (!isCancelled) {
-          setLoadError(error?.message || "Failed to load saved sessions.");
+          setLoadError("Failed to load saved sessions.");
         }
       } finally {
         if (!isCancelled) {
@@ -139,6 +149,7 @@ export function CuppingSessionScreen({
     return sessions.filter((session) =>
       [
         session.title,
+        session.code,
         session.category,
         session.statusLabel,
         session.date,
@@ -151,31 +162,32 @@ export function CuppingSessionScreen({
   };
 
   const handleConfirmDelete = async () => {
+    if (deleteOperationRef.current) return;
     if (!deleteCandidate?.id) {
       closeDeleteDialog();
       return;
     }
 
     const sessionToDelete = deleteCandidate;
+    const operation = { sessionId: sessionToDelete.id };
+    deleteOperationRef.current = operation;
 
     try {
       await deleteSessionById(sessionToDelete.id);
       setSessions((prev) => prev.filter((session) => session.id !== sessionToDelete.id));
-      closeDeleteDialog();
+      setDeleteCandidate(current => current?.id === sessionToDelete.id ? null : current);
     } catch (error) {
       void logAppError({
         screen: "CuppingSessionScreen",
         route: "Sessions",
         flow: "delete_session",
-        friendlyMessage: error?.message || "Delete failed.",
-        error,
-        context: {
-          sessionId: sessionToDelete.id,
-          sessionTitle: sessionToDelete.title,
-        },
+        friendlyMessage: "Delete failed.",
+        error: new Error("Delete failed."),
       });
-      closeDeleteDialog();
-      setDeleteErrorMessage(error?.message || "Delete failed.");
+      setDeleteCandidate(current => current?.id === sessionToDelete.id ? null : current);
+      setDeleteErrorMessage("Delete failed.");
+    } finally {
+      if (deleteOperationRef.current === operation) deleteOperationRef.current = null;
     }
   };
 
@@ -260,7 +272,7 @@ export function CuppingSessionScreen({
         title="Delete Session?"
         message={
           deleteCandidate
-            ? `Delete "${deleteCandidate.title}"? This will permanently delete the session and all saved sample feedback stored on this device.`
+            ? `Delete "${deleteCandidate.title}${deleteCandidate.code ? ` (${deleteCandidate.code})` : ""}"? This permanently deletes this local session, its samples, saved scores and notes from this device. Physical cups, other copies and any results already uploaded remain unchanged.`
             : ""
         }
         okLabel="Cancel"

@@ -1,5 +1,43 @@
 # CUP App — Current NDEF Message Format
 
+## R1-103 isolated phone-test profile (21 October 2026)
+
+**Experimental branch only; not a production protocol rollout.** The separate
+R1-103 database/client uses the approved two-character sample-code contract:
+`z` is a required string matching `^[A-Z0-9]{2}$` (including `00`), `u` is the
+unchanged 14-character lowercase session reference, and `y` remains physical
+cup count 1–8. Shared identity is `(u,z)`, never the physical UID or local order.
+The numeric examples below document the unchanged original profile; this test
+client rejects numeric/malformed assignments rather than converting them.
+
+NTAG writes one English UTF-8 Text record; Smart Cup writes four ordered Text
+records: `{s:1}`, `{}`, the validated preserved compact settings (including
+optional `k`), and full compact metadata. Unknown fields, duplicate JSON keys,
+unsupported form/mode, malformed UTF-8 or CUP-shaped assignments fail closed.
+No repair, formatting or automatic tag clearing is added. Native supported-tag
+capacity and writable status are queried before dispatch; unavailable capacity
+fails without a write. Secure code reservation and immutable intent precede
+dispatch. Transport retries reuse frozen encoded bytes; explicit new writes
+and re-writes reserve fresh codes.
+
+The pending record retains exact emitted metadata JSON/UTF-8 bytes, canonical
+semantic SHA-256, physical hardware UID, kind and Smart Cup settings. Text
+record encoding is deterministic; telemetry is not replayed. Separate Check Cup
+compares hardware UID (not mutable NDEF2 telemetry UUID), kind/settings, READY
+state and all typed metadata including optional `i` presence/value. Only a
+current matching check plus atomic commit adds a creator member. Closing a
+dialog retains editable details; a retry may use another fresh/allowed cup.
+Verification and save-only recovery allocate no new code. Spent codes survive
+failed/superseded attempts and sample removal while that session exists.
+
+Test storage/profile/error logs are separately namespaced; there is no old-data
+migration or working-client change. Issuance from an imported/restored session
+without its complete local issuer ledger is denied. This does not decide a
+production whole-session tombstone/retention policy, transfer or clone recovery.
+Only new/fresh or manually cleared test tags should be used with this client;
+do not scan its string-code assignments with the old numeric client. Physical
+NFC/firmware conformance remains unverified until actual phone acceptance.
+
 > `docs/PRODUCT_SPEC.md` is the highest authority for product behaviour. This file is the normative application-side specification for the CUP NDEF protocol only where it does not conflict with the Product Specification. Protocol changes must update this document and the corresponding implementation/tests in the same change.
 
 Implementation-facing protocol note for agents working on the CUP app NFC integration.
@@ -84,14 +122,14 @@ NDEF4 is app-owned metadata linking a physical cup to a coffee sample and cuppin
 - `y` — number of physical cups used for this sample.
 - `i` — total number of samples in the session. Written when a valid integer is available.
 - `z` — this sample’s one-based position in the session. Written when a valid integer is available.
-- `m` — cupping mode: `b` for Blind Cupping or `o` for Open Cupping.
+- `m` — this sample's cupping mode: `b` for Blind Cupping or `o` for Open Cupping. CVA samples in one session may differ (approved 21 October 2026, R1-105); local session-level mode does not override a stored target sample. Legacy remains Open-only. No encoding, field or radio change.
 - `f` — cupping-form key. Release 1 defines `1` for SCA CVA and `2` for SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 - `e` — session name.
 - `t` — session-type key.
 - `d` — compact session date as a six-digit `YYMMDD` number.
 - `u` — session UUID. Newly generated session IDs are 14 lowercase alphanumeric characters. `NO-SESSION` is also used as a sentinel for cups not attached to a saved session.
 
-For both open and blind sessions, `n` may contain the real coffee name/origin and `p` may contain the real processing-method key. In blind mode, `m=b` instructs Cup App to retain those fields locally but exclude them from every participant-facing app projection until that participant explicitly completes the session. Completion durably reveals the locally held metadata on that device; it does not rewrite NDEF4, require connectivity or a host-global reveal, or share/upload results.
+For both open and blind sessions, `n` may contain the real coffee name/origin and `p` may contain the real processing-method key. In blind mode, `m=b` instructs Cup App to retain those fields locally but project them according to current local tasting completion and the narrow creator preparation exception in [PRODUCT_SPEC section 6.8](PRODUCT_SPEC.md#68-agreed-mobile-screen-and-state-map-18-october-2026). Explicit completion reveals; saved tasting changes or participant membership changes re-hide. Neither changes NDEF4, requires connectivity/host-global reveal, nor shares/uploads results. This projection clarification changes no wire field, enum, payload shape or unassignment encoding.
 
 NDEF is participant-readable and is not a confidentiality boundary. Deliberate raw inspection with a third-party NFC reader can expose `n` and `p` and is outside the Release 1 threat model. This exception is limited to the documented session/sample metadata: results, tasting notes, participant data, credentials, access grants, tenant secrets, and device secrets remain forbidden from NDEF.
 
@@ -162,3 +200,20 @@ The following files show current implementation behaviour and are useful for con
 - `src/services/nfcTagClassifier.js` — smart-cup versus NTAG classification and single-record metadata detection.
 - `README.md` — descriptive protocol overview and firmware integration notes.
 - Do not treat `archive/original-root-app` as the current protocol. It documents an older long-key schema.
+
+### R1-133 isolated DRAFT-removal clearing profile
+
+Approved only for the separate two-character-code client; see
+[the clearing contract](DRAFT_SAMPLE_REMOVAL_NFC_CONTRACT_DRAFT.md). A validated
+creator DRAFT assignment may be cleared by an explicitly guarded operation:
+NTAG is exactly one English UTF-8 Text `{}` record (complete NDEF bytes
+`D1 01 05 54 02 65 6E 7B 7D`). Smart Cup is four ordered Text records:
+captured `{s:S}`, `{}`, exact validated existing settings, `{}`. Preserve state
+0–4 and settings including optional `k` presence/value; never replay telemetry.
+Freeze and revalidate the complete encoded bytes/hash, writable status and
+capacity; no automatic uncertain-write retry. Separate read verifies same
+hardware UID/family, empty metadata and unchanged settings. Valid evolved state
+and strict compact live telemetry are allowed; aliases, duplicates, malformed
+or partial records never prove clearing. An explicit frozen retry additionally
+requires current original state/settings equality, so it cannot rewind state.
+No general repair/reset/reassignment or neighbour-tag rewrite is authorized.

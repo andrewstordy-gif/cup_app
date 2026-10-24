@@ -1,0 +1,41 @@
+// Actual Details JSX bindings + shared footer/button rendering; no data/radio hosts.
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),Module=require('node:module');
+const {parse}=require('@babel/parser'),generate=require('@babel/generator').default,{transformSync}=require('@babel/core');
+const root=path.resolve(__dirname,'..'),file='src/features/cupping/screens/CuppingSessionDetailsScreen.js';
+const text=fs.readFileSync(path.join(root,file),'utf8'),tree=parse(text,{sourceType:'module',plugins:['jsx']});
+function all(n,p){if(!n||typeof n!=='object')return[];return[...(p(n)?[n]:[]),...Object.values(n).flatMap(v=>(Array.isArray(v)?v:[v]).flatMap(c=>all(c,p)))];}
+const archive=path.join(__dirname,'upload-ui-preview-check.js'),helper=new Module(archive,module);helper.filename=archive;helper.paths=Module._nodeModulePaths(__dirname);
+const source=fs.readFileSync(archive,'utf8');helper._compile(source.slice(0,source.indexOf("const preview ="))+'\nmodule.exports={load,expand,all,native,React};',archive);
+const {load,expand,all:rendered,native,React}=helper.exports;
+let width=375;native.useWindowDimensions=()=>({width});
+const {colors}=load('src/theme/colors.js'),{typography}=load('src/theme/typography.js');
+const styles=Object.fromEntries(['scanFooterButton','scanFooterButtonText'].map(name=>[name,new Function('colors','typography',`return (${generate(all(tree,n=>n.type==='ObjectProperty'&&n.key?.name===name)[0].value).code});`)(colors,typography)]));
+const footer=all(tree,n=>n.type==='ConditionalExpression'&&n.consequent?.type==='JSXElement'&&n.consequent.openingElement.attributes.some(a=>a.name?.name==='primaryIcon'))[0];assert(footer);
+const status=all(tree,n=>n.type==='JSXAttribute'&&n.name?.name==='uploadStatusLabel')[0].value.expression;assert(status);
+function jsx(node,deps){const code=transformSync(`const result=(${generate(node).code});`,{babelrc:false,configFile:false,plugins:['@babel/plugin-transform-react-jsx']}).code;return new Function('React',...Object.keys(deps),code+';return result;')(React,...Object.values(deps));}
+function deps(overrides={}){return{usesActiveCompletion:true,isSessionComplete:true,isSessionFormSupported:true,sessionId:'saved',ownsSavedSetup:true,tastingPresentation:{tasting:{started:true,canComplete:true}},footerDisabled:false,onScanCupForAssessment:scan,styles,colors,AppIcon:'AppIcon',ScreenFooterDual:'ScreenFooterDual',ScreenFooter:'ScreenFooter',Text:'Text',isCompletingSession:false,handleCompleteCreatorTasting:complete,showScanFooter:false,sessionStatusBadgeLabel:'Complete',handleSave:save,handleRequestLockSession:lock,isSaving:false,isLockingSession:false,canLockSession:false,requestSetupExit(){},...overrides};}
+function scan(){}function complete(){}function save(){}function lock(){}
+for(const label of ['Pending','In Progress','Complete']){const d=deps({isSessionComplete:label==='Complete',sessionStatusBadgeLabel:label});assert.equal(jsx(status,d),'Not uploaded');const f=jsx(footer,d);assert.equal(f.type,'ScreenFooterDual');assert.strictEqual(f.props.onSecondaryPress,scan);assert.equal(f.props.secondaryDisabled,false);assert.equal(f.props.secondaryStyle.backgroundColor,colors.action);assert.equal(f.props.secondaryTextStyle.color,colors.surface);
+ if(label==='Complete'){assert.equal(f.props.primaryDisabled,true);assert.equal(f.props.primaryIconOnly,true);assert.equal(f.props.onPrimaryPress,undefined);assert.equal(f.props.primaryIcon.props.name,'upload');assert.match(f.props.primaryAccessibilityLabel,/unavailable/);}else{assert.equal(f.props.primaryLabel,'COMPLETE SESSION');assert.strictEqual(f.props.onPrimaryPress,complete);}}
+for(const overrides of [{usesActiveCompletion:false},{isSessionFormSupported:false},{sessionId:null,usesActiveCompletion:false}])assert.equal(jsx(status,deps(overrides)),null,'old/participant/unsupported/missing scope has no status');
+for(const unavailable of [undefined,null,'not a function'])assert.equal(jsx(footer,deps({onScanCupForAssessment:unavailable})),null,'missing Scan handler preserves prior complete null footer');
+assert.equal(jsx(footer,deps({footerDisabled:true})).props.secondaryDisabled,true);
+assert.equal(jsx(footer,deps({usesActiveCompletion:false})).type,'ScreenFooter','old Complete retains old Scan footer');
+assert.equal(jsx(footer,deps({usesActiveCompletion:false,isSessionFormSupported:false})),null);
+const draft=jsx(footer,deps({usesActiveCompletion:false,isSessionComplete:false,sessionStatusBadgeLabel:'Draft',sessionId:null,tastingPresentation:null}));assert.equal(draft.props.primaryLabel,'SAVE');assert.strictEqual(draft.props.onPrimaryPress,save);assert.equal(draft.props.secondaryLabel,'LOCK SESSION');
+const {ScreenFooterDual}=load('src/components/ui/ScreenFooter.js'),{full_page_button:Button}=load('src/components/ui/full_page_button.js');
+const baselineButton=require('node:child_process').execFileSync('git',['show','0dcbd0c:src/components/ui/full_page_button.js'],{cwd:root,encoding:'utf8'});
+// Default branch is source-identical; only explicit iconOnly enters a new branch.
+const currentButton=fs.readFileSync(path.join(root,'src/components/ui/full_page_button.js'),'utf8');assert(currentButton.slice(currentButton.indexOf('        <View style={styles.content}>\n          {icon &&')).includes(baselineButton.slice(baselineButton.indexOf('        <View style={styles.content}>'))));
+for(width of [320,375,430]){const props=jsx(footer,deps()).props,actual=expand(ScreenFooterDual(props)),existing=expand(ScreenFooterDual({primaryLabel:'SAVE',secondaryLabel:'LOCK SESSION'}));assert.deepEqual(actual.props.style,existing.props.style,'same responsive dual shell inset/gap/bottom');const controls=rendered(actual,n=>n.type==='Pressable');assert.equal(controls.length,2);assert.equal(controls[0].props.disabled,true);assert.equal(controls[0].props.onPress,undefined);assert.strictEqual(controls[1].props.onPress,scan);assert.equal(controls[0].props.style({pressed:false})[0].height,56);const content=controls[0].props.children[0];assert.equal(content.props.children.length,1);assert.equal(content.props.children[0].type,'AppIcon','symbol directly centered without inherited side margin');}
+const summary=load('src/features/cupping/components/SessionTitleSummary.js');
+const summaryTree=expand(summary.SessionTitleSummary({name:'Saved session',status:'COMPLETE',uploadStatusLabel:jsx(status,deps())}));
+const statusText=rendered(summaryTree,n=>n.type==='Text'&&n.props.children.includes('Not uploaded'))[0];assert(statusText,'actual compact summary exposes readable native Text');assert.equal(statusText.props.style.fontSize,typography.text_secondary_body.fontSize);assert.equal(statusText.props.style.fontWeight,typography.text_secondary_body.fontWeight);assert.equal(summary.SessionTitleSummary({status:'DRAFT',uploadStatusLabel:'Not uploaded'}),null,'Draft cannot render compact upload summary');
+const base=require('node:child_process').execFileSync('git',['show','0dcbd0c:'+file],{cwd:root,encoding:'utf8'}),baseAst=parse(base,{sourceType:'module',plugins:['jsx']});
+// R1-133 permits only these physical-removal imports; all original upload UI
+// and unrelated import boundaries remain byte-equivalent after that allowance.
+const removalNames=new Set(['readAndClearNdefMinimal','getDraftSampleRemoval','stageDraftSampleRemoval','beginDraftSampleRemovalWrite','markDraftSampleRemovalWritten','inspectDraftSampleRemovalRead','commitDraftSampleRemoval','observePendingDraftRemovalRead']);
+const imports=ast=>ast.program.body.filter(n=>n.type==='ImportDeclaration'&&n.source.value!=='../components/CheckRemovalDialog').map(n=>generate({...n,specifiers:n.specifiers.filter(s=>!removalNames.has(s.imported?.name))}).code);
+assert.deepEqual(imports(tree),imports(baseAst),'only explicit approved removal imports added');
+assert(!/onPrimaryPress/.test(generate(footer.consequent).code));
+console.log('PASS R1-119 actual Details scope/status/footer/scan bindings, Draft/old/unsupported missing handlers, exact responsive dual shell, disabled centered symbol, unchanged default button branch, token typography/only approved removal imports.');

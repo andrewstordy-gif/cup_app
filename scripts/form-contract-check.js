@@ -3,12 +3,12 @@ const fs = require('node:fs');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const { canonicalize, sha256 } = require('../src/features/forms/contract/canonical');
-const { PROFILE, REGISTRY, resolveForm, validateResponse: validateRaw, scoreResponse: scoreRaw } = require('../src/features/forms/contract');
+const { PROFILE, REGISTRY, resolveForm, resolvePinnedForm, validateResponse: validateRaw, scoreResponse: scoreRaw } = require('../src/features/forms/contract');
 
 let checks = 0;
 function equal(actual, expected, message) { assert.deepEqual(actual, expected, message); checks += 1; }
 function yes(condition, message) { assert.ok(condition, message); checks += 1; }
-const identity = f => resolveForm(PROFILE, f).identity;
+const identity = f => f === 1 ? { ...require('./helpers/prototype-cva-fixture').pin } : resolveForm(PROFILE, f).identity;
 // Test convenience only. Production callers must obtain this separately from
 // the trusted Session, not derive it from the response being validated.
 const sessionFor = input => ({ profile: input.profile, f: input.f, identity: identity(input.f) });
@@ -23,6 +23,12 @@ const legacy = (n, rating = 28) => ({
   profile: PROFILE, f: 2, identity: identity(2), cup_count: n,
   response: { quality_ratings: Object.fromEntries(['fragrance_aroma', 'flavor', 'aftertaste', 'acidity', 'body', 'balance', 'overall'].map(key => [key, rating])), consistent_cups: cups(n), sweet_cups: cups(n), clean_cups: cups(n), scored_defect: null },
 });
+const setLegacyDefect = (input, kind, affected, description = 'rubbery') => {
+  input.response.scored_defect = { kind, affected_cups: affected };
+  input.response.bean_defect_type_masks = { otherBean: affected };
+  input.response.defect_description = description;
+  input.response.clean_cups = input.response.clean_cups.filter(cup => !affected.includes(cup));
+};
 const mutate = (input, callback) => { const copy = JSON.parse(JSON.stringify(input)); callback(copy); return copy; };
 const reject = (input, fragment) => {
   const result = scoreResponse(input);
@@ -38,14 +44,11 @@ equal(canonicalize({ z: 'café — 珈琲', a: 1 }), '{"a":1,"z":"café — 珈�
 assert.throws(() => canonicalize({ a: 1.5 }), /safe integers/); checks += 1;
 assert.throws(() => canonicalize('\ud800'), /Unpaired/); checks += 1;
 assert.throws(() => canonicalize(new Array(1)), /Sparse/); checks += 1;
-for (const [name, f] of [['cva', 1], ['legacy-v2', 2]]) {
+for (const f of [1, 2]) {
   const resolved = resolveForm(PROFILE, f);
   yes(resolved.ok);
   const canonical = canonicalize(resolved.manifest);
-  const fixture = fs.readFileSync(path.join(__dirname, `../src/features/forms/contract/fixtures/${name}.canonical.json`), 'utf8');
-  yes(fixture.endsWith('\n') && !fixture.slice(0, -1).includes('\n'));
-  equal(canonical, fixture.slice(0, -1));
-  equal(sha256(canonical), crypto.createHash('sha256').update(Buffer.from(fixture.slice(0, -1), 'utf8')).digest('hex'));
+  equal(sha256(canonical), crypto.createHash('sha256').update(Buffer.from(canonical, 'utf8')).digest('hex'));
   equal(sha256(canonical), REGISTRY.find(row => row.f === f).form_hash);
   const changed = JSON.parse(JSON.stringify(resolved.manifest));
   changed.scoring.rounding += '-different';
@@ -54,12 +57,23 @@ for (const [name, f] of [['cva', 1], ['legacy-v2', 2]]) {
   changedField.fields[0].maximum += 1;
   yes(sha256(canonicalize(changedField)) !== resolved.identity.form_hash);
 }
+for (const [name, version] of [['cva', '1.0.0'], ['legacy-v2', '2.0.0']]) {
+  const fixture = fs.readFileSync(path.join(__dirname, `../src/features/forms/contract/fixtures/${name}.canonical.json`), 'utf8');
+  yes(fixture.endsWith('\n') && !fixture.slice(0, -1).includes('\n'));
+  equal(JSON.parse(fixture).form_version, version);
+  if (name === 'cva') {
+    const historical = require('../src/features/forms/contract/manifests/cva-v1.json');
+    equal(canonicalize(historical), fixture.slice(0, -1));
+    yes(resolvePinnedForm(PROFILE, 1, { form_key: historical.form_key, form_version: version,
+      form_hash: sha256(canonicalize(historical)) }).ok);
+  }
+}
 const historicalLegacyBytes = fs.readFileSync(path.join(__dirname, '../src/features/forms/contract/fixtures/legacy.canonical.json'), 'utf8');
 const historicalLegacyHash = 'c915e4678f968567091e7eb4b24e97fe19506ebd58bcdd0dbdec2433ea4fb2d4';
 equal(sha256(historicalLegacyBytes.slice(0, -1)), historicalLegacyHash);
 equal(JSON.parse(historicalLegacyBytes).form_version, '1.0.0');
 equal(REGISTRY.filter(row => row.profile === PROFILE && row.f === 2).length, 1);
-equal(REGISTRY.find(row => row.f === 2).form_version, '2.0.0');
+equal(REGISTRY.find(row => row.f === 2).form_version, '4.0.0');
 yes(!REGISTRY.some(row => row.form_hash === historicalLegacyHash));
 equal(canonicalize({ b: 2, a: 1 }), canonicalize({ a: 1, b: 2 }));
 for (const value of [undefined, null, '1', '2', true, false, 0, 3, 1.5, {}, []]) yes(!resolveForm(PROFILE, value).ok);
@@ -79,6 +93,13 @@ for (const input of [cva(5), legacy(5)]) {
 }
 const cvaSession = sessionFor(cva(5));
 const legacySession = sessionFor(legacy(5));
+const historicalCvaIdentity = { form_key: 'sca_cva_affective_104_2024', form_version: '1.0.0',
+  form_hash: '0a840b335b4af50d18db3cf210d503b870285c1706710ff803e7633103ad310d' };
+const historicalCva = cva(5); historicalCva.identity = historicalCvaIdentity;
+const historicalCvaSession = { profile: PROFILE, f: 1, identity: historicalCvaIdentity };
+yes(scoreRaw(historicalCva, historicalCvaSession).ok, 'Existing CVA v1 result stays scoreable with its exact pin');
+yes(!validateRaw({ ...historicalCva, response: { ...historicalCva.response, defect_description: 'Old form must reject this' } }, historicalCvaSession).ok,
+  'Historical CVA v1 does not silently gain new fields');
 yes(validateRaw(legacy(5), cvaSession).errors.includes('session_form_mismatch'));
 yes(scoreRaw(legacy(5), cvaSession).errors.includes('session_form_mismatch'));
 yes(validateRaw(cva(5), legacySession).errors.includes('session_form_mismatch'));
@@ -143,6 +164,14 @@ const historicalSession = { profile: PROFILE, f: 2, identity: { ...historicalRes
 const historicalBefore = JSON.stringify({ historicalResponse, historicalSession });
 equal(validateRaw(historicalResponse, historicalSession).errors, ['trusted_session:unsupported_historical_form_version']);
 equal(scoreRaw(historicalResponse, historicalSession).read_only, true);
+const legacyV2Identity = { form_key: 'scaa_legacy_2009a_cupapp', form_version: '2.0.0',
+  form_hash: '2a0c0b02bf2bf2f9c5351d45d19c2083adea1dc704241af234ebca0f0c2440de' };
+equal(scoreRaw({ ...legacy(5), identity: legacyV2Identity }, { profile: PROFILE, f: 2,
+  identity: legacyV2Identity }).read_only, true);
+const legacyV3Identity = { form_key: 'scaa_legacy_2009a_cupapp', form_version: '3.0.0',
+  form_hash: '0ccdaeb5c5a4da72ebeec30ef5d21eecfb4b7659b25ac1895a35eceb25d8cb32' };
+equal(scoreRaw({ ...legacy(5), identity: legacyV3Identity }, { profile: PROFILE, f: 2,
+  identity: legacyV3Identity }).read_only, true);
 equal(JSON.stringify({ historicalResponse, historicalSession }), historicalBefore);
 reject(historicalResponse, 'not_session_pinned');
 for (const qualityKey of Object.keys(legacy(5).response.quality_ratings)) {
@@ -153,15 +182,15 @@ const belowZeroTotal = legacy(5, 0);
 belowZeroTotal.response.consistent_cups = [];
 belowZeroTotal.response.sweet_cups = [];
 belowZeroTotal.response.clean_cups = [];
-belowZeroTotal.response.scored_defect = { kind: 'fault', description: 'rubbery', affected_cups: cups(5) };
+setLegacyDefect(belowZeroTotal, 'fault', cups(5));
 equal(scoreResponse(belowZeroTotal).display_score, '-20.00');
-const fault = legacy(5); fault.response.clean_cups = [2, 3, 4, 5]; fault.response.scored_defect = { kind: 'fault', description: 'rubbery', affected_cups: [1] };
+const fault = legacy(5); setLegacyDefect(fault, 'fault', [1]);
 equal(scoreResponse(fault).display_score, '73.00');
-const oneFault = legacy(1); oneFault.response.scored_defect = { kind: 'fault', description: 'rubbery', affected_cups: [1] };
+const oneFault = legacy(1); setLegacyDefect(oneFault, 'fault', [1]); oneFault.response.clean_cups = [1];
 reject(oneFault, 'marked_clean');
 oneFault.response.clean_cups = [];
 equal(scoreResponse(oneFault).display_score, '49.00');
-const three = legacy(3); three.response.consistent_cups = [1, 2]; three.response.sweet_cups = [1, 2]; three.response.clean_cups = [1, 2]; three.response.scored_defect = { kind: 'taint', description: 'sour', affected_cups: [3] };
+const three = legacy(3); three.response.consistent_cups = [1, 2]; three.response.sweet_cups = [1, 2]; three.response.clean_cups = [1, 2]; setLegacyDefect(three, 'taint', [3], 'sour');
 equal(scoreResponse(three).exact_score, { numerator: 197, denominator: 3 });
 equal(scoreResponse(three).display_score, '65.67');
 for (const [n, sizes, expected] of [[6, [5, 4, 5], '72.33'], [7, [6, 5, 7], '74.71'], [8, [7, 6, 8], '75.25']]) {
@@ -184,8 +213,18 @@ reject(mutate(legacy(5), x => { x.response.quality_ratings.mouthfeel = 28; }), '
 reject(mutate(legacy(5), x => { x.response.ratings = {}; }), 'unsupported_field');
 reject(mutate(legacy(5), x => { x.response.scored_defect = []; }), 'invalid_object');
 reject(mutate(legacy(5), x => { x.response.scored_defect = [{ kind: 'taint' }, { kind: 'fault' }]; }), 'invalid_object');
-reject(mutate(legacy(5), x => { delete x.response.scored_defect; }), 'unassessed');
-reject(mutate(legacy(5), x => { x.response.scored_defect = { kind: 'taint', description: '  ', affected_cups: [1] }; x.response.clean_cups = []; }), 'required');
+yes(scoreResponse(mutate(legacy(5), x => { delete x.response.scored_defect; })).ok, 'No selected cups means no scored defect');
+for (const description of [undefined, '', '  ', 'rubbery']) {
+  const withDefect = legacy(5);
+  setLegacyDefect(withDefect, 'taint', [1], description);
+  if (description === undefined) delete withDefect.response.defect_description;
+  equal(scoreResponse(withDefect).display_score, '75.00', 'Optional defect note must not block or change the deduction');
+}
+reject(mutate(legacy(5), x => { setLegacyDefect(x, 'taint', [1]); x.response.defect_description = 42; }), 'invalid_text');
+reject(mutate(legacy(5), x => { setLegacyDefect(x, 'taint', [1]); x.response.scored_defect.kind = null; }), 'invalid_enum');
+reject(mutate(legacy(5), x => { setLegacyDefect(x, 'taint', [1]); x.response.bean_defect_type_masks = { moldy: [2] }; }), 'must_match_affected_cups');
+const roastOnly = legacy(5); roastOnly.response.roast_defect_type_masks = { baked: [2] }; roastOnly.response.defect_description = 'Baked';
+equal(scoreResponse(roastOnly).display_score, '79.00');
 reject(mutate(legacy(5), x => { x.response.roast_shade_tick = 5; }), 'out_of_range');
 reject(mutate(legacy(5), x => { x.response.wet_aroma_intensity = 0; }), 'out_of_range');
 reject(mutate(legacy(5), x => { x.identity = identity(1); }), 'not_session_pinned');

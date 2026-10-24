@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import AntDesign from "@expo/vector-icons/AntDesign";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { AppIcon } from "../../../components/ui/AppIcon";
+import { IconButton } from "../../../components/ui/IconButton";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
@@ -13,7 +14,7 @@ import {
   getSampleFlavourObservations,
 } from "../../../data/sessionRepository";
 import { EMPTY_SCORES, makeScores } from "../../style-guide/components/SampleCard";
-import { ScoreRow } from "../../style-guide/components/ScoreRow";
+import { normalizeTotalScore, ScoreRow } from "../../style-guide/components/ScoreRow";
 import { getProcessLabel } from "../constants/sessionDetails";
 import { BEAN_DEFECT_OPTIONS, ROAST_DEFECT_OPTIONS } from "./DefectsSection";
 import { KeywordPillRow } from "./KeywordPillRow";
@@ -59,6 +60,7 @@ function observationMatchesFields(observation, fields = []) {
 }
 
 function getLatestDefectEntry(defects) {
+  if (defects?.latest) return defects.latest;
   const finalEntries = Array.isArray(defects?.final) ? defects.final : [];
   const nonFinalEntries = Array.isArray(defects?.nonFinal) ? defects.nonFinal : [];
   if (finalEntries.length > 0) {
@@ -93,10 +95,13 @@ export function CoffeeSampleCard({
   scale = 1,
   onRemove,
   canRemove,
+  showRemove = true,
+  participantLocalRemoval = false,
   status,
   onOpenSample,
   onEditSample,
   defaultExpanded = false,
+  inactive = false,
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [detailData, setDetailData] = useState({
@@ -105,19 +110,19 @@ export function CoffeeSampleCard({
     defects: null,
     loaded: false,
   });
-  const isComplete = Boolean(status?.isComplete);
-  const finalScore = Number.isFinite(Number(status?.finalScore)) ? Number(status.finalScore) : null;
-  const totalScore = status?.finalScore ?? null;
+  const isComplete = !inactive && Boolean(status?.isComplete);
+  const finalScore = inactive ? null : normalizeTotalScore(status?.finalScore);
+  const totalScore = finalScore;
   const scoresByField = status?.scoresByField || {};
-  const hasScoreBreakdown = Boolean(status?.hasAnyFeedback) || Object.keys(scoresByField).length > 0;
+  const hasScoreBreakdown = !inactive && (Boolean(status?.hasAnyFeedback) || Object.keys(scoresByField).length > 0);
   const scoreItems = hasScoreBreakdown
     ? makeScores(CUPPING_SCORE_FIELDS.map((field) => scoresByField[field] ?? null))
     : EMPTY_SCORES;
   const isLocked = isComplete;
-  const removeDisabled = !canRemove || isLocked;
-  const displaySampleNumber = resolveSampleNumber(sample.sampleNumber, index);
-  const canOpenSample = Boolean(sample.cupUUID && typeof onOpenSample === "function");
-  const editDisabled = isLocked || typeof onEditSample !== "function";
+  const removeDisabled = inactive || !canRemove || (isLocked && !participantLocalRemoval);
+  const displaySampleNumber = sample.sampleCode || resolveSampleNumber(sample.sampleNumber, index);
+  const canOpenSample = !inactive && Boolean(sample.cupUUID && typeof onOpenSample === "function");
+  const editDisabled = inactive || isLocked || typeof onEditSample !== "function";
   const feedbackState = detailData.feedbackRowsByField
     ? buildFeedbackStateFromSavedRows(detailData.feedbackRowsByField)
     : {};
@@ -134,7 +139,7 @@ export function CoffeeSampleCard({
   const roastDefects = getSelectedDefects(latestDefectEntry, ROAST_DEFECT_OPTIONS);
 
   useEffect(() => {
-    if (!expanded || !sample.id || detailData.loaded) {
+    if (inactive || !expanded || !sample.id || detailData.loaded) {
       return undefined;
     }
 
@@ -171,9 +176,10 @@ export function CoffeeSampleCard({
     return () => {
       isCancelled = true;
     };
-  }, [detailData.loaded, expanded, sample.id]);
+  }, [detailData.loaded, expanded, sample.id, inactive]);
 
   const handleCollapsedPress = () => {
+    if (inactive) return;
     if (canOpenSample) {
       onOpenSample(sample, index);
       return;
@@ -194,7 +200,7 @@ export function CoffeeSampleCard({
   };
 
   return (
-    <View style={[styles.card, { marginTop: 16 * scale }]}>
+    <View style={[styles.card, inactive && { backgroundColor: colors.panel }, { marginTop: 16 * scale }]}>
       <View
         style={[
           styles.collapsedBody,
@@ -208,16 +214,18 @@ export function CoffeeSampleCard({
       >
         <Pressable
           onPress={handleCollapsedPress}
+          disabled={inactive}
           accessibilityRole="button"
+          accessibilityState={{ disabled: inactive }}
           accessibilityLabel={
-            canOpenSample ? `Open scoring for sample ${displaySampleNumber}` : `Expand sample ${displaySampleNumber}`
+            inactive ? `Sample ${displaySampleNumber}${sample.identityHidden ? '' : `, ${sample.coffeeNameOrigin || 'Coffee not set'}, ${getProcessLabel(sample.process) || 'Process not set'}`}. Scan cup to include in your tasting` : canOpenSample ? `Open scoring for sample ${displaySampleNumber}` : `Expand sample ${displaySampleNumber}`
           }
           style={[styles.collapsedMain, { gap: 12 * scale }]}
         >
           <View style={styles.topLine}>
             <View style={[styles.identity, { gap: 8 * scale }]}>
-              <Text style={styles.sampleLabel}>{displaySampleNumber}</Text>
-              {onEditSample ? (
+              <Text style={[styles.sampleLabel, inactive && { color: colors.muted }]}>{displaySampleNumber}</Text>
+              {onEditSample && !inactive ? (
                 <Pressable
                   onPress={handleEditPress}
                   disabled={editDisabled}
@@ -231,26 +239,29 @@ export function CoffeeSampleCard({
                 </Pressable>
               ) : null}
             </View>
-            <Pressable
+            {showRemove && !inactive ? <IconButton name="close"
               onPress={handleRemovePress}
               disabled={removeDisabled}
-              style={[styles.removeIconButton, removeDisabled && styles.removeIconButtonDisabled]}
-              accessibilityRole="button"
               accessibilityLabel={`Remove sample ${displaySampleNumber}`}
-              hitSlop={12}
-            >
-              <AntDesign name="close" size={18} color={removeDisabled ? colors.muted : colors.inkSoft} />
-            </Pressable>
+              color={removeDisabled ? colors.muted : colors.inkSoft}
+            /> : null}
           </View>
 
           <ScoreRow scores={scoreItems} totalScore={totalScore} scale={scale} />
+          {!inactive && status?.resultLabel ? <Text style={styles.sectionLabel}>{status.resultLabel}</Text> : null}
+          {inactive ? <Text style={styles.sectionLabel}>Scan cup to include in your tasting</Text> : null}
+          {inactive && !sample.identityHidden ? <View style={styles.fieldBlock}>
+            <Text style={styles.sectionValue}>{sample.coffeeNameOrigin || "Coffee not set"}</Text>
+            <Text style={styles.sectionLabel}>{getProcessLabel(sample.process) || "Process not set"}</Text>
+          </View> : null}
         </Pressable>
 
         <Pressable
-          onPress={() => setExpanded((value) => !value)}
+          onPress={() => { if (!inactive) setExpanded((value) => !value); }}
+          disabled={inactive}
           accessibilityRole="button"
           accessibilityLabel={expanded ? "Collapse sample" : "Expand sample"}
-          accessibilityState={{ expanded }}
+          accessibilityState={{ expanded: !inactive && expanded, disabled: inactive }}
           style={styles.chevronRow}
           hitSlop={8}
         >
@@ -258,7 +269,7 @@ export function CoffeeSampleCard({
         </Pressable>
       </View>
 
-      {expanded ? (
+      {!inactive && expanded ? (
         <>
           <View style={styles.divider} />
 
@@ -269,7 +280,7 @@ export function CoffeeSampleCard({
             ]}
           >
             <View style={styles.fieldBlock}>
-              <Text style={styles.sectionLabel}>Coffee Name / Origin</Text>
+              <Text style={styles.sectionLabel}>{sample.identityHidden ? "Sample" : "Coffee Name / Origin"}</Text>
               <Text style={[styles.sectionValue, { marginTop: 2 * scale }]}>
                 {sample.coffeeNameOrigin || "Coffee not set"}
               </Text>
@@ -278,7 +289,7 @@ export function CoffeeSampleCard({
             <View style={styles.fieldBlock}>
               <Text style={styles.sectionLabel}>Process</Text>
               <Text style={[styles.sectionValue, { marginTop: 2 * scale }]}>
-                {getProcessLabel(sample.process) || "Process not set"}
+                {sample.identityHidden ? "Hidden during blind cupping" : getProcessLabel(sample.process) || "Process not set"}
               </Text>
             </View>
           </View>
@@ -291,7 +302,13 @@ export function CoffeeSampleCard({
               { paddingHorizontal: 14 * scale, paddingVertical: 14 * scale, gap: 16 * scale },
             ]}
           >
-            <View>
+            {status?.canonicalCva ? (status.noteGroups || []).map(group => <View key={group.key}>
+              <Text style={styles.sectionLabel}>{group.label}</Text>
+              <View style={[styles.notesBox, { borderRadius: 10 * scale, marginTop: 6 * scale }]}>
+                <Text style={styles.notesBoxText}>{group.notes}</Text>
+              </View>
+              <KeywordPillRow pills={detailData.flavourObservations.filter(observation => observation.sourceField === group.key)} scale={scale} />
+            </View>) : <><View>
               <Text style={styles.sectionLabel}>Fragrance / Aroma Notes</Text>
               <View style={[styles.notesBox, { borderRadius: 10 * scale, marginTop: 6 * scale }]}>
                 <Text style={styles.notesBoxText}>{fragranceAromaNotes || "No notes saved yet."}</Text>
@@ -308,7 +325,7 @@ export function CoffeeSampleCard({
                 <Text style={styles.notesBoxText}>{flavourNotes || "No notes saved yet."}</Text>
               </View>
               <KeywordPillRow pills={flavourPills} scale={scale} style={{ marginTop: 8 * scale }} />
-            </View>
+            </View></>}
           </View>
 
           <View style={styles.divider} />
@@ -361,7 +378,7 @@ export function CoffeeSampleCard({
             </View>
           </View>
 
-          {isComplete && finalScore != null ? (
+          {isComplete && (finalScore != null || status?.resultLabel) ? (
             <>
               <View style={styles.divider} />
               <View
@@ -371,7 +388,7 @@ export function CoffeeSampleCard({
                 ]}
               >
                 <Text style={styles.sectionLabel}>Final Score</Text>
-                <Text style={[styles.finalScoreText, { marginTop: 2 * scale }]}>{finalScore.toFixed(2)}</Text>
+                <Text style={[styles.finalScoreText, { marginTop: 2 * scale }]}>{finalScore == null ? '—' : finalScore.toFixed(2)}</Text>
               </View>
             </>
           ) : null}
