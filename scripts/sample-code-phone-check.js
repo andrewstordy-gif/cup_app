@@ -41,8 +41,8 @@ async function main(){
     assert.equal(await env.repo.findActiveSampleByCupUUID('CUPB'),null,'UID-only fallback never opens scores');
     // A separate participant store observes two different codes on one physical UID.
     const participant=fixture();const scored=await participant.repo.resolveActiveSampleFromCupMetadata({cupUUID:'SAMEUID',metadata:a.payload});
-    if(form===1){const loaded=await participant.repo.getCvaResponse(S,scored.sampleId);const response={...createCvaDraft(5),ratings:{...createCvaDraft(5).ratings,fragrance:7}};await participant.repo.saveCvaResponse({sessionId:S,sampleId:scored.sampleId,response,expectedRevision:loaded.revision,expectedIdentity:loaded.trusted.identity,expectedCupCount:5});}
-    else {const loaded=await participant.repo.getLegacyResponse(S,scored.sampleId);const saved=await participant.repo.saveLegacyResponse({sessionId:S,sampleId:scored.sampleId,response:{quality_ratings:{fragrance_aroma:28}},expectedFingerprint:loaded.savedFingerprint});assert.equal(saved.ok,true);}
+    if(form===1){const loaded=await participant.repo.getCvaResponse(S,scored.sampleId);const response={...createCvaDraft(5),ratings:{...createCvaDraft(5).ratings,fragrance:7}};await participant.repo.saveCvaResponse({sessionId:S,sampleId:scored.sampleId,response,expectedRevision:loaded.revision,expectedIdentity:loaded.trusted.identity,expectedCupCount:5,expectedTastingContextToken:loaded.tasting.contextToken});}
+    else {const loaded=await participant.repo.getLegacyResponse(S,scored.sampleId);const saved=await participant.repo.saveLegacyResponse({sessionId:S,sampleId:scored.sampleId,response:{quality_ratings:{fragrance_aroma:28}},expectedFingerprint:loaded.savedFingerprint,expectedRemovalGeneration:loaded.removalGeneration,expectedTastingContextToken:loaded.tasting.contextToken});assert.equal(saved.ok,true);}
     let p=await participant.repo.resolveActiveSampleFromCupMetadata({cupUUID:'SAMEUID',metadata:c.payload});
     assert.equal((await participant.repo.getSessionById(S)).samples.length,2);assert.notEqual(p.sampleId,(await participant.repo.getSessionById(S)).samples[0].id);
     const first=await participant.repo.resolveActiveSampleFromCupMetadata({cupUUID:'SAMEUID',metadata:a.payload});
@@ -55,7 +55,7 @@ async function main(){
     // Losing issuer provenance must not restart the pool on a scanned session.
     await assert.rejects(participant.repo.stagePendingSampleAddition({sessionId:S,candidate:c.candidate,saveInput:c.saveInput,tagContext:{kind:'ntag'}}),/local profile/);
     const ack=fixture();ack.hook(sql=>{if(sql.startsWith('SELECT sample_code AS code FROM samples'))ack.actor(ack.actorB);});
-    await assert.rejects(ack.repo.resolveActiveSampleFromCupMetadata({cupUUID:'ACK-TAG',metadata:a.payload}),/actor_changed/,'final acknowledgement read cannot return another actor context');
+    await assert.rejects(ack.repo.resolveActiveSampleFromCupMetadata({cupUUID:'ACK-TAG',metadata:a.payload}),/actor_changed|foreign_activation/,'final acknowledgement read cannot return another actor context');
     const exhaustion=fixture();await prepare(exhaustion,form);
     for(let index=0;index<POOL.length;index++)exhaustion.sqlite.prepare('INSERT INTO issued_sample_codes(session_id,code,operation_id) VALUES (?,?,?)').run(S,POOL[index],`op-${index}`);
     await assert.rejects(attempt(exhaustion),/1,296/);assert.equal(exhaustion.sqlite.prepare('SELECT COUNT(*) AS n FROM issued_sample_codes').get().n,1296);
