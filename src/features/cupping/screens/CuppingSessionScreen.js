@@ -33,7 +33,7 @@ function CuppingSessionCard({ item, scale, onPress, onDelete }) {
         pressed && styles.sessionCardPressed,
       ]}
       accessibilityRole="button"
-      accessibilityLabel={`Open session ${item.title}${item.code ? `, ${item.code}` : ""}`}
+      accessibilityLabel={`Open session ${item.title}${item.code ? `, ${item.code}` : ""}${item.uploadStatusLabel ? `, ${item.uploadStatusLabel}` : ""}`}
     >
       <View style={styles.cardTop}>
         <Text style={styles.sessionTitle} numberOfLines={1}>
@@ -53,6 +53,7 @@ function CuppingSessionCard({ item, scale, onPress, onDelete }) {
         <Text style={styles.sessionDate}>{item.date}</Text>
         <SessionStatusBadge status={item.statusLabel} />
       </View>
+      {item.uploadStatusLabel ? <Text style={styles.sessionDate}>{item.uploadStatusLabel}</Text> : null}
     </Pressable>
   );
 }
@@ -100,6 +101,13 @@ export function CuppingSessionScreen({
             const samples = loadedSession?.samples || [];
             const visibleIdentity = projectSavedSessionIdentity(loadedSession, { allowOpen: true });
             const access = await getSessionSetupAccess(row.id);
+            const statusLabel = getSessionStatusBadgeLabel({
+              sessionId: row.id,
+              tastingPresentation: presentation,
+              samples,
+              sampleStatusById,
+              isSessionComplete: String(row.status || "").toLowerCase() === "complete",
+            });
 
             return {
               id: row.id,
@@ -108,13 +116,9 @@ export function CuppingSessionScreen({
               code: visibleIdentity.identityHidden ? `Session ${index + 1}` : "",
               category: visibleIdentity.sessionType,
               status: row.status || "new",
-              statusLabel: getSessionStatusBadgeLabel({
-                sessionId: row.id,
-                tastingPresentation: presentation,
-                samples,
-                sampleStatusById,
-                isSessionComplete: String(row.status || "").toLowerCase() === "complete",
-              }),
+              statusLabel,
+              uploadStatusLabel: presentation.tasting?.activeSelection === true && presentation.tasting?.isLocalCreator === true &&
+                ['Pending', 'In Progress', 'Complete'].includes(statusLabel) ? 'Not uploaded' : null,
               date: visibleIdentity.sessionDate,
             };
           })
