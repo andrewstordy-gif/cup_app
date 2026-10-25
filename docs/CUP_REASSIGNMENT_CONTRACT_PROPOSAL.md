@@ -1,6 +1,6 @@
 # Reassign Cup — proposed narrow contract
 
-25 October 2026. DRAFT FOR OWNER AGREEMENT. No runtime change authorized.
+25 October 2026. Owner approved the two decisions below. No runtime implementation authorized by this document-only step.
 
 ## Purpose and authority
 
@@ -36,13 +36,13 @@ acceptance. Smart Cup battery-test extensions remain unsupported separately.
   lifecycle state. Never invent "completed", require that it was created on
   this phone, or import old ownership/issuer ledgers to make it eligible.
 
-**Owner decision proposed:** allow the unknown/foreign case only through an
+**Owner decision approved, 25 October 2026:** allow the unknown/foreign case only through an
 explicit operator override acknowledging that the old session cannot be
 checked. Continue blocking any locally known active conflict. This authorizes
 changing this physical cup only, not reading/changing the old session. It may
 disrupt an active session on another phone; offline software cannot prevent
-that. Do not implement this override until the owner explicitly accepts it.
-Without that approval, unknown cases remain blocked with an honest explanation.
+that. Owner explicitly accepted this risk and warning on 25 October 2026.
+Current runtime still blocks these cases until separately authorized implementation.
 
 An eligible locally completed case and an approved unknown override must
 recheck all evidence and actor/destination constraints immediately before each
@@ -58,7 +58,7 @@ Message: **Clear its previous assignment? Other tasters may still be using it.**
 
 Actions: **Cancel** / **Reassign Cup**.
 
-Proposed unknown-case override, if approved:
+Approved unknown-case override warning:
 
 Title: **Reassign Cup?**
 
@@ -157,7 +157,7 @@ Then short phone check: reassign a spare already-written cup, confirm old result
 unchanged and new member appears once only after full verification. Software
 tests alone cannot claim physical NFC/firmware conformance or main merge approval.
 
-## Decisions for owner agreement
+## Owner decisions approved — 25 October 2026
 
 1. Approve explicit unknown/foreign override despite offline inability to verify
    whether its earlier session is still active? Known active conflicts stay blocked.
@@ -165,6 +165,11 @@ tests alone cannot claim physical NFC/firmware conformance or main merge approva
    finished; neither route claims host-global session closure.
 2. Approve visible **clear → check → new write → check** sequence, with an
    explicit action before each write, preserving Smart state/settings and history?
+
+Owner answered yes to both points, including the cross-phone interruption risk.
+These are agreed design decisions, not permission to change app runtime yet.
+Next work is the exact durable journal/schema/interface proposal before coding;
+keep working app unchanged and no main integration without owner approval.
 
 No runtime code, validation, logging, stored data, firmware or cup was changed
 while preparing this proposal. Working app and main remain untouched.
