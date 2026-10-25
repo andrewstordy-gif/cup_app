@@ -70,9 +70,28 @@ async function reserveWithDb(db,sessionId,actor,operationId) {
   return code;
 }
 function metadataMatches(actual,expected){try{return canonicalize(validateMetadata(actual))===canonicalize(validateMetadata(expected));}catch{return false;}}
+function logInvalidSettings(value,keys){
+  try{
+    if(typeof __DEV__==='undefined'||__DEV__!==true)return;
+    const shape=value===null?'null':Array.isArray(value)?'array':typeof value;
+    const object=shape==='object';
+    const fields=keys.map(field=>{
+      const descriptor=object?Object.getOwnPropertyDescriptor(value,field):null;
+      if(!descriptor)return {field,type:'absent',reason:field==='k'?'optional_absent':'missing'};
+      if(!Object.hasOwn(descriptor,'value'))return {field,type:'accessor',reason:'unavailable'};
+      const entry=descriptor.value,type=entry===null?'null':Array.isArray(entry)?'array':typeof entry;
+      const reason=type!=='number'?'invalid_type':!Number.isSafeInteger(entry)?'not_safe_integer':entry<0?'negative':field==='k'&&![1,3].includes(entry)?'unsupported_led_count':'valid';
+      return {field,type,reason};
+    });
+    console.log('NFC settings validation rejected',{shape,unexpectedFieldCount:object?Object.keys(value).filter(key=>!keys.includes(key)).length:0,fields});
+  }catch{ /* Diagnostics must not mask the original validation failure. */ }
+}
 function validateSettings(value){
   const keys=['r','a','w','c','x','l','k'];
-  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!keys.includes(k))||keys.filter(k=>k!=='k').some(k=>!Object.hasOwn(value,k))||Object.values(value).some(v=>!Number.isSafeInteger(v)||v<0)||Object.hasOwn(value,'k')&&![1,3].includes(value.k))throw new Error('Smart cup settings are invalid. No cup was written.');
+  if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(k=>!keys.includes(k))||keys.filter(k=>k!=='k').some(k=>!Object.hasOwn(value,k))||Object.values(value).some(v=>!Number.isSafeInteger(v)||v<0)||Object.hasOwn(value,'k')&&![1,3].includes(value.k)){
+    logInvalidSettings(value,keys);
+    throw new Error('Smart cup settings are invalid. No cup was written.');
+  }
   return Object.fromEntries(keys.filter(k=>Object.hasOwn(value,k)).map(k=>[k,value[k]]));
 }
 function tagContext(result){
