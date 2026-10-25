@@ -392,7 +392,7 @@ export function AppNavigator() {
       const parsed = readResult?.parsed || {};
       const recordCount = Number(readResult?.recordCount) || 0;
       const tagClassification = classifyNfcTagReadResult(readResult);
-      if(tagClassification.isCleared)throw new Error('This cup has no sample assignment. Add it to a draft session first.');
+      if(tagClassification.isCleared&&!(tagClassification.type===NFC_TAG_TYPES.SMART_CUP&&recordCount===4&&resolveCupState(parsed)===0))throw new Error('This cup has no sample assignment. Add it to a draft session first.');
       addFlowEvent(flowEvents, `TAG_CLASSIFIED type=${tagClassification.type} reason=${tagClassification.reason}`);
 
       if (isNtagCupLike(tagClassification, readResult?.tag)) {
