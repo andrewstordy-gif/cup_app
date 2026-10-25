@@ -7,16 +7,16 @@ import {colors} from '../../../theme/colors';
 import {spacing} from '../../../theme/spacing';
 import {typography} from '../../../theme/typography';
 
-export function CheckRemovalDialog({mode='verify',busy=false,message='',onAction,onClose}){
- const save=mode==='save',retry=mode==='retry';
+export function CheckRemovalDialog({mode='verify',purpose='removal',busy=false,message='',onAction,onClose}){
+ const save=mode==='save',retry=mode==='retry',reassignment=purpose==='reassignment',clear=mode==='clear'&&reassignment;
  return <SafeAreaView style={styles.screen}><ScrollView contentContainerStyle={styles.backdrop}>
   <View style={styles.dialog} accessibilityViewIsModal>
-   <View style={styles.heading}><Text accessibilityRole="header" style={styles.title}>{save?'Save removal':retry?'Retry removal':'Check Cup'}</Text>
-    <CloseButton accessibilityLabel="Close removal dialog" onPress={onClose} disabled={busy}/></View>
-   <Text style={styles.message}>{message||(save?'The clear is verified. Retry saving the removal; no cup write is needed.':retry?
+   <View style={styles.heading}><Text accessibilityRole="header" style={styles.title}>{clear?'Reassign Cup':save?reassignment?'Save clear':'Save removal':retry?reassignment?'Retry clear':'Retry removal':'Check Cup'}</Text>
+    <CloseButton accessibilityLabel={reassignment?'Close reassignment dialog':'Close removal dialog'} onPress={onClose} disabled={busy}/></View>
+   <Text style={styles.message}>{message||(clear?'Scan the same cup to clear its previous assignment. New coffee details will not be written yet.':save?reassignment?'The clear is verified. Retry saving it; no cup write is needed.':'The clear is verified. Retry saving the removal; no cup write is needed.':retry?
     'The original assignment is still on this cup. Retry clearing it, then scan again to verify.':'Scan the same cup again to verify its sample assignment was cleared.')}</Text>
-   <FullPageButton label={save?'RETRY SAVE':retry?'RETRY CLEAR':'RESCAN TO VERIFY'} onPress={onAction} loading={busy} disabled={busy}
-    accessibilityLabel={save?'Retry saving verified removal':retry?'Retry clearing sample assignment':'Rescan cup to verify removal'} style={save?null:styles.scanButton}/>
+   <FullPageButton label={clear?'SCAN CUP TO CLEAR':save?'RETRY SAVE':retry?'RETRY CLEAR':'RESCAN TO VERIFY'} onPress={onAction} loading={busy} disabled={busy}
+    accessibilityLabel={clear?'Scan same cup to clear previous assignment':save?reassignment?'Retry saving verified clear':'Retry saving verified removal':retry?'Retry clearing sample assignment':'Rescan cup to verify removal'} style={save?null:styles.scanButton}/>
   </View></ScrollView></SafeAreaView>;
 }
 const styles=StyleSheet.create({

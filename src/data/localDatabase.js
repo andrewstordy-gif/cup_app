@@ -3,7 +3,8 @@ import { migrateFoundationWithDb } from './localSessionStateMigration';
 import { PENDING_SAMPLE_SCHEMA } from './pendingSampleAdditionStore';
 import { SCHEMA as SAMPLE_CODE_SCHEMA } from './sampleCodeProfile';
 import { SCHEMA as DRAFT_REMOVAL_SCHEMA } from './pendingDraftRemovalStore';
-import {MARKER_DDL,recognize,validate} from './integratedSessionSchema';
+import { SCHEMA as REASSIGNMENT_SCHEMA } from './pendingCupReassignmentStore';
+import {MARKER_DDL,recognize,validate,upgrade} from './integratedSessionSchema';
 
 const DATABASE_NAME = "cup_sessions_v1.db";
 
@@ -528,6 +529,8 @@ async function prepareSchema(db) {
     completed_at TEXT NOT NULL,
     UNIQUE(session_id,local_profile_id,snapshot_hash)
   );`);
+  await db.execAsync(REASSIGNMENT_SCHEMA);
+  await db.execAsync('PRAGMA user_version=6;');
 }
 
 async function runMigrations(db) {
@@ -542,12 +545,13 @@ async function runMigrations(db) {
       handle.execAsync = txn.execAsync ? sql => txn.execAsync(sql) : async sql => {
         for (const statement of sql.split(';').map(value => value.trim()).filter(Boolean)) await txn.runAsync(statement);
       };
-      if(!await recognize(handle)){
+      const recognized=await recognize(handle);
+      if(!recognized){
         await prepareSchema(handle);
         await validate(handle,{initialized:false});
-        await handle.runAsync('INSERT INTO cup_session_store_schema VALUES(1)');
+        await handle.runAsync('INSERT INTO cup_session_store_schema VALUES(2)');
         await validate(handle);
-      }
+      }else if(recognized===1)await upgrade(handle);
     });
     isMigrated = true;
   })().catch(error => { migrationPromise = null; throw error; });

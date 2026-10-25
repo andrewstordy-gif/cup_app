@@ -12,11 +12,38 @@ R1-137 starts a fresh library. Neither `cup_user_test.db` nor
 `cup_r1_103_sample_codes_test.db` is opened, copied, repaired or deleted. Existing
 main profile `cup_app:user_profile` is retained; the experiment profile and
 unrelated storage/files are untouched. Only a truly empty version0 store may
-initialize. A static token-preserving SHA-256 manifest binds all 42 named schema
-objects, including constraints/indexes/issuer/journals/receipts. Existing marker1,
-foundation marker1 and SQLite user_version5 must match before read cutover.
+initialize. R1-144's static token-preserving SHA-256 manifest binds all 44 named
+schema objects, including constraints/indexes/issuer/journals/receipts. Current
+marker2, foundation marker1 and SQLite user_version6 must match before reads.
+Only the exact reviewed 42-object marker1/user_version5 integrated schema may
+upgrade atomically; this is not an old-store import or schema repair.
 Missing/extra/weakened schema is rejected, never repaired or reset. Fresh complete
 schema validation and the final marker insert share one exclusive transaction.
+
+### R1-144 reassignment evidence / recognized upgrade
+
+`local_pending_cup_reassignments` holds one unique destination and hardware UID,
+actor and issuer incarnation, phase `staged` / `clear_check` / `clear_verified`,
+and canonical hashed operation content. Content binds exact original clear bytes,
+setup/removal/binding generations, consent and four drawer fields. Every update
+advances a durable JSON revision. Commands require the captured revision;
+beforeWrite revalidates without incrementing it. Observers use captured phase/hash
+CAS, rejecting stale reads even with identical bytes and timestamps.
+
+`local_cup_reassignment_receipts` retains minimal immutable old-binding retirement:
+operation, actor, destination/incarnation, UID, contiguous per-UID generation, old
+session/code and metadata/binding hashes, clear bytes/state/settings, verification
+hash/time and verified revision. It intentionally has no session FK: deletion must
+not revive old assignments. No previous coffee identity/results/whole metadata is
+retained in receipts. Pending evidence cascades with its destination only.
+
+Upgrade validates the independently retained exact v1 manifest before DDL, adds
+two tables, replaces only the schema-marker table, sets version6, validates the
+target, inserts marker2 last and validates again, in one exclusive transaction.
+All prior data rows remain unchanged; failure rolls back schema/data/version.
+Independently reproduced target DDL hash:
+`9f2b3dc8a68235f571d4ca9f3a0ab8f3ce34d8255659748854fb7008054ef07f`.
+V2 reopens without schema mutation; old v1 code rejects v2 rather than downgrade.
 
 ## `sessions`
 

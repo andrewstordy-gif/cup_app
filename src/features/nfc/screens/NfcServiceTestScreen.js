@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
@@ -14,6 +14,7 @@ import {
 } from "../../../services/nfcServiceMinimal";
 import { playNfcFailureFeedback } from "../../../services/nfcFailureFeedback";
 import { logAppError } from "../../../services/errorLogger";
+import { observePendingCupReassignmentRead } from "../../../data/sessionRepository";
 
 const FAILURE_LOCKOUT_MS = 2000;
 const SAMPLE_NDEF_PAYLOAD = {
@@ -339,6 +340,8 @@ function buildSparseFrame({ text1 = {}, text3 = {}, text4 = {} } = {}) {
 }
 
 export function NfcServiceTestScreen({ onBackPress }) {
+  const readEpochRef=useRef(0);
+  useEffect(()=>()=>{readEpochRef.current+=1;},[]);
   const [busy, setBusy] = useState(false);
   const [cooldownUntil, setCooldownUntil] = useState(0);
   const [now, setNow] = useState(Date.now());
@@ -398,6 +401,8 @@ export function NfcServiceTestScreen({ onBackPress }) {
   };
 
   const handleRead = async () => {
+    const epoch=++readEpochRef.current;
+    const current=()=>readEpochRef.current===epoch;
     setBusy(true);
     setStatus("Reading...");
     setRecordCount(null);
@@ -416,6 +421,9 @@ export function NfcServiceTestScreen({ onBackPress }) {
 
     try {
       const result = await readNdefMinimal();
+      if(!current())return;
+      if(await observePendingCupReassignmentRead(result,{isReadCurrent:current}))throw new Error('Cup reassignment is unfinished. Return to its draft session to continue.');
+      if(!current())return;
       const nextParsed = result?.parsed || {};
       const nextRaw = nextParsed?.raw || {};
 
@@ -445,6 +453,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
         setStatus(`Read complete (${nextRecordCount} record(s))`);
       }
     } catch (error) {
+      if(!current())return;
       const message = error?.message || "Unknown NFC error";
       await triggerFailureFeedback();
       await playNfcFailureFeedback(error);
@@ -457,7 +466,7 @@ export function NfcServiceTestScreen({ onBackPress }) {
       });
       setStatus(message);
     } finally {
-      setBusy(false);
+      if(current())setBusy(false);
     }
   };
 

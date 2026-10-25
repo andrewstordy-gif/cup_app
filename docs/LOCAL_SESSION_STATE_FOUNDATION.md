@@ -1,5 +1,30 @@
 # Local session state foundation
 
+## R1-144 scoped reassignment extension
+
+Owned unlocked never-started supported DRAFT destinations may explicitly stage
+approved cup reassignment. This does not reopen/delete source tastings or infer
+ownership: qualified creator COMPLETE and explicit unknown/foreign consent are
+distinct; qualified participant COMPLETE can only use unknown override. Known
+active conflicts block. No code/member is created by clear/check/receipt.
+
+Pending phases `staged`, `clear_check`, `clear_verified` survive restart. Exact
+actor/issuer/setup/removal/binding generations, operation and monotonic revision
+fence stage/dispatch/check/commit/cancel/ack. Same-UID contradictory raw reads
+durably revoke verification using captured hash/phase CAS; no outside read grants
+verification. Explicit retry preserves frozen original state/settings and never
+automatically writes after uncertainty. Verified save failure retries only the
+receipt transaction. Cancellation is safe only before dispatch; leaving uncertain
+work preserves it and blocks conflicting setup/UID operations.
+
+Minimal immutable receipts survive session deletion and retire exact old physical
+bindings. Source results/history stay reviewable; old physical metadata cannot
+import/activate again, and a distinct newer binding remains valid. Only later
+explicit ordinary assignment write/check adds one destination member/fresh code.
+See DATABASE_SCHEMA and NDEF_PROTOCOL for exact v1→v2 migration and the unchanged
+low-level diagnostic direct-write boundary. This extension does not authorize
+uploads, generic repair/reset, or new tasting/setup policy.
+
 18 October 2026. R1-061 scoped implemented contract; its design passed independent review before runtime work. Product authority is [PRODUCT_SPEC section 6.8](PRODUCT_SPEC.md#68-agreed-mobile-screen-and-state-map-18-october-2026). This is an additive installation-local prototype evolution, not the fresh encrypted production schema or an upload implementation. Final implementation review and device gates are recorded separately in the task.
 
 ## Scope and preserved evidence

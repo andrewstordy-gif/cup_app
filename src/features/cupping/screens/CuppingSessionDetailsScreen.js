@@ -78,6 +78,8 @@ import {
   getDraftSampleRemoval,stageDraftSampleRemoval,beginDraftSampleRemovalWrite,
   markDraftSampleRemovalWritten,inspectDraftSampleRemovalRead,commitDraftSampleRemoval,
   observePendingDraftRemovalRead,
+  inspectCupReassignment,stageCupReassignment,beginCupReassignmentClear,inspectCupReassignmentClear,
+  commitCupReassignmentClear,getCupReassignment,observePendingCupReassignmentRead,cancelStagedCupReassignment,
 } from "../../../data/sessionRepository";
 
 const RECOVERED_SMART_CUP_TEXT3 = {
@@ -274,6 +276,9 @@ export function CuppingSessionDetailsScreen({
   const [draftRemovalDialog,setDraftRemovalDialog]=useState(null);
   const [isRemovingDraftSample,setIsRemovingDraftSample]=useState(false);
   const draftRemovalRenderEpoch=setupEpochRef.current;
+  const cupReassignmentRef=useRef(null),cupReassignmentBusyRef=useRef(null),cupReassignmentPromptRef=useRef(null),cupReassignmentDialogRef=useRef(null);
+  const [cupReassignment,setCupReassignment]=useState(null),[cupReassignmentPrompt,setCupReassignmentPrompt]=useState(null),[cupReassignmentDialog,setCupReassignmentDialog]=useState(null),[isReassigningCup,setIsReassigningCup]=useState(false);
+  const cupReassignmentRenderEpoch=setupEpochRef.current;
   const reopenPendingDrawerRef = useRef(false);
   const [pendingSaveError, setPendingSaveError] = useState("");
   const quickStartSessionTypeValue = normalizeSessionTypeKey(quickStartSessionTypeKey);
@@ -315,6 +320,8 @@ export function CuppingSessionDetailsScreen({
 
   useEffect(() => {
     setupEpochRef.current += 1;
+    cupReassignmentRef.current=null;cupReassignmentBusyRef.current=null;cupReassignmentPromptRef.current=null;cupReassignmentDialogRef.current=null;
+    setCupReassignment(null);setCupReassignmentPrompt(null);setCupReassignmentDialog(null);setIsReassigningCup(false);
     draftRemovalRef.current=null;
     draftRemovalBusyRef.current=null;
     draftRemovalDialogRef.current=null;
@@ -354,7 +361,7 @@ export function CuppingSessionDetailsScreen({
   }, [sessionId, quickStartSessionTypeValue]);
 
   const requestSetupExit = (action) => {
-    const pendingSetupWork = draftRemovalBusyRef.current || lockOperationRef.current || saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
+    const pendingSetupWork = cupReassignmentBusyRef.current || draftRemovalBusyRef.current || lockOperationRef.current || saveOperationRef.current || pendingAdditionBusyRef.current || isNfcWriting || isCheckingCup ||
       isCompletingSession || isDeleting || participantRemovalBusyRef.current || isRemovingParticipantSample || verifyingSampleId || rewritingSampleId;
     if (!setupContinuationRef.current && !pendingSetupWork && !isSessionDirty) return action?.();
     if (pendingSetupWork) {
@@ -497,10 +504,14 @@ export function CuppingSessionDetailsScreen({
         );
         setSessionTypeAnchor(null);
         if (access.canManageSetup) {
+          const reassigning=await getCupReassignment({destinationId:loaded.id,isCurrent:()=>!isCancelled});
+          if(isCancelled)return;
+          cupReassignmentRef.current=reassigning;setCupReassignment(reassigning);
+          if(reassigning)restoreCupReassignmentFields(reassigning);
           const removing=await getDraftSampleRemoval(loaded.id);
           if(isCancelled)return;
           draftRemovalRef.current=removing;setDraftRemoval(removing);
-          const pending = removing?null:await getPendingSampleAddition(loaded.id);
+          const pending = removing||reassigning?null:await getPendingSampleAddition(loaded.id);
           if (isCancelled) return;
           if (pending) {
             pendingAdditionRef.current = pending;
@@ -598,7 +609,7 @@ export function CuppingSessionDetailsScreen({
   const isLegacy = selectedForm === 2;
   const isSessionFormSupported = isSessionFormReady(sessionId, sessionForm) && (!isLegacy || sessionMode === 'open');
   const isSessionFormLoading = Boolean(sessionId) && sessionForm?.loadedSessionId !== sessionId;
-  const canEditSessionSetup = !draftRemoval && !isRemovingDraftSample && (!sessionId || (isSessionFormSupported && ownsSavedSetup));
+  const canEditSessionSetup = !cupReassignment && !isReassigningCup && !draftRemoval && !isRemovingDraftSample && (!sessionId || (isSessionFormSupported && ownsSavedSetup));
   const canSelectSessionForm = !isSessionLocked && !isQuickStartSession && canEditSessionSetup;
   const lockInputKey = currentSetupInputKeyRef.current;
   const canLockSession = Boolean(sessionId && savedSessionIdRef.current === sessionId && !isQuickStartSession &&
@@ -803,6 +814,8 @@ export function CuppingSessionDetailsScreen({
     String(pending.candidate.process) === String(normalizeProcessKey(sheetProcess)) &&
     pending.candidate.cupNumber === sheetCupNumber && pending.candidate.cuppingMode === normalizeCuppingModeKey(sheetCuppingMode);
   const handleOpenAddSheet = () => {
+    if(cupReassignmentBusyRef.current)return;
+    if(cupReassignmentRef.current){restoreCupReassignmentFields(cupReassignmentRef.current);setIsAddSheetVisible(true);return;}
     if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     if (!canEditSessionSetup) return;
@@ -963,6 +976,8 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleScanCup = async () => {
+    if(cupReassignmentRef.current){await handleCupReassignmentAction();return;}
+    if(cupReassignmentBusyRef.current)return;
     if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     const setupEpoch = setupEpochRef.current;
@@ -1007,6 +1022,7 @@ export function CuppingSessionDetailsScreen({
     pendingAdditionBusyRef.current = additionOperation;
     setIsNfcWriting(true);
 
+    let reassignmentOffer=null;
     try {
       if (!pendingAdditionRef.current) {
         // Trust the locally pinned Open mode even before the first cup exists.
@@ -1021,6 +1037,7 @@ export function CuppingSessionDetailsScreen({
       await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
       setScanStatusMessage("Scan cup to write session data...");
       const writeResult = await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingCupReassignmentRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current&&!additionOperation.cancelled}))throw new Error('reassignment:unfinished');
         if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current&&!additionOperation.cancelled}))throw new Error('removal:unfinished');
         if (setupEpoch !== setupEpochRef.current || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup changed. No cup was written.');
         await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
@@ -1054,6 +1071,10 @@ export function CuppingSessionDetailsScreen({
         }
 
         const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
+        if(tagClassification.metadataPayload&&tagClassification.metadataPayload.u!==sessionUUID){
+          reassignmentOffer=await inspectCupReassignment({destinationId:savedSessionIdRef.current,readResult:result,isCurrent:()=>setupEpoch===setupEpochRef.current&&!additionOperation.cancelled});
+          if(reassignmentOffer)throw new Error('reassignment:confirmation');
+        }
         const conflictingSession = await findPendingSessionByCupUUID({
           cupUUID: normalizedDetectedCupUUID,
           excludeSessionId: sessionUUID,
@@ -1205,6 +1226,10 @@ export function CuppingSessionDetailsScreen({
       setCheckingSampleId(writtenSample?.id || null);
       setCheckSampleStatus("pending");
     } catch (error) {
+      if(reassignmentOffer&&setupEpoch===setupEpochRef.current&&!additionOperation.cancelled){
+        const prompt={...reassignmentOffer,epoch:setupEpoch,destinationId:savedSessionIdRef.current,drawerDraft:{coffeeNameOrigin:sheetCoffeeNameOrigin,process:String(sheetProcess),cupNumber:sheetCupNumber,cuppingMode:sheetCuppingMode}};
+        cupReassignmentPromptRef.current=prompt;setCupReassignmentPrompt(prompt);setIsAddSheetVisible(false);return;
+      }
       const safeError = error?.code === PENDING_CONFLICT_ERROR ? createPendingConflictError() : error;
       const message = safeError?.message || "NFC write failed.";
       const normalizedMessage = String(message).toLowerCase();
@@ -1260,6 +1285,7 @@ export function CuppingSessionDetailsScreen({
     try {
       setScanStatusMessage(`Scan cup ${sample.cupUUID} to verify its session data...`);
       const result = await readNdefMinimal();
+      if(await observePendingCupReassignmentRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('reassignment:unfinished');
       if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('removal:unfinished');
       const parsed = result?.parsed || {};
       const tag = result?.tag;
@@ -1401,6 +1427,7 @@ export function CuppingSessionDetailsScreen({
       if (!(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup is read-only on this profile.');
       setScanStatusMessage(`Scan cup ${expectedCupUUID} to rewrite its session data...`);
       await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingCupReassignmentRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('reassignment:unfinished');
         if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('removal:unfinished');
         if (setupEpoch !== setupEpochRef.current || !(await getSessionSetupAccess(savedSessionIdRef.current)).canManageSetup) throw new Error('Session setup changed. No cup was written.');
         if (pending) {
@@ -1668,11 +1695,87 @@ export function CuppingSessionDetailsScreen({
     }
   };
 
+  const restoreCupReassignmentFields = pending => {
+    const draft=pending.drawerDraft;setSheetCoffeeNameOrigin(draft.coffeeNameOrigin);setSheetProcess(draft.process);
+    setSheetCupNumber(draft.cupNumber);setSheetCuppingMode(draft.cuppingMode);setSheetErrors({});
+    setScanStatusMessage(pending.phase==='clear_verified'?'The clear is verified. Resume saving it before adding the cup.':'Cup reassignment is unfinished. Resume its clear/check before adding a cup.');
+  };
+  const handleDismissCupReassignmentPrompt = expected => {
+    if(!expected||cupReassignmentPromptRef.current!==expected||expected.epoch!==setupEpochRef.current||cupReassignmentBusyRef.current)return;
+    cupReassignmentPromptRef.current=null;setCupReassignmentPrompt(null);setIsAddSheetVisible(true);
+  };
+  const handleConfirmCupReassignment = async expected => {
+    if(!expected||cupReassignmentPromptRef.current!==expected||expected.epoch!==setupEpochRef.current||cupReassignmentBusyRef.current)return;
+    const operation={epoch:expected.epoch};cupReassignmentBusyRef.current=operation;setIsReassigningCup(true);
+    const current=()=>cupReassignmentBusyRef.current===operation&&operation.epoch===setupEpochRef.current&&cupReassignmentPromptRef.current===expected;
+    try{
+      const pending=await stageCupReassignment({observation:expected.observation,consentVersion:1,drawerDraft:expected.drawerDraft,isCurrent:current});
+      if(!current())return;cupReassignmentRef.current=pending;setCupReassignment(pending);
+      const dialog={destinationId:pending.destinationId,operationId:pending.operationId,revision:pending.revision,epoch:operation.epoch,mode:'clear'};
+      cupReassignmentDialogRef.current=dialog;setCupReassignmentDialog(dialog);
+      cupReassignmentPromptRef.current=null;setCupReassignmentPrompt(null);
+    }catch{if(current()){setScanStatusMessage('Reassignment could not be started. Scan again to check its current assignment.');cupReassignmentPromptRef.current=null;setCupReassignmentPrompt(null);setIsAddSheetVisible(true);}}
+    finally{if(cupReassignmentBusyRef.current===operation){cupReassignmentBusyRef.current=null;if(operation.epoch===setupEpochRef.current)setIsReassigningCup(false);}}
+  };
+  const handleCloseCupReassignment = async expected => {
+    if(!expected||cupReassignmentDialogRef.current!==expected||expected.epoch!==setupEpochRef.current||cupReassignmentBusyRef.current||expected.operationId!==cupReassignmentRef.current?.operationId||expected.revision!==cupReassignmentRef.current?.revision)return;
+    const pending=cupReassignmentRef.current,operation={epoch:expected.epoch};cupReassignmentBusyRef.current=operation;setIsReassigningCup(true);
+    const current=()=>cupReassignmentBusyRef.current===operation&&operation.epoch===setupEpochRef.current;
+    try{
+      if(pending.phase==='staged'){await cancelStagedCupReassignment({destinationId:pending.destinationId,operationId:pending.operationId,expectedRevision:pending.revision,isCurrent:current});if(!current())return;cupReassignmentRef.current=null;setCupReassignment(null);}
+      if(!current())return;cupReassignmentDialogRef.current=null;setCupReassignmentDialog(null);setIsAddSheetVisible(true);
+      if(pending.phase!=='staged')setScanStatusMessage('Cup reassignment is unfinished. Use RESUME CUP CHECK to continue.');
+    }catch{if(current())setScanStatusMessage('Reassignment status could not be confirmed. Reopen the saved session.');}
+    finally{if(cupReassignmentBusyRef.current===operation){cupReassignmentBusyRef.current=null;if(operation.epoch===setupEpochRef.current)setIsReassigningCup(false);}}
+  };
+  const handleCupReassignmentAction = async (expectedDialog=null) => {
+    const original=cupReassignmentRef.current;
+    if(!original||cupReassignment?.operationId!==original.operationId||cupReassignmentRenderEpoch!==setupEpochRef.current||cupReassignmentBusyRef.current||pendingAdditionBusyRef.current||saveOperationRef.current||lockOperationRef.current)return;
+    if(expectedDialog&&(cupReassignmentDialogRef.current!==expectedDialog||expectedDialog.operationId!==original.operationId||expectedDialog.revision!==original.revision||expectedDialog.epoch!==setupEpochRef.current))return;
+    const operation={epoch:setupEpochRef.current,operationId:original.operationId};cupReassignmentBusyRef.current=operation;setIsReassigningCup(true);
+    const current=()=>cupReassignmentBusyRef.current===operation&&operation.epoch===setupEpochRef.current&&cupReassignmentRef.current?.operationId===operation.operationId;
+    const remember=pending=>{if(!current())throw new Error('reassignment:unfinished');cupReassignmentRef.current=pending;setCupReassignment(pending);return pending;};
+    const show=(pending,mode,message='')=>{const dialog={destinationId:pending.destinationId,operationId:pending.operationId,revision:pending.revision,epoch:operation.epoch,mode,message};cupReassignmentDialogRef.current=dialog;setCupReassignmentDialog(dialog);setIsAddSheetVisible(false);};
+    try{
+      let pending=original;
+      if(pending.phase==='staged'||expectedDialog?.mode==='retry'){
+        await readAndClearNdefMinimal(async readResult=>{
+          if(!current())throw new Error('reassignment:unfinished');
+          const command=await beginCupReassignmentClear({destinationId:pending.destinationId,operationId:pending.operationId,expectedRevision:pending.revision,readResult,isCurrent:current});
+          pending=remember(command.pending);return command;
+        },{onRead:async readResult=>{
+          if(!current())throw new Error('reassignment:unfinished');
+          await observePendingCupReassignmentRead(readResult,{isReadCurrent:current});
+          if(await observePendingDraftRemovalRead(readResult,{isReadCurrent:current}))throw new Error('removal:unfinished');
+        }});
+        if(current())show(pending,'verify');return;
+      }
+      if(pending.phase!=='clear_verified'){
+        const readResult=await readNdefMinimal();if(!current())return;
+        if(await observePendingDraftRemovalRead(readResult,{isReadCurrent:current}))throw new Error('removal:unfinished');
+        const checked=await inspectCupReassignmentClear({destinationId:pending.destinationId,operationId:pending.operationId,expectedRevision:pending.revision,readResult,isCurrent:current});
+        pending=remember(checked.pending);
+        if(checked.disposition!=='cleared'){show(pending,checked.disposition==='original'?'retry':'verify',checked.disposition==='original'?'':'Reassignment is unfinished. Scan the same cup again to verify clearing.');return;}
+      }
+      await commitCupReassignmentClear({destinationId:pending.destinationId,operationId:pending.operationId,expectedRevision:pending.revision,isCurrent:current});
+      if(!current())return;cupReassignmentRef.current=null;setCupReassignment(null);cupReassignmentDialogRef.current=null;setCupReassignmentDialog(null);setIsAddSheetVisible(true);
+      setScanStatusMessage('Previous assignment cleared. Edit the details, then SCAN & ADD CUP.');
+    }catch{
+      if(current()){
+        try{const pending=await getCupReassignment({destinationId:original.destinationId,isCurrent:current});if(!current())return;
+          if(pending){remember(pending);show(pending,pending.phase==='clear_verified'?'save':pending.phase==='staged'?'clear':'verify','Reassignment status is unfinished. Continue checking or saving; no automatic write occurred.');}
+          else{cupReassignmentRef.current=null;setCupReassignment(null);cupReassignmentDialogRef.current=null;setCupReassignmentDialog(null);setIsAddSheetVisible(true);setScanStatusMessage('Clear acknowledgement could not be confirmed. Scan current cup contents before adding.');}
+        }catch{if(current())setScanStatusMessage('Reassignment status could not be confirmed. Reopen the saved session.');}
+      }
+    }finally{if(cupReassignmentBusyRef.current===operation){cupReassignmentBusyRef.current=null;if(operation.epoch===setupEpochRef.current)setIsReassigningCup(false);}}
+  };
+
   const handleCloseDraftRemoval = expected => {
     if(!expected||draftRemovalDialogRef.current!==expected||draftRemovalBusyRef.current||expected.epoch!==setupEpochRef.current)return;
     draftRemovalDialogRef.current=null;setDraftRemovalDialog(null);
   };
   const handleDraftRemoval = async (retry=false,expectedDialog=null) => {
+    if(cupReassignmentRef.current||cupReassignmentBusyRef.current)return;
     if(expectedDialog&&(draftRemovalDialogRef.current!==expectedDialog||expectedDialog.sessionId!==sessionId||
       expectedDialog.operationId!==draftRemovalRef.current?.operationId||expectedDialog.epoch!==setupEpochRef.current))return;
     if(draftRemovalRenderEpoch!==setupEpochRef.current||draftRemovalBusyRef.current||saveOperationRef.current||lockOperationRef.current||pendingAdditionRef.current||pendingAdditionBusyRef.current||
@@ -1690,6 +1793,7 @@ export function CuppingSessionDetailsScreen({
       if(!pending||retry){
         await readAndClearNdefMinimal(async readResult=>{
           if(!current())throw new Error('removal:context_changed');
+          if(await observePendingCupReassignmentRead(readResult,{isReadCurrent:current}))throw new Error('reassignment:unfinished');
           pending=remember(pending?await getDraftSampleRemoval(sessionId):await stageDraftSampleRemoval({sessionId,readResult}));
           return {frozen:pending.frozen,beforeWrite:async()=>{
             if(!current())throw new Error('removal:context_changed');
@@ -1698,6 +1802,7 @@ export function CuppingSessionDetailsScreen({
           }};
         },{onRead:async readResult=>{
           if(!current())throw new Error('removal:context_changed');
+          if(await observePendingCupReassignmentRead(readResult,{isReadCurrent:current}))throw new Error('reassignment:unfinished');
           if(await observePendingDraftRemovalRead(readResult,{isReadCurrent:current})&&!pending)throw new Error('removal:unfinished');
         }});
         if(!current())return;
@@ -1706,6 +1811,7 @@ export function CuppingSessionDetailsScreen({
       }
       if(pending.phase!=='verified'){
         const readResult=await readNdefMinimal();if(!current())return;
+        if(await observePendingCupReassignmentRead(readResult,{isReadCurrent:current}))throw new Error('reassignment:unfinished');
         const checked=await inspectDraftSampleRemovalRead({sessionId,operationId:pending.operationId,readResult,isReadCurrent:current});
         pending=remember(checked.pending);
         if(checked.disposition!=='cleared'){
@@ -1738,6 +1844,7 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleSave = async () => {
+    if(cupReassignmentRef.current||cupReassignmentBusyRef.current)return;
     if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
     if (pendingAdditionRef.current || pendingAdditionBusyRef.current) {
@@ -1855,7 +1962,7 @@ export function CuppingSessionDetailsScreen({
 
   const showScanFooter = sessionStatusBadgeLabel === "Pending" && !isSessionDirty;
   const showInProgressFooter = canCompleteSession;
-  const footerDisabled = isLockingSession || isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample || isRemovingDraftSample || Boolean(draftRemoval);
+  const footerDisabled = isLockingSession || isSaving || isCompletingSession || isDeleting || isNfcWriting || isRemovingParticipantSample || isRemovingDraftSample || Boolean(draftRemoval) || isReassigningCup || Boolean(cupReassignment);
   const showCompactSessionTitle = ["Pending", "In Progress", "Complete"].includes(sessionStatusBadgeLabel);
 
   return (
@@ -2003,11 +2110,11 @@ export function CuppingSessionDetailsScreen({
             </View>
           ))}
 
-          {!isSessionComplete && !showInProgressFooter && isSessionFormSupported && canEditSessionSetup ? (
+          {!isSessionComplete && !showInProgressFooter && isSessionFormSupported && (canEditSessionSetup || Boolean(cupReassignment)) ? (
             <FullPageButton
               label="ADD SAMPLE"
               onPress={handleOpenAddSheet}
-              disabled={isLockingSession || isRemovingDraftSample || Boolean(draftRemoval)}
+              disabled={isLockingSession || isRemovingDraftSample || Boolean(draftRemoval) || isReassigningCup}
               accessibilityLabel="Open add sample sheet"
               style={[styles.addSampleButton, { marginTop: 24 * scale }]}
               textStyle={styles.addSampleButtonText}
@@ -2030,6 +2137,7 @@ export function CuppingSessionDetailsScreen({
         {draftRemoval ? <Text style={styles.scanStatusText}>{draftRemoval.phase==='verified'
           ? 'Removal is verified but not saved. Press REMOVE SAMPLE to retry saving; no cup write is needed.'
           : 'Removal is unfinished. Keep the same cup and press REMOVE SAMPLE to rescan and continue.'}</Text> : null}
+        {cupReassignment ? <Text style={styles.scanStatusText}>Cup reassignment is unfinished. Open ADD SAMPLE to resume its clear/check before adding a cup.</Text> : null}
         {scanStatusMessage ? <Text style={styles.scanStatusText}>{scanStatusMessage}</Text> : null}
         {sessionId && tastingPresentation?.session?.id === sessionId && isSessionFormSupported ?
           <LocalTastingActions sessionId={sessionId} tasting={tastingPresentation.tasting}
@@ -2114,6 +2222,13 @@ export function CuppingSessionDetailsScreen({
         <CheckRemovalDialog mode={draftRemovalDialog?.mode} message={draftRemovalDialog?.message} busy={isRemovingDraftSample}
           onAction={()=>handleDraftRemoval(draftRemovalDialog?.mode==='retry',draftRemovalDialog)} onClose={()=>handleCloseDraftRemoval(draftRemovalDialog)}/>
       </Modal>
+      <Modal visible={Boolean(cupReassignmentDialog)} transparent animationType="fade" onRequestClose={()=>handleCloseCupReassignment(cupReassignmentDialog)}>
+        <CheckRemovalDialog purpose="reassignment" mode={cupReassignmentDialog?.mode} message={cupReassignmentDialog?.message} busy={isReassigningCup}
+          onAction={()=>handleCupReassignmentAction(cupReassignmentDialog)} onClose={()=>handleCloseCupReassignment(cupReassignmentDialog)}/>
+      </Modal>
+      <WarningDialog visible={Boolean(cupReassignmentPrompt)} title="Reassign Cup?" message={cupReassignmentPrompt?.message}
+        variant="cupping-choice" okLabel="Reassign Cup" onOk={()=>handleConfirmCupReassignment(cupReassignmentPrompt)}
+        secondaryLabel="Cancel" secondaryButtonStyle={{backgroundColor:colors.panel}} secondaryButtonTextStyle={{color:colors.ink}} onSecondary={()=>handleDismissCupReassignmentPrompt(cupReassignmentPrompt)} onDismiss={()=>handleDismissCupReassignmentPrompt(cupReassignmentPrompt)}/>
 
       <AddCoffeeSampleSheet
         visible={isAddSheetVisible}
@@ -2128,7 +2243,8 @@ export function CuppingSessionDetailsScreen({
         lockedCuppingMode={isLegacy}
         isCuppingModeDefault={isSheetCuppingModeDefault}
         errors={sheetErrors}
-        loading={isNfcWriting || Boolean(pendingAdditionRef.current) && isCheckingCup}
+        loading={isNfcWriting || isReassigningCup || Boolean(pendingAdditionRef.current) && isCheckingCup}
+        scanLabel={cupReassignment?cupReassignment.phase==='staged'?'SCAN CUP TO CLEAR':cupReassignment.phase==='clear_verified'?'SAVE CLEAR':'RESUME CUP CHECK':undefined}
         statusMessage={scanStatusMessage}
         errorMessage={cupBlockedMessage}
         onChangeCoffeeNameOrigin={value => { if (!pendingAdditionBusyRef.current) setSheetCoffeeNameOrigin(value); }}

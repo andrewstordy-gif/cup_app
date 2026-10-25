@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { Header } from "../../../components/ui/Header";
@@ -10,6 +10,7 @@ import { logAppError } from "../../../services/errorLogger";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
+import { observePendingCupReassignmentRead } from "../../../data/sessionRepository";
 
 const DEFAULT_FIELDS = {
   triggerTemp: "-",
@@ -240,6 +241,8 @@ function BrewTimeField({
 }
 
 export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToBrewing }) {
+  const readEpochRef=useRef(0);
+  useEffect(()=>()=>{readEpochRef.current+=1;},[]);
   const { width } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [fields, setFields] = useState(DEFAULT_FIELDS);
@@ -287,11 +290,16 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
   };
 
   const handleReadSettings = async () => {
+    const epoch=++readEpochRef.current;
+    const current=()=>readEpochRef.current===epoch;
     setIsSyncing(true);
     setStatusMessage("Hold your phone near the cup to read settings.");
 
     try {
       const result = await readNdefMinimal();
+      if(!current())return;
+      if(await observePendingCupReassignmentRead(result,{isReadCurrent:current}))throw new Error('Cup reassignment is unfinished. Return to its draft session to continue.');
+      if(!current())return;
       const parsed = result?.parsed || {};
       const state = Number(parsed?.text1?.s ?? parsed?.text1?.state);
 
@@ -305,6 +313,7 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
       setIsDirty(false);
       setStatusMessage("Settings loaded. You can now edit and write them back.");
     } catch (error) {
+      if(!current())return;
       await playNfcFailureFeedback(error);
       void logAppError({
         screen: "CupSettings",
@@ -316,11 +325,13 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
       setStatusMessage("Could not read settings.");
       openWarning("Read Failed", error?.message || "Could not read settings.");
     } finally {
-      setIsSyncing(false);
+      if(current())setIsSyncing(false);
     }
   };
 
   const handleWriteSettings = async () => {
+    const epoch=++readEpochRef.current;
+    const current=()=>readEpochRef.current===epoch;
     const errors = validateFields(fields);
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) {
@@ -341,20 +352,26 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
     setStatusMessage("Hold your phone near the cup to write settings.");
 
     try {
-      await readAndWriteNdefMinimal(async (result) => ({
+      await readAndWriteNdefMinimal(async (result) => {
+        if(!current())throw new Error('reassignment:context_changed');
+        if(await observePendingCupReassignmentRead(result,{isReadCurrent:current}))throw new Error('Cup reassignment is unfinished. Return to its draft session to continue.');
+        if(!current())throw new Error('reassignment:context_changed');
+        return ({
         records: {
           text1: {},
           text2: {},
           text3: settingsPayload,
           text4: result?.parsed?.text4 || {},
         },
-      }));
+      });});
+      if(!current())return;
 
       setCanEdit(false);
       setIsDirty(false);
       setLastReadCupState(null);
       setStatusMessage("Settings written. Scan another cup to read settings.");
     } catch (error) {
+      if(!current())return;
       await playNfcFailureFeedback(error);
       void logAppError({
         screen: "CupSettings",
@@ -371,7 +388,7 @@ export function CupSettingsScreen({ onBackPress, onResetCupToOff, onSwitchCupToB
       setStatusMessage("Could not write settings.");
       openWarning("Sync Failed", error?.message || "Could not write settings.");
     } finally {
-      setIsSyncing(false);
+      if(current())setIsSyncing(false);
     }
   };
 

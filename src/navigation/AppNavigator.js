@@ -38,6 +38,7 @@ import {
   resetSessionToPending,
   resolveActiveSampleFromCupMetadata,
   observePendingDraftRemovalRead,
+  observePendingCupReassignmentRead,
 } from "../data/sessionRepository";
 
 // Map session status to the route name used by AppNavigator.
@@ -387,6 +388,8 @@ export function AppNavigator() {
         addFlowEvent(flowEvents, "SCAN_ABORT_STALE_ACTION");
         return;
       }
+      if(await observePendingCupReassignmentRead(readResult,{isReadCurrent:()=>isCurrentNfcAction(actionToken)}))throw new Error('Cup reassignment is unfinished. Return to its draft session to continue.');
+      if(!isCurrentNfcAction(actionToken))return;
       if(await observePendingDraftRemovalRead(readResult,{isReadCurrent:()=>isCurrentNfcAction(actionToken)}))throw new Error('Removal is unfinished. Return to the draft session and use REMOVE SAMPLE to continue.');
       if(!isCurrentNfcAction(actionToken))return;
       const parsed = readResult?.parsed || {};
@@ -721,6 +724,7 @@ export function AppNavigator() {
     try {
       await delay(HOME_WRITE_HANDOFF_MS);
       await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingCupReassignmentRead(result,{isReadCurrent:()=>nfcActionTokenRef.current===removalReadToken}))throw new Error('reassignment:unfinished');
         if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>nfcActionTokenRef.current===removalReadToken}))throw new Error('removal:unfinished');
         return ({
         records: {
@@ -761,6 +765,7 @@ export function AppNavigator() {
     try {
       await delay(HOME_WRITE_HANDOFF_MS);
       await readAndWriteNdefMinimal(async (result) => {
+        if(await observePendingCupReassignmentRead(result,{isReadCurrent:()=>nfcActionTokenRef.current===removalReadToken}))throw new Error('reassignment:unfinished');
         if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>nfcActionTokenRef.current===removalReadToken}))throw new Error('removal:unfinished');
         return ({
         records: {

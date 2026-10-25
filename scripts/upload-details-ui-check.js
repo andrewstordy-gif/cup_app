@@ -34,7 +34,7 @@ const statusText=rendered(summaryTree,n=>n.type==='Text'&&n.props.children.inclu
 const base=require('node:child_process').execFileSync('git',['show','0dcbd0c:'+file],{cwd:root,encoding:'utf8'}),baseAst=parse(base,{sourceType:'module',plugins:['jsx']});
 // R1-133/R1-138 permit only these removal/verified-Quick imports; original upload UI
 // and unrelated import boundaries remain byte-equivalent after that allowance.
-const removalNames=new Set(['readAndClearNdefMinimal','getDraftSampleRemoval','stageDraftSampleRemoval','beginDraftSampleRemovalWrite','markDraftSampleRemovalWritten','inspectDraftSampleRemovalRead','commitDraftSampleRemoval','observePendingDraftRemovalRead','getVerifiedQuickCuppingHandoff']);
+const removalNames=new Set(['readAndClearNdefMinimal','getDraftSampleRemoval','stageDraftSampleRemoval','beginDraftSampleRemovalWrite','markDraftSampleRemovalWritten','inspectDraftSampleRemovalRead','commitDraftSampleRemoval','observePendingDraftRemovalRead','getVerifiedQuickCuppingHandoff','inspectCupReassignment','stageCupReassignment','beginCupReassignmentClear','inspectCupReassignmentClear','commitCupReassignmentClear','getCupReassignment','observePendingCupReassignmentRead','cancelStagedCupReassignment']);
 const imports=ast=>ast.program.body.filter(n=>n.type==='ImportDeclaration'&&n.source.value!=='../components/CheckRemovalDialog').map(n=>generate({...n,specifiers:n.specifiers.filter(s=>!removalNames.has(s.imported?.name))}).code);
 assert.deepEqual(imports(tree),imports(baseAst),'only explicit approved removal/verified-Quick imports added');
 assert(!/onPrimaryPress/.test(generate(footer.consequent).code));

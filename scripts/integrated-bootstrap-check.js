@@ -25,10 +25,10 @@ function harness(){
 const input={sessionUUID:S,sessionName:'Fictional fresh session',sessionType:'4',sessionDate:'24 Oct 2026',cuppingForm:1,cuppingMode:null,samples:[],intent:'setup'};
 async function main(){
  const env=harness(),stored=env.storage.get(mainKey);assert.deepEqual(await env.repo.listSessions(),[]);assert.deepEqual(await env.profile.getUserProfile(),profile);assert.equal(env.storage.get(mainKey),stored);assert(!env.storageOps.some(([kind])=>kind==='set'));
- assert.equal(env.db.prepare('SELECT version FROM cup_session_store_schema').get().version,1);assert.equal(schema.fingerprint(env.db.prepare(schemaSql).all()),schema.SCHEMA_HASH);
+ assert.equal(env.db.prepare('SELECT version FROM cup_session_store_schema').get().version,2);assert.equal(schema.fingerprint(env.db.prepare(schemaSql).all()),schema.SCHEMA_HASH);
  await env.repo.saveSessionWithSamples(input);assert.equal(env.db.prepare('SELECT local_creator_profile_id FROM sessions').get().local_creator_profile_id,A);const before=snapshot(env.db);env.restart();assert.equal((await env.repo.listSessions()).length,1);assert.equal(snapshot(env.db),before,'recognized cold reopen performs no persistent mutation');env.unchangedOld();
  const template=env.db.prepare(schemaSql).all();
- function clone(target,change=row=>row.sql){for(const row of template.filter(row=>row.type==='table'))target.db.exec(change(row));for(const row of template.filter(row=>row.type==='index'))target.db.exec(change(row));target.db.exec('INSERT INTO cup_session_store_schema VALUES(1);INSERT INTO local_session_state_schema VALUES(1);PRAGMA user_version=5;');}
+ function clone(target,change=row=>row.sql){for(const row of template.filter(row=>row.type==='table'))target.db.exec(change(row));for(const row of template.filter(row=>row.type==='index'))target.db.exec(change(row));target.db.exec('INSERT INTO cup_session_store_schema VALUES(2);INSERT INTO local_session_state_schema VALUES(1);PRAGMA user_version=6;');}
  for(const mutate of [
   db=>db.exec('CREATE TABLE sessions(id TEXT)'),
   db=>db.exec('CREATE TABLE unknown_store(value TEXT)'),
@@ -40,13 +40,13 @@ async function main(){
   db=>db.exec('CREATE TABLE extra_table(value TEXT)'),db=>db.exec('CREATE TABLE sqlitex_sneaky(value TEXT)'),
   db=>db.exec('CREATE TRIGGER unexpected_trigger AFTER INSERT ON sessions BEGIN SELECT 1; END'),
   db=>db.exec('DELETE FROM cup_session_store_schema'),db=>db.exec('DELETE FROM local_session_state_schema'),
-  db=>db.exec('PRAGMA user_version=6'),db=>db.exec('PRAGMA user_version=4'),
+  db=>db.exec('PRAGMA user_version=7'),db=>db.exec('PRAGMA user_version=4'),
  ];
  for(const corrupt of corruptions){const bad=harness();clone(bad);corrupt(bad.db);const original=snapshot(bad.db);await assert.rejects(bad.database.getLocalDatabase(),/storage/);assert.equal(snapshot(bad.db),original,'malformed integrated schema/marker rejected before changes');bad.unchangedOld();}
  const weakened=harness();clone(weakened,row=>row.name==='samples'?row.sql.replace('sample_code TEXT NOT NULL CHECK','sample_code TEXTNOTNULL CHECK'):row.sql);assert.equal(weakened.db.prepare('PRAGMA table_info(samples)').all().find(row=>row.name==='sample_code').notnull,0);const weakBefore=snapshot(weakened.db);await assert.rejects(weakened.database.getLocalDatabase(),/storage/);assert.equal(snapshot(weakened.db),weakBefore,'SQL token boundaries cannot weaken NOT NULL while matching fingerprint');
  assert.notEqual(schema.normalizeSql('sample_code TEXT NOT NULL'),schema.normalizeSql('sample_code TEXTNOTNULL'));assert.notEqual(schema.normalizeSql("DEFAULT 'new'"),schema.normalizeSql("DEFAULT 'NEW'"));
  for(const stage of ['CREATE TABLE IF NOT EXISTS samples','CREATE TABLE IF NOT EXISTS local_pending_draft_removals','INSERT INTO cup_session_store_schema']){
-  const failed=harness(),original=snapshot(failed.db);failed.failAt(stage);await assert.rejects(failed.database.getLocalDatabase(),/injected/);assert.equal(snapshot(failed.db),original,'fresh bootstrap is all-or-nothing incl final marker');failed.failAt(null);await failed.database.getLocalDatabase();assert.equal(failed.db.prepare('SELECT version FROM cup_session_store_schema').get().version,1);failed.unchangedOld();
+  const failed=harness(),original=snapshot(failed.db);failed.failAt(stage);await assert.rejects(failed.database.getLocalDatabase(),/injected/);assert.equal(snapshot(failed.db),original,'fresh bootstrap is all-or-nothing incl final marker');failed.failAt(null);await failed.database.getLocalDatabase();assert.equal(failed.db.prepare('SELECT version FROM cup_session_store_schema').get().version,2);failed.unchangedOld();
  }
  const concurrent=harness();const [left,right]=await Promise.all([concurrent.database.getLocalDatabase(),concurrent.database.getLocalDatabase()]);assert.strictEqual(left,right);assert.equal(concurrent.opened.length,1,'concurrent startup shares bootstrap');
  const missing=harness();missing.storage.delete(mainKey);assert.deepEqual(await missing.repo.listSessions(),[]);await missing.repo.saveSessionWithSamples(input);const created=JSON.parse(missing.storage.get(mainKey));assert.equal(created.uuid,'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');assert.notEqual(created.uuid,B,'experiment identity is never copied');missing.unchangedOld();

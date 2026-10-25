@@ -19,6 +19,7 @@ function home(result){
  const deps={...classifier,SCAN_COOLDOWN_MS:0,lastScanAtRef:{current:0},localTastingRemovalRef:{current:false},scanInProgressRef:{current:false},nfcLaunchGuardRef:{current:false},warningVisibleRef:{current:false},sleepDialogVisibleRef:{current:false},isCupCompleteSessionDialogVisible:false,
   beginNfcAction:()=>1,isCurrentNfcAction:()=>state.current,finishCurrentNfcAction:()=>{},addFlowEvent:(_events,event)=>state.events.push(event),
   readNdefMinimal:async()=>{if(state.readWait)await state.readWait;return result;},
+  observePendingCupReassignmentRead:async(_read,{isReadCurrent})=>{assert.equal(isReadCurrent(),state.current);return false;},
   observePendingDraftRemovalRead:async(_read,{isReadCurrent})=>{state.observeCount++;assert.equal(isReadCurrent(),state.current);if(state.observeWait)await state.observeWait;return state.observed;},
   classifyNfcTagReadResult:value=>{state.classified++;return classifier.classifyNfcTagReadResult(value);},
   setScanStatusMessage:value=>state.status=value,setSleepDialogVisible:value=>state.sleep=value,
@@ -58,7 +59,10 @@ async function main(){
  const original=require('node:child_process').execFileSync('git',['show','ce8376e:src/navigation/AppNavigator.js'],{cwd:root,encoding:'utf8'});
  const oldGuard="if(tagClassification.isCleared)throw new Error('This cup has no sample assignment. Add it to a draft session first.');";
  const newGuard="if(tagClassification.isCleared&&!(tagClassification.type===NFC_TAG_TYPES.SMART_CUP&&recordCount===4&&resolveCupState(parsed)===0))throw new Error('This cup has no sample assignment. Add it to a draft session first.');";
- assert.equal(fs.readFileSync(path.join(root,'src/navigation/AppNavigator.js'),'utf8'),original.replace(oldGuard,newGuard));
+ const reassignmentImport='  observePendingCupReassignmentRead,\n';
+ const reassignmentHome="      if(await observePendingCupReassignmentRead(readResult,{isReadCurrent:()=>isCurrentNfcAction(actionToken)}))throw new Error('Cup reassignment is unfinished. Return to its draft session to continue.');\n      if(!isCurrentNfcAction(actionToken))return;\n";
+ const reassignmentMenu="        if(await observePendingCupReassignmentRead(result,{isReadCurrent:()=>nfcActionTokenRef.current===removalReadToken}))throw new Error('reassignment:unfinished');\n";
+ assert.equal(fs.readFileSync(path.join(root,'src/navigation/AppNavigator.js'),'utf8').replace(reassignmentImport,'').replace(reassignmentHome,'').replaceAll(reassignmentMenu,''),original.replace(oldGuard,newGuard));
  console.log('PASS Home unassigned OFF Smart choice: actual Home callback/parser/strict classifier, non-OFF/NTAG/malformed/state/settings/telemetry/UID/pending-removal/stale negatives; scan alone no writes/import/activation/navigation; assigned workflow byte-identical. Software only.');
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

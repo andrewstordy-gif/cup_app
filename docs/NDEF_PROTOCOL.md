@@ -217,3 +217,31 @@ and strict compact live telemetry are allowed; aliases, duplicates, malformed
 or partial records never prove clearing. An explicit frozen retry additionally
 requires current original state/settings equality, so it cannot rewind state.
 No general repair/reset/reassignment or neighbour-tag rewrite is authorized.
+
+### R1-144 explicit reassignment extension
+
+The preceding clear bytes are reused unchanged after approved explicit consent
+in an owned unlocked never-started supported destination DRAFT. Known qualified
+creator COMPLETE uses the interruption warning; unknown/foreign sources require
+the unknown-session override. Qualified participant COMPLETE is unknown, never
+creator release; known active conflicts and destination duplicates block.
+Same-destination issued/uncommitted attempts keep the existing addition retry.
+
+Consent stages intent only. Explicit clear binds exact frozen original bytes and
+revision; separate read verifies. Uncertain writes resume read-first; verified
+save failure resumes save-only. No automatic write or re-clear. Clear consumes no
+code. Later explicit ordinary SCAN & ADD CUP write/separate check alone creates
+the new sample and fresh code. Old results/history remain unchanged.
+
+Home/reset/brewing, setup/add/check/rewrite/removal, Settings read/write and
+diagnostic read observers revoke same-UID contradicted verification durably
+before classification/use/error. They never promote proof; current predicates
+and captured revision/hash CAS protect newer work. Wrong UID preserves proof.
+Receipts retire exact old metadata binding, not hardware UID; new bindings work
+without UID-only lookup. Reassignment beforeWrite always validates exact current
+dispatch proof.
+
+Boundary: pre-existing diagnostic direct-write tools do not read the tag or
+consult journals. They remain unchanged and must not be used during unfinished
+reassignment. Legacy Settings/reset read observers are not a new dispatch-time
+authorization for those writes. No claim of protecting every low-level write.

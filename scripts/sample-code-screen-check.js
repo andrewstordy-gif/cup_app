@@ -27,6 +27,8 @@ function harness(env,form=1,id='nfzyy8y0pqizn6') {
     pendingQuickStartReadyRef:ref(null),saveOperationRef:ref(null),lockOperationRef:ref(null),reopenPendingDrawerRef:ref(false),
     pendingVerifiedQuickStartRef:ref(null),verifiedObservationRef:ref(null),
     draftRemovalRef:ref(null),draftRemovalBusyRef:ref(null),draftRemoval:null,isRemovingDraftSample:false,
+    cupReassignmentRef:ref(null),cupReassignmentBusyRef:ref(null),cupReassignmentPromptRef:ref(null),cupReassignmentDialogRef:ref(null),
+    cupReassignment:null,cupReassignmentPrompt:null,cupReassignmentDialog:null,isReassigningCup:false,
     savedSetupSnapshotRef:ref(null),savedSetupInputKeyRef:ref(null),writes:[],reads:0,tagId:'TEST-TAG',isSheetCupNumberDefault:false,isSheetCuppingModeDefault:false,
   };
   h.dependencies=()=>{

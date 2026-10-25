@@ -155,6 +155,7 @@ export function AddCoffeeSampleSheet({
   isCuppingModeDefault = false,
   errors,
   loading,
+  scanLabel,
   statusMessage,
   errorMessage,
   onChangeCoffeeNameOrigin,
@@ -340,11 +341,11 @@ export function AddCoffeeSampleSheet({
 
           <View style={styles.sheetFooter}>
             <FullPageButton
-              label={isEditMode ? "WRITE TO CUP" : "SCAN & ADD CUP"}
+              label={scanLabel || (isEditMode ? "WRITE TO CUP" : "SCAN & ADD CUP")}
               onPress={isEditMode ? onSave : onScanCup}
               loading={loading}
               disabled={loading}
-              accessibilityLabel={isEditMode ? "Write to cup" : "Scan cup"}
+              accessibilityLabel={scanLabel || (isEditMode ? "Write to cup" : "Scan cup")}
               style={styles.scanButton}
             />
           </View>

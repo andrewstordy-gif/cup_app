@@ -1,10 +1,13 @@
-// Integrated session store v1. Static schema fingerprint is derived from the
+// Integrated session store v2. Static schema fingerprints are derived from the
 // reviewed complete DDL, never accepted from an on-device database/marker.
 const {canonicalize,sha256}=require('../features/forms/contract/canonical');
 const MARKER='cup_session_store_schema';
-const MARKER_DDL='CREATE TABLE cup_session_store_schema (version INTEGER PRIMARY KEY CHECK(version=1))';
+const V1_MARKER_DDL='CREATE TABLE cup_session_store_schema (version INTEGER PRIMARY KEY CHECK(version=1))';
+const MARKER_DDL='CREATE TABLE cup_session_store_schema (version INTEGER PRIMARY KEY CHECK(version=2))';
 // Source c02d20c complete schema, replacing only its experimental marker DDL.
-const SCHEMA_HASH='be8f4ecf5d6b0e934660b7b97730f834e93919e3c559eb5e4b84b63dccc697b8';
+const V1_SCHEMA_HASH='be8f4ecf5d6b0e934660b7b97730f834e93919e3c559eb5e4b84b63dccc697b8';
+// Independently derived from exact reviewed v1 plus the two reassignment tables.
+const SCHEMA_HASH='9f2b3dc8a68235f571d4ca9f3a0ab8f3ce34d8255659748854fb7008054ef07f';
 const fail=()=>{throw new Error('Session storage is incompatible or incomplete. No database was reset.');};
 function normalizeSql(sql){
  if(typeof sql!=='string')fail();
@@ -26,18 +29,28 @@ function normalizeSql(sql){
 function fingerprint(rows){return sha256(canonicalize(rows.map(row=>({type:row.type,name:row.name,table:row.tbl_name,sql:normalizeSql(row.sql)}))));}
 async function schemaRows(db){return db.getAllAsync("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name");}
 async function userVersion(db){const row=await db.getFirstAsync('PRAGMA user_version;');if(!Number.isSafeInteger(row?.user_version))fail();return row.user_version;}
-async function validate(db,{initialized=true}={}){
+async function validate(db,{initialized=true,version=2}={}){
  const rows=await schemaRows(db);
- if(fingerprint(rows)!==SCHEMA_HASH||await userVersion(db)!==5)fail();
+ if(![1,2].includes(version)||fingerprint(rows)!==(version===1?V1_SCHEMA_HASH:SCHEMA_HASH)||await userVersion(db)!==(version===1?5:6))fail();
  const marker=await db.getAllAsync(`SELECT version FROM ${MARKER}`);
- if(initialized?marker.length!==1||marker[0].version!==1:marker.length!==0)fail();
+ if(initialized?marker.length!==1||marker[0].version!==version:marker.length!==0)fail();
  const foundation=await db.getAllAsync('SELECT version FROM local_session_state_schema');
  if(foundation.length!==1||foundation[0].version!==1)fail();
 }
 async function recognize(db){
  const rows=await schemaRows(db),version=await userVersion(db);
- if(!rows.length){if(version!==0)fail();return false;}
+ if(!rows.length){if(version!==0)fail();return 0;}
  // Existing storage is recognized or rejected before any CREATE/ALTER/backfill.
- await validate(db);return true;
+ if(version===5&&fingerprint(rows)===V1_SCHEMA_HASH){await validate(db,{version:1});return 1;}
+ await validate(db);return 2;
 }
-module.exports={MARKER,MARKER_DDL,SCHEMA_HASH,normalizeSql,fingerprint,validate,recognize};
+async function upgrade(db){
+ // The expected source is bundled, never a marker/hash supplied by the device.
+ await validate(db,{version:1});
+ await db.execAsync(require('./pendingCupReassignmentStore').SCHEMA);
+ await db.execAsync(`DROP TABLE ${MARKER};${MARKER_DDL};PRAGMA user_version=6;`);
+ await validate(db,{initialized:false});
+ await db.runAsync('INSERT INTO cup_session_store_schema VALUES(2)');
+ await validate(db);
+}
+module.exports={MARKER,MARKER_DDL,V1_MARKER_DDL,V1_SCHEMA_HASH,SCHEMA_HASH,normalizeSql,fingerprint,validate,recognize,upgrade};
