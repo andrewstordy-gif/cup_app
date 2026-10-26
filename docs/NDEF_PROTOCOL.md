@@ -34,8 +34,9 @@ old app/test databases and the experiment profile are not opened or copied.
 Issuance from an imported/restored session
 without its complete local issuer ledger is denied. This does not decide a
 production whole-session tombstone/retention policy, transfer or clone recovery.
-Only fresh or manually cleared spare tags should be used for candidate acceptance;
-do not scan its string-code assignments with the old numeric client. Physical
+Use fresh/manually cleared spare tags, or assigned spare cups through the reviewed
+R1-147 explicit direct-reassignment path below, for candidate acceptance.
+Do not scan its string-code assignments with the old numeric client. Physical
 NFC/firmware conformance remains unverified until actual phone acceptance.
 
 > `docs/PRODUCT_SPEC.md` is the highest authority for product behaviour. This file is the normative application-side specification for the CUP NDEF protocol only where it does not conflict with the Product Specification. Protocol changes must update this document and the corresponding implementation/tests in the same change.
