@@ -1,5 +1,59 @@
 # Reassign Cup — proposed narrow contract
 
+## R1-147 approved superseding contract — NEW operations only
+
+26 October 2026. PRODUCT_SPEC6.7/6.8.3 owner approval replaces clear-first NEW
+reassignment with three actual scans: (1) read old assignment, end radio session,
+show the interruption warning and obtain explicit consent; (2) fresh same-cup
+scan deliberately writes the new assignment; (3) separate Check Cup verifies
+before one atomic local retirement/addition commit. No intermediate blank write,
+automatic scanner after consent, or member on a write-success callback. The
+historical R1-142 contract below continues to govern already-pending legacy clear
+operations and receipts, which are never relabeled as direct-write evidence.
+
+Known-active, duplicate, unknown/foreign override, actor/owned DRAFT/issuer/form
+and privacy rules below remain. Qualified participant COMPLETE is unknown, not
+creator release. The known-case message for new direct operations is
+**Replace its previous assignment? Other tasters may still be using it.**
+Unknown warning and Cancel/Reassign Cup actions are unchanged. No old identity
+is exposed. Consent alone consumes no code and writes nothing.
+
+The second scan must still show the exact original UID/family/typed metadata,
+Smart state and settings captured by consent, with fresh source eligibility.
+Current editable destination details bind this explicit write. NTAG emits one
+English Text record of the complete new compact metadata. Smart emits exactly
+`{s:1}`, `{}`, preserved validated compact settings (optional k presence/value
+retained), complete new metadata. READY is the intentional existing assignment
+transition, not preservation of the old state; unchanged fresh original state
+before dispatch prevents replaying cached state over an intervening change.
+Never replay telemetry. Existing encoder/capacity/writable checks/native frozen-
+byte retry policy remain; each beforeWrite revalidates the same durable attempt.
+
+Persist exact original binding, consent, destination/actor/incarnation/setup/
+removal/combined-retirement vector, candidate/save context, issued fresh attempt
+code and exact intended message before dispatch. A failed stage cannot write.
+Uncertain dispatch remains unfinished and resumes read-first after close/restart.
+Verification/read/save retries allocate no code. R146 failed read keeps Check
+Cup. Exact same UID/family/new typed metadata/settings and READY prove a direct
+write; a native success tick does not. Verified local commit failure is save-only.
+
+Explicit rewrite requires a fresh read-first same-cup observation showing the
+original binding/state/settings or a fully validated own recorded attempt with
+exact typed metadata/family/settings and READY. It reserves a fresh code and
+retains all previous attempt evidence. No switching UID, overwriting an unknown
+third-party assignment, discarding hazardous intent, or transferring consent.
+Changed details require an explicit same-cup write, never mutate frozen proof.
+
+The verified commit atomically retires the exact old binding, adds one new member
+and its standard issued-code outcome, and deletes direct pending intent. It does
+not delete/reopen/alter old results/history/codes. Receipts are purpose-specific,
+minimal and permanent beyond session deletion; they do not claim clearing.
+Generation/vector, revision/CAS, current actor/incarnation and final ack fences
+deny stale callbacks, old clear acknowledgements, deleted/recreated sessions and
+known contradictory proof. All existing raw-read observers cover both purposes
+without automatically verifying. The pre-existing diagnostic write-without-read
+boundary below remains unchanged. Phone conformance is a later explicit gate.
+
 25 October 2026. Owner approved the two decisions below. No runtime implementation authorized by this document-only step.
 
 ## Purpose and authority

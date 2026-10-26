@@ -12,13 +12,31 @@ R1-137 starts a fresh library. Neither `cup_user_test.db` nor
 `cup_r1_103_sample_codes_test.db` is opened, copied, repaired or deleted. Existing
 main profile `cup_app:user_profile` is retained; the experiment profile and
 unrelated storage/files are untouched. Only a truly empty version0 store may
-initialize. R1-144's static token-preserving SHA-256 manifest binds all 44 named
+initialize. R1-147's static token-preserving SHA-256 manifest binds all 46 named
 schema objects, including constraints/indexes/issuer/journals/receipts. Current
-marker2, foundation marker1 and SQLite user_version6 must match before reads.
-Only the exact reviewed 42-object marker1/user_version5 integrated schema may
+marker3, foundation marker1 and SQLite user_version7 must match before reads.
+Only the exact reviewed marker1/user_version5 or marker2/user_version6 integrated schemas may
 upgrade atomically; this is not an old-store import or schema repair.
 Missing/extra/weakened schema is rejected, never repaired or reset. Fresh complete
 schema validation and the final marker insert share one exclusive transaction.
+
+### R1-147 direct purpose / v3
+
+`local_pending_direct_reassignments` and `local_direct_reassignment_receipts`
+are separate from legacy clear evidence. Pending consented/write_check/
+write_verified content binds original context, current drawer fields, exact new
+assignment bytes, issued attempt/code, prior hazardous attempts and separate
+verification. Every change has a captured monotonic revision. Direct receipts
+have no FK, retain only old composite/hashes (no coffee details), new member/code/
+attempt proof and exact post-commit setup hash/count for acknowledgment.
+
+Validated legacy-prefix/direct-generation causal vectors cover BOTH purposes;
+legacy receipt generations/JSON remain unchanged. New member, standard outcome,
+old-binding receipt and pending deletion commit atomically. Exact v1→v2→v3 or
+v2→v3 migration shares one outer exclusive transaction and preserves every old
+row. Target hash independently reproduced:
+`3d46cbe6f32dac3b83ad944856cf76643b7c89fe22f6aed6b9f0538ea80222fe`.
+V1/v2 binaries reject v3; no downgrade, reset, repair or old-store import.
 
 ### R1-144 reassignment evidence / recognized upgrade
 

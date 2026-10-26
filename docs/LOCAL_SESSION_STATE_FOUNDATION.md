@@ -1,5 +1,21 @@
 # Local session state foundation
 
+## R1-147 direct reassignment extension
+
+NEW reassignment uses distinct direct consent/write_check/write_verified intent,
+not a clear proof. Fresh same-cup assignment emits existing Smart READY1/empty
+telemetry/preserved settings semantics, followed by separate verification.
+Atomic member/outcome/retirement commit leaves source results/history unchanged.
+Legacy clear journals/receipts below retain their meaning and recovery behavior.
+Combined causal vectors fence both purposes, including resolver/replay/ack races.
+Rejected Check reads retry without a code/write; verified local-save retry is
+save-only. Edited pending details require an explicit same-cup fresh-code rewrite,
+never silent old-name commit or A→B consent transfer. Drawer Close revokes held
+callbacks before dispatch; possibly dispatched work remains read-first recovery.
+No automatic radio action on load/close/replay. Direct diagnostic writes without
+a read remain the existing unguarded test-tool limitation: do not use them during
+pending reassignment. No upload, generic repair or new tasting policy.
+
 ## R1-144 scoped reassignment extension
 
 Owned unlocked never-started supported DRAFT destinations may explicitly stage

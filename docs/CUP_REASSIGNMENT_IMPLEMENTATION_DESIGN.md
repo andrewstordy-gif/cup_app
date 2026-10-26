@@ -1,5 +1,100 @@
 # Cup reassignment — bounded implementation design
 
+## R1-147 implementation checkpoint (supersedes NEW clear-first operations)
+
+PM/reviewer checkpoint, 26 October 2026. New purpose-specific module
+`directCupReassignmentStore.js` and codec `directCupReassignmentCodec.js`; legacy
+clear store/rows/JSON retain their exact meaning. Two additional tables:
+`local_pending_direct_reassignments` (destination PK/FK cascade, unique operation,
+actor/incarnation, unique UID, format1, phase consented/write_check/write_verified,
+canonical content/hash) and `local_direct_reassignment_receipts` (operation PK,
+actor/destination/incarnation/UID, unique UID+direct_generation, old composite/
+binding hash, new sample/code/attempt, format1, canonical receipt/hash; no FK).
+Exact marker3/user_version7/static reviewed manifest. Fresh initializes v3;
+recognized v1→v2→v3 and v2→v3 run under one outer exclusive transaction, validating
+each bundled source and final target before marker commit. All old rows/profile/
+pending work remain byte-identical; partial/unknown stores reject unchanged.
+V2 binaries reject v3 rather than downgrade. No import/reset.
+
+Direct pending canonical keys:
+`version,purpose,revision,destinationId,operationId,actor,incarnation,setupHash,
+removalGeneration,bindingVector,original,oldBindingHash,eligibility,sourceToken,
+consentVersion,drawerDraft,attempt,priorAttempts,verification`.
+Purpose is direct; original is strict UID/kind/state/settings/typed metadata only,
+never clear bytes. Consent phase has null attempt/verification. Attempt binds
+secure attemptId and issued code, exact candidate/save-input, typed new payload,
+wire JSON/UTF8 proof, complete intended NDEF bytes/hash and tag context. Persist
+write_check before native dispatch; it conservatively means dispatch may have
+happened even if capacity/transport later rejects. Prior attempts retain bounded
+secure attempt IDs/codes and exact metadata/message hashes, validated against
+issuer records; they are not new members or free-code capacity. Every transition
+has monotonic revision and required expectedRevision; beforeWrite revalidates
+without silently advancing the returned revision. Write_verified holds separate
+read hash/time and exact attempt/message proof. Wrong-UID observations do not
+revoke target proof; same-UID contradiction revokes via captured revision/hash CAS.
+
+Direct receipt binds purpose/version, root/attempt IDs, actor/destination/issuer,
+setup/removal context, verified revision, UID/family/settings, old composite and
+metadata/binding hashes (not old coffee data), new sample/code/payload/message
+hashes, eligibility/consent, verification hash/time, direct generation and causal
+prior retirement vector. No cleared=true/clear proof. Keep old legacy counters
+unchanged. Combined vector hashes validated legacy receipt IDs/hashes and direct
+receipt IDs/hashes for that UID. Each direct receipt records the exact prefix
+of legacy operation IDs existing before it plus previous direct generations;
+validate prefix/subset/monotonic chain. Thus legacy replay is stale if a later
+direct receipt causally includes that legacy operation, without timestamps or
+reinterpretation of immutable legacy generation. New direct intent compares the
+entire current vector. All retired-binding and pending-UID guards consult both
+purposes; a newer binding is never suppressed by UID alone.
+
+Proposed public APIs (all current predicates, read captures before first await):
+- inspectDirectCupReassignment({destinationId,readResult,isCurrent}) → neutral
+  prompt/opaque observation; no staging/code/write.
+- stageDirectCupReassignment({observation,consentVersion,drawerDraft,isCurrent})
+  → consented safe DTO. Cancel permitted only before any attempt dispatch.
+- getDirectCupReassignment({destinationId,isCurrent}) → validated safe DTO/null;
+  absent read retains R145 unrelated recovery behavior, never setup authority.
+- prepareDirectCupReassignmentWrite({destinationId,operationId,expectedRevision,
+  readResult,drawerDraft,isCurrent}) → staged fresh-code attempt, exact ordinary
+  assignment records/metadataOnly plus beforeWrite and safe pending DTO.
+- inspectDirectCupReassignmentWrite({destinationId,operationId,expectedRevision,
+  readResult,isCurrent}) → exact separate comparison/proof; rejected transport
+  cannot call it or promote proof. Read-only recovery never allocates.
+- commitDirectCupReassignment({destinationId,operationId,expectedRevision,isCurrent})
+  → private exclusive transaction rechecks all current context, issuer/code/wire
+  proof and verified attempt; atomically INSERT exact member/standard code outcome/
+  direct retirement receipt, UPDATE destination count/form lock/aggregate if
+  existing, DELETE direct journal. No public addition-commit then receipt gap.
+Replay/final ack requires same actor/issuer/member/outcome/receipt/vector and
+  cannot resurrect removed membership or falsely acknowledge later setup.
+- cancelDirectCupReassignment and the existing observePendingCupReassignmentRead
+  dispatch by explicit purpose. All scan entrypoints keep their existing observer;
+  no native/database import inside generic NFC transport.
+
+Details uses NEW direct inspector/stager after assigned-cup detection; legacy
+clear recovery APIs/modes stay separate. Consent restores drawer with explicit
+SCAN & WRITE CUP; fresh second scan writes once via unchanged readAndWriteNdefMinimal,
+then existing CheckSampleScreen displays separate verification/read-retry or
+save-only. Explicit rewrite is allowed only for validated original/own attempt,
+never arbitrary changed payload. Pending UID cannot move to another cup. Existing
+normal addition A-to-B and same-destination abandoned retry remain unchanged.
+Three scans on happy path, no hidden clear or automatic radio on recovery.
+
+Implementation refinement: receipt also stores exact postSetupHash and original
+savedSampleCount. Both replay and the second acknowledgment transaction validate
+these plus the live issued-code/standard-outcome/member linkage and entire causal
+vector. A lost acknowledgment does not imply rollback of an already committed
+member. Changed editable drawer fields block old frozen-name commit and require
+explicit same-cup fresh-code rewrite, even if the previous attempt was separately
+verified. Drawer Close immediately revokes held dispatch callbacks; safe idle
+consent can be canceled, while any possibly dispatched attempt is retained.
+
+Exact emitted Smart state is intentional READY1, telemetry empty, validated
+settings preserved. First dispatch requires still-original observed state/settings;
+own-attempt rewrite requires READY and exact settings (no firmware-state rewind).
+No new native API or retry behavior. Existing closed/unknown eligibility policy,
+warning risk, privacy rules and low-level diagnostic-write limit remain.
+
 25 October 2026. DESIGN ONLY; not authorization to edit runtime or write tags.
 Builds on the owner's approved R1-142 decisions. No new product feature beyond
 safe physical reuse. Working app/main remain unchanged.

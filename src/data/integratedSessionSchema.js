@@ -3,11 +3,13 @@
 const {canonicalize,sha256}=require('../features/forms/contract/canonical');
 const MARKER='cup_session_store_schema';
 const V1_MARKER_DDL='CREATE TABLE cup_session_store_schema (version INTEGER PRIMARY KEY CHECK(version=1))';
-const MARKER_DDL='CREATE TABLE cup_session_store_schema (version INTEGER PRIMARY KEY CHECK(version=2))';
+const V2_MARKER_DDL='CREATE TABLE cup_session_store_schema (version INTEGER PRIMARY KEY CHECK(version=2))';
+const MARKER_DDL='CREATE TABLE cup_session_store_schema (version INTEGER PRIMARY KEY CHECK(version=3))';
 // Source c02d20c complete schema, replacing only its experimental marker DDL.
 const V1_SCHEMA_HASH='be8f4ecf5d6b0e934660b7b97730f834e93919e3c559eb5e4b84b63dccc697b8';
 // Independently derived from exact reviewed v1 plus the two reassignment tables.
-const SCHEMA_HASH='9f2b3dc8a68235f571d4ca9f3a0ab8f3ce34d8255659748854fb7008054ef07f';
+const V2_SCHEMA_HASH='9f2b3dc8a68235f571d4ca9f3a0ab8f3ce34d8255659748854fb7008054ef07f';
+const SCHEMA_HASH='3d46cbe6f32dac3b83ad944856cf76643b7c89fe22f6aed6b9f0538ea80222fe';
 const fail=()=>{throw new Error('Session storage is incompatible or incomplete. No database was reset.');};
 function normalizeSql(sql){
  if(typeof sql!=='string')fail();
@@ -29,9 +31,9 @@ function normalizeSql(sql){
 function fingerprint(rows){return sha256(canonicalize(rows.map(row=>({type:row.type,name:row.name,table:row.tbl_name,sql:normalizeSql(row.sql)}))));}
 async function schemaRows(db){return db.getAllAsync("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name");}
 async function userVersion(db){const row=await db.getFirstAsync('PRAGMA user_version;');if(!Number.isSafeInteger(row?.user_version))fail();return row.user_version;}
-async function validate(db,{initialized=true,version=2}={}){
+async function validate(db,{initialized=true,version=3}={}){
  const rows=await schemaRows(db);
- if(![1,2].includes(version)||fingerprint(rows)!==(version===1?V1_SCHEMA_HASH:SCHEMA_HASH)||await userVersion(db)!==(version===1?5:6))fail();
+ if(![1,2,3].includes(version)||fingerprint(rows)!==({1:V1_SCHEMA_HASH,2:V2_SCHEMA_HASH,3:SCHEMA_HASH})[version]||await userVersion(db)!==version+4)fail();
  const marker=await db.getAllAsync(`SELECT version FROM ${MARKER}`);
  if(initialized?marker.length!==1||marker[0].version!==version:marker.length!==0)fail();
  const foundation=await db.getAllAsync('SELECT version FROM local_session_state_schema');
@@ -42,15 +44,20 @@ async function recognize(db){
  if(!rows.length){if(version!==0)fail();return 0;}
  // Existing storage is recognized or rejected before any CREATE/ALTER/backfill.
  if(version===5&&fingerprint(rows)===V1_SCHEMA_HASH){await validate(db,{version:1});return 1;}
- await validate(db);return 2;
+ if(version===6&&fingerprint(rows)===V2_SCHEMA_HASH){await validate(db,{version:2});return 2;}
+ await validate(db);return 3;
 }
-async function upgrade(db){
+async function upgrade(db,version=1){
  // The expected source is bundled, never a marker/hash supplied by the device.
- await validate(db,{version:1});
- await db.execAsync(require('./pendingCupReassignmentStore').SCHEMA);
- await db.execAsync(`DROP TABLE ${MARKER};${MARKER_DDL};PRAGMA user_version=6;`);
- await validate(db,{initialized:false});
- await db.runAsync('INSERT INTO cup_session_store_schema VALUES(2)');
+ await validate(db,{version});
+ if(version===1){
+  await db.execAsync(require('./pendingCupReassignmentStore').SCHEMA);
+  await db.execAsync(`DROP TABLE ${MARKER};${V2_MARKER_DDL};PRAGMA user_version=6;`);
+  await validate(db,{initialized:false,version:2});await db.runAsync('INSERT INTO cup_session_store_schema VALUES(2)');await validate(db,{version:2});
+ }
+ await db.execAsync(require('./directCupReassignmentStore').SCHEMA);
+ await db.execAsync(`DROP TABLE ${MARKER};${MARKER_DDL};PRAGMA user_version=7;`);
+ await validate(db,{initialized:false});await db.runAsync('INSERT INTO cup_session_store_schema VALUES(3)');
  await validate(db);
 }
-module.exports={MARKER,MARKER_DDL,V1_MARKER_DDL,V1_SCHEMA_HASH,SCHEMA_HASH,normalizeSql,fingerprint,validate,recognize,upgrade};
+module.exports={MARKER,MARKER_DDL,V1_MARKER_DDL,V2_MARKER_DDL,V1_SCHEMA_HASH,V2_SCHEMA_HASH,SCHEMA_HASH,normalizeSql,fingerprint,validate,recognize,upgrade};

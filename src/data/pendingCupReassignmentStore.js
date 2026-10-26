@@ -70,6 +70,7 @@ async function writePending(db,value,phase){
  return decodePending(await pendingRow(db,value.destinationId));
 }
 async function assertNoReassignment(db,sessionId=null,physicalUid=null,exceptOperation=null){
+ await require('./directCupReassignmentStore').assertNone(db,sessionId,physicalUid,exceptOperation);
  const rows=await db.getAllAsync('SELECT * FROM local_pending_cup_reassignments');
  for(const row of rows){const pending=decodePending(row);if(pending.operationId!==exceptOperation&&
   (pending.destinationId===sessionId||pending.frozen.uid===physicalUid))fail();}

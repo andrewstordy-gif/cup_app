@@ -220,6 +220,22 @@ No general repair/reset/reassignment or neighbour-tag rewrite is authorized.
 
 ### R1-144 explicit reassignment extension
 
+R1-147 supersedes the following clear-first sequence for NEW explicit operations:
+detect old assignment/read, obtain interruption-warning consent, fresh same-cup
+scan writes complete new assignment directly, separate Check Cup proves it before
+atomic local retirement+addition. NTAG uses the ordinary one-record assignment;
+Smart intentionally writes READY `{s:1}`, telemetry `{}`, preserved validated
+settings and complete new metadata. First dispatch requires exact still-current
+original state/settings; own-attempt rewrites require READY/settings equality,
+so cached state cannot rewind an intervening firmware change. Intent/new code/
+exact message precede dispatch; each explicit write gets a fresh code while read/
+save retries allocate none. New direct journal/receipts never claim clearing.
+Already-pending legacy clear work/receipts below retain their original meaning;
+DRAFT physical removal still uses the unchanged clear/check contract. See
+CUP_REASSIGNMENT_CONTRACT_PROPOSAL's superseding R1-147 section and implementation
+design for recovery/atomicity/combined-generation safeguards. No wire field or
+native transport change; phone conformance remains a later explicit gate.
+
 The preceding clear bytes are reused unchanged after approved explicit consent
 in an owned unlocked never-started supported destination DRAFT. Known qualified
 creator COMPLETE uses the interruption warning; unknown/foreign sources require

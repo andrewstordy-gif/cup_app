@@ -7,6 +7,8 @@ import { assertNoPendingWithDb as assertNoAdditionWithDb, decodePending, pending
 import { assertNoRemoval, pendingRemovalRow, decodeRemoval, writeRemoval, validVerification } from './pendingDraftRemovalStore';
 import { readRemovalTag, freezeClear, compareRemovalRead, hardwareUid } from './draftSampleRemovalCodec';
 import * as reassign from './pendingCupReassignmentStore';
+import * as direct from './directCupReassignmentStore';
+import * as directCodec from './directCupReassignmentCodec';
 import { fail as tastingFail, validActor, contextToken, stateWithDb as tastingStateWithDb,
   assertUnstartedWithDb, startWithDb as startTastingWithDb, hasStartedWithDb,
   persistHistoryWithDb, historyWithDb, revisionWithDb, commitRevisionWithDb, semanticSource, hasScoreOrNote,
@@ -41,8 +43,11 @@ async function assertNoPendingWithDb(db,sessionId) {
 }
 
 async function reassignmentGenerationWithDb(db,uid){return (await reassign.receipts(db)).filter(row=>row.uid===uid).length;}
+async function reassignmentReceiptsWithDb(db){const legacy=await reassign.receipts(db);return {legacy,direct:await direct.receipts(db,legacy)};}
+async function bindingVectorWithDb(db,uid){const rows=await reassignmentReceiptsWithDb(db);return direct.vector(rows.legacy.filter(r=>r.uid===uid),rows.direct.filter(r=>r.uid===uid));}
 async function assertNotRetiredBindingWithDb(db,uid,metadata){
-  if((await reassign.receipts(db)).some(row=>reassign.matchesRetired(row,uid,metadata)))throw new Error('reassignment:retired_binding');
+  const rows=await reassignmentReceiptsWithDb(db);
+  if([...rows.legacy,...rows.direct].some(row=>reassign.matchesRetired(row,uid,metadata)))throw new Error('reassignment:retired_binding');
 }
 
 const SETUP_PERMISSION_ERROR = "Only the local profile that created this session can manage its setup.";
@@ -503,7 +508,7 @@ async function reassignmentDestinationWithDb(db,destinationId,actor){
       await db.getFirstAsync(`SELECT 1 FROM ${table} WHERE session_id=? OR sample_id IN (SELECT id FROM samples WHERE session_id=?) LIMIT 1`,[destinationId,destinationId]))reassign.fail();
   }
   const {updatedAt,...stable}=setup;
-  return {setup,incarnation:issuer.incarnation,setupHash:sha256(canonicalize(stable)),removalGeneration:removals.length};
+  return {setup,incarnation:issuer.incarnation,setupHash:sha256(canonicalize(JSON.parse(JSON.stringify(stable)))),removalGeneration:removals.length};
 }
 async function reassignmentConflictsWithDb(db,destinationId,uid,exceptOperation=null){
   await reassign.assertNoReassignment(db,destinationId,uid,exceptOperation);
@@ -512,7 +517,7 @@ async function reassignmentConflictsWithDb(db,destinationId,uid,exceptOperation=
 }
 async function reassignmentEligibilityWithDb(db,destinationId,read,actor){
   const metadata=validateMetadata(read.metadata);await assertNotRetiredBindingWithDb(db,read.uid,metadata);
-  const receipts=await reassign.receipts(db);
+  const combined=await reassignmentReceiptsWithDb(db),receipts=[...combined.legacy,...combined.direct];
   const rows=await db.getAllAsync(`SELECT DISTINCT sm.id,sm.session_id,sm.cup_uuid,sm.sample_metadata_json,s.local_creator_profile_id AS creator
     FROM samples sm JOIN sessions s ON s.id=sm.session_id LEFT JOIN physical_code_observations o ON o.session_id=sm.session_id AND o.code=sm.sample_code
     WHERE sm.cup_uuid=? OR o.physical_uid=? ORDER BY sm.session_id,sm.id`,[read.uid,read.uid]);
@@ -541,9 +546,9 @@ async function currentReassignmentWithDb(db,destinationId,actor,operationId){
 }
 async function reassignmentMarkerWithDb(db,destinationId){
   const row=await reassign.pendingRow(db,destinationId);if(row)reassign.decodePending(row);
-  const all=await reassign.receipts(db),uids=new Set(all.filter(receipt=>receipt.destinationId===destinationId).map(receipt=>receipt.uid));if(row)uids.add(row.cup_uuid);
+  const combined=await reassignmentReceiptsWithDb(db),all=combined.legacy,uids=new Set([...all,...combined.direct].filter(receipt=>receipt.destinationId===destinationId).map(receipt=>receipt.uid));if(row)uids.add(row.cup_uuid);
   return canonicalize({pending:row?{operationId:row.operation_id,phase:row.phase,hash:row.content_hash}:null,
-    receipts:all.filter(receipt=>uids.has(receipt.uid)).map(receipt=>receipt.operationId)});
+    receipts:all.filter(receipt=>uids.has(receipt.uid)).map(receipt=>receipt.operationId),direct:combined.direct.filter(receipt=>uids.has(receipt.uid)).map(receipt=>receipt.operationId)});
 }
 async function reassignmentTransaction(destinationId,isCurrent,operation){
   if(!validSession(destinationId))reassign.fail();
@@ -638,6 +643,132 @@ export async function beginCupReassignmentClear({destinationId,operationId,expec
   });
   const command=await authorize(expectedRevision);return {...command,beforeWrite:async()=>{await authorize(command.pending.revision,true);}};
 }
+
+// NEW direct reassignment. Legacy clear commands above/below keep their purpose.
+const directObservations=new Map();
+async function directMarkerWithDb(db,id){
+  const row=await direct.row(db,id);if(row)direct.pending(row);
+  const all=await reassignmentReceiptsWithDb(db),uids=new Set([...all.legacy,...all.direct].filter(r=>r.destinationId===id).map(r=>r.uid));if(row)uids.add(row.cup_uuid);
+  return canonicalize({pending:row?{op:row.operation_id,hash:row.content_hash,phase:row.phase}:null,vectors:[...uids].sort().map(uid=>({uid,vector:direct.vector(all.legacy.filter(r=>r.uid===uid),all.direct.filter(r=>r.uid===uid))}))});
+}
+async function directTransaction(id,isCurrent,work,acknowledge=null){
+  if(!validSession(id))direct.fail();const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();let value,after,marker;
+  await db.withExclusiveTransactionAsync(async txn=>{reassignCurrent(isCurrent);await requireSameTastingActor(actor);const base=await reassignmentDestinationWithDb(txn,id,actor);
+    value=await work(txn,actor,base);after=await reassignmentDestinationWithDb(txn,id,actor);marker=await directMarkerWithDb(txn,id);await requireSameTastingActor(actor);reassignCurrent(isCurrent);});
+  await db.withExclusiveTransactionAsync(async txn=>{reassignCurrent(isCurrent);await requireSameTastingActor(actor);const current=await reassignmentDestinationWithDb(txn,id,actor);
+    if(current.incarnation!==after.incarnation||current.setupHash!==after.setupHash||current.removalGeneration!==after.removalGeneration||await directMarkerWithDb(txn,id)!==marker)direct.fail();if(acknowledge)await acknowledge(txn,actor,current,value);await requireSameTastingActor(actor);reassignCurrent(isCurrent);});
+  await requireSameTastingActor(actor);reassignCurrent(isCurrent);return value;
+}
+async function currentDirectWithDb(db,id,actor,operationId){
+  const p=direct.pending(await direct.row(db,id));if(!p||p.actor!==actor||p.operationId!==operationId)direct.fail();
+  const base=await reassignmentDestinationWithDb(db,id,actor);
+  if(base.incarnation!==p.incarnation||base.setupHash!==p.setupHash||base.removalGeneration!==p.removalGeneration||await bindingVectorWithDb(db,p.original.uid)!==p.bindingVector)direct.fail();
+  await reassignmentConflictsWithDb(db,id,p.original.uid,operationId);
+  for(const attempt of [...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code}]:[])]){
+    const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[id,attempt.code]);
+    if(issued?.operation_id!==attempt.attemptId||await db.getFirstAsync('SELECT operation_id FROM sample_code_commit_outcomes WHERE session_id=? AND operation_id=?',[id,attempt.attemptId]))direct.fail();
+  }
+  if(p.attempt){const a=p.attempt,c=a.candidate,input=a.saveInput;
+    if(c.cuppingForm!==base.setup.cuppingForm||canonicalize(input.samples.slice(0,-1))!==canonicalize(base.setup.samples.map(pendingSampleFields))||canonicalize(input)!==canonicalize(pendingSaveInput({...base.setup,sessionUUID:id,existingSessionId:id,samplesInSession:base.setup.samples.length+1,status:'new',samples:[...base.setup.samples.map(pendingSampleFields),c],intent:'setup'})))direct.fail();
+    const expected=buildCompactSessionMetadata({...c,sessionUUID:id,sessionName:base.setup.sessionName,sessionType:base.setup.sessionType,sessionDate:base.setup.sessionDate,samplesInSession:base.setup.samples.length+1});
+    if(!metadataMatches(expected,a.frozen.payload)||await db.getFirstAsync('SELECT id FROM samples WHERE id=? OR (session_id=? AND (sample_code=? OR cup_uuid=?))',[c.id,id,c.sampleCode,c.cupUUID]))direct.fail();
+  }
+  return {pending:p,base};
+}
+export async function inspectDirectCupReassignment({destinationId,readResult,isCurrent}){
+  const original=directCodec.original(directCodec.read(readResult));
+  return directTransaction(destinationId,isCurrent,async(db,actor,base)=>{
+    await reassignmentConflictsWithDb(db,destinationId,original.uid);
+    await assertNotRetiredBindingWithDb(db,original.uid,original.metadata);
+    if(original.metadata.u===destinationId&&await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[destinationId,original.metadata.z])&&!await db.getFirstAsync('SELECT id FROM samples WHERE session_id=? AND sample_code=?',[destinationId,original.metadata.z]))return null;
+    const eligibility=await reassignmentEligibilityWithDb(db,destinationId,original,actor),observation=generateId();
+    const captured={version:1,purpose:'direct',destinationId,actor,incarnation:base.incarnation,setupHash:base.setupHash,removalGeneration:base.removalGeneration,bindingVector:await bindingVectorWithDb(db,original.uid),original,oldBindingHash:directCodec.bindingHash(original),...eligibility};
+    if(directObservations.size>=32)directObservations.delete(directObservations.keys().next().value);directObservations.set(observation,canonicalize(captured));
+    return {observation,title:'Reassign Cup?',message:eligibility.eligibility==='known_creator_complete'?'Replace its previous assignment? Other tasters may still be using it.':"We can't check its previous session. Reassigning may interrupt it."};
+  });
+}
+export async function stageDirectCupReassignment({observation,consentVersion,drawerDraft,isCurrent}){
+  if(consentVersion!==1||!directObservations.has(observation))direct.fail();const captured=JSON.parse(directObservations.get(observation)),draft=JSON.parse(canonicalize(drawerDraft));direct.drawer(draft);
+  return directTransaction(captured.destinationId,isCurrent,async(db,actor,base)=>{
+    if(actor!==captured.actor||base.incarnation!==captured.incarnation||base.setupHash!==captured.setupHash||base.removalGeneration!==captured.removalGeneration||await bindingVectorWithDb(db,captured.original.uid)!==captured.bindingVector)direct.fail();
+    const prior=direct.pending(await direct.row(db,captured.destinationId));
+    if(prior){await currentDirectWithDb(db,captured.destinationId,actor,prior.operationId);if(prior.phase!=='consented'||prior.oldBindingHash!==captured.oldBindingHash||canonicalize(prior.drawerDraft)!==canonicalize(draft))direct.fail();return direct.safe(prior);}
+    await reassignmentConflictsWithDb(db,captured.destinationId,captured.original.uid);const eligibility=await reassignmentEligibilityWithDb(db,captured.destinationId,captured.original,actor);
+    if(eligibility.eligibility!==captured.eligibility||eligibility.sourceToken!==captured.sourceToken)direct.fail();
+    return direct.safe(await direct.write(db,{...captured,operationId:generateId(),consentVersion,drawerDraft:draft,attempt:null,priorAttempts:[],verification:null},'consented'));
+  });
+}
+export async function getDirectCupReassignment({destinationId,isCurrent=()=>true}){
+  if(!validSession(destinationId))direct.fail();const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();let captured,row;
+  const identity=async txn=>{reassignCurrent(isCurrent);await requireSameTastingActor(actor);const s=await txn.getFirstAsync('SELECT * FROM sessions WHERE id=?',[destinationId]),i=await txn.getFirstAsync('SELECT * FROM sample_code_issuers WHERE session_id=?',[destinationId]);if(s?.local_creator_profile_id!==actor||s?.session_uuid!==destinationId||i?.actor_id!==actor||i.profile!==103||!validActor(i.incarnation))direct.fail();return canonicalize({session:{...s},issuer:{...i}});};
+  await db.withExclusiveTransactionAsync(async txn=>{captured=await identity(txn);row=await direct.row(txn,destinationId);await requireSameTastingActor(actor);reassignCurrent(isCurrent);});
+  if(!row){await db.withExclusiveTransactionAsync(async txn=>{if(await identity(txn)!==captured||await direct.row(txn,destinationId))direct.fail();await requireSameTastingActor(actor);reassignCurrent(isCurrent);});await requireSameTastingActor(actor);reassignCurrent(isCurrent);return null;}
+  return directTransaction(destinationId,isCurrent,async(txn,currentActor)=>{const latest=await direct.row(txn,destinationId);if(await identity(txn)!==captured||latest?.operation_id!==row.operation_id||latest.content_hash!==row.content_hash||latest.phase!==row.phase)direct.fail();return direct.safe((await currentDirectWithDb(txn,destinationId,currentActor,row.operation_id)).pending);});
+}
+export async function prepareDirectCupReassignmentWrite({destinationId,operationId,expectedRevision,readResult,drawerDraft,isCurrent}){
+  const read=directCodec.read(readResult),draft=JSON.parse(canonicalize(drawerDraft));direct.drawer(draft);
+  const prepared=await directTransaction(destinationId,isCurrent,async(db,actor)=>{
+    const {pending:p,base}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==expectedRevision)direct.fail();
+    if(p.phase==='consented'?!metadataMatches(read.metadata,p.original.metadata)||!directCodec.sameFamily(p.original,read)||read.state!==p.original.state:!directCodec.allowedRewrite(p.original,[...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code,metadataHash:directCodec.metadataHash(p.attempt.frozen.payload),bytesHash:p.attempt.frozen.bytesHash}]:[])],read))direct.fail();
+    const eligibility=await reassignmentEligibilityWithDb(db,destinationId,p.original,actor);if(eligibility.eligibility!==p.eligibility||eligibility.sourceToken!==p.sourceToken)direct.fail();
+    const attemptId=generateId(),code=await reserveWithDb(db,destinationId,actor,attemptId),candidate=pendingSampleFields({id:generateId(),cupUUID:p.original.uid,cupNumber:draft.cupNumber,cuppingForm:base.setup.cuppingForm,cuppingMode:draft.cuppingMode,sampleNumber:base.setup.samples.length+1,sampleCode:code,coffeeNameOrigin:draft.coffeeNameOrigin.trim(),process:String(normalizeProcessKey(draft.process))});
+    if(candidate.cuppingForm===2&&candidate.cuppingMode!=='open')direct.fail();
+    const saveInput=pendingSaveInput({...base.setup,sessionUUID:destinationId,existingSessionId:destinationId,samplesInSession:base.setup.samples.length+1,status:'new',samples:[...base.setup.samples.map(pendingSampleFields),candidate],intent:'setup'});
+    const payload=buildCompactSessionMetadata({...candidate,sessionUUID:destinationId,sessionName:base.setup.sessionName,sessionType:base.setup.sessionType,sessionDate:base.setup.sessionDate,samplesInSession:base.setup.samples.length+1}),frozen=directCodec.freezeAssignment(p.original,payload);
+    const priorAttempts=[...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code,metadataHash:directCodec.metadataHash(p.attempt.frozen.payload),bytesHash:p.attempt.frozen.bytesHash}]:[])];
+    return direct.write(db,{...p,drawerDraft:draft,attempt:{attemptId,code,candidate,saveInput,frozen},priorAttempts,verification:null},'write_check');
+  });
+  const revision=prepared.revision,attemptId=prepared.attempt.attemptId,bytesHash=prepared.attempt.frozen.bytesHash;
+  const beforeWrite=()=>directTransaction(destinationId,isCurrent,async(db,actor)=>{const {pending:p}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==revision||p.phase!=='write_check'||p.attempt.attemptId!==attemptId||p.attempt.frozen.bytesHash!==bytesHash)direct.fail();const eligible=await reassignmentEligibilityWithDb(db,destinationId,p.original,actor);if(eligible.sourceToken!==p.sourceToken||eligible.eligibility!==p.eligibility)direct.fail();return true;});
+  const freeze=value=>{if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
+  return {pending:direct.safe(prepared),frozen:freeze(prepared.attempt.frozen),records:freeze({text1:{state:1},text2:{},text3:prepared.original.settings||{},text4:prepared.attempt.frozen.payload}),metadataOnly:prepared.original.kind==='ntag',beforeWrite};
+}
+export async function inspectDirectCupReassignmentWrite({destinationId,operationId,expectedRevision,readResult,isCurrent}){
+  let read=null,uid=null;try{uid=hardwareUid(readResult?.tag);read=directCodec.read(readResult);}catch{}
+  return directTransaction(destinationId,isCurrent,async(db,actor)=>{let {pending:p}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==expectedRevision||p.phase==='consented')direct.fail();
+    let disposition=read?directCodec.compare(p.original,p.attempt,read):'mismatch';
+    if(disposition==='mismatch'&&read&&directCodec.allowedRewrite(p.original,p.priorAttempts,read))disposition='own_attempt';
+    if(disposition==='written')p=await direct.write(db,{...p,verification:{readHash:sha256(canonicalize(read)),at:new Date().toISOString(),bytesHash:p.attempt.frozen.bytesHash,attemptId:p.attempt.attemptId}},'write_verified');
+    else if(uid===p.original.uid&&p.phase==='write_verified')p=await direct.write(db,{...p,verification:null},'write_check');
+    return {pending:direct.safe(p),disposition};});
+}
+async function observePendingDirectRead(readResult,{isReadCurrent}){
+  let uid,read=null;try{uid=hardwareUid(readResult?.tag);}catch{return false;}try{read=directCodec.read(readResult);}catch{}
+  const db=await getLocalDatabase(),row=await db.getFirstAsync('SELECT * FROM local_pending_direct_reassignments WHERE cup_uuid=?',[uid]);if(!row)return false;const captured=direct.pending(row);
+  await directTransaction(captured.destinationId,isReadCurrent,async(txn,actor)=>{const currentRow=await direct.row(txn,captured.destinationId);if(currentRow?.operation_id!==row.operation_id||currentRow.content_hash!==row.content_hash||currentRow.phase!==row.phase)direct.fail();const {pending:p}=await currentDirectWithDb(txn,captured.destinationId,actor,captured.operationId);reassignCurrent(isReadCurrent);if(p.phase==='write_verified'&&(!read||directCodec.compare(p.original,p.attempt,read)!=='written'))await direct.write(txn,{...p,verification:null},'write_check');reassignCurrent(isReadCurrent);});return true;
+}
+export async function cancelDirectCupReassignment({destinationId,operationId,expectedRevision,isCurrent}){
+  return directTransaction(destinationId,isCurrent,async(db,actor)=>{const {pending:p}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==expectedRevision||p.phase!=='consented')direct.fail();await db.runAsync('DELETE FROM local_pending_direct_reassignments WHERE destination_session_id=? AND operation_id=?',[destinationId,operationId]);return {cancelled:true};});
+}
+export async function commitDirectCupReassignment({destinationId,operationId,expectedRevision,isCurrent}){
+  const acknowledge=async(db,actor,base)=>{
+    const all=await reassignmentReceiptsWithDb(db),prior=all.direct.find(r=>r.operationId===operationId);if(!prior)direct.fail();
+    const member=await db.getFirstAsync('SELECT * FROM samples WHERE id=? AND session_id=?',[prior.sampleId,destinationId]);
+    const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[destinationId,prior.code]),outcome=await db.getFirstAsync('SELECT actor_id,outcome_json FROM sample_code_commit_outcomes WHERE session_id=? AND operation_id=?',[destinationId,prior.attemptId]);let saved;try{saved=JSON.parse(outcome?.outcome_json);}catch{direct.fail();}
+    const expectedOutcome={sessionId:destinationId,status:'new',savedSampleCount:prior.savedSampleCount,issuerIncarnation:prior.incarnation,removalGeneration:prior.removalGeneration};
+    const expectedVector=direct.vector(all.legacy.filter(r=>r.uid===prior.uid).slice(0,prior.priorLegacyOps.length),all.direct.filter(r=>r.uid===prior.uid).slice(0,prior.generation));
+    if(prior.actor!==actor||prior.incarnation!==base.incarnation||prior.verifiedRevision!==expectedRevision||prior.removalGeneration!==base.removalGeneration||prior.postSetupHash!==base.setupHash||prior.savedSampleCount!==base.setup.samples.length||issued?.operation_id!==prior.attemptId||outcome?.actor_id!==actor||canonicalize(saved)!==canonicalize(expectedOutcome)||await bindingVectorWithDb(db,prior.uid)!==expectedVector||!member||member.cup_uuid!==prior.uid||member.sample_code!==prior.code||directCodec.metadataHash(parseMetadata(member.sample_metadata_json))!==prior.newMetadataHash||await direct.row(db,destinationId))direct.fail();
+    return {sessionId:destinationId,status:'new',sampleId:prior.sampleId,sampleCode:prior.code,attemptId:prior.attemptId,savedSampleCount:prior.savedSampleCount};
+  };
+  return directTransaction(destinationId,isCurrent,async(db,actor,base)=>{
+    const all=await reassignmentReceiptsWithDb(db),prior=all.direct.find(r=>r.operationId===operationId);
+    if(prior){const member=await db.getFirstAsync('SELECT * FROM samples WHERE id=? AND session_id=?',[prior.sampleId,destinationId]);
+      const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[destinationId,prior.code]),outcome=await db.getFirstAsync('SELECT actor_id,outcome_json FROM sample_code_commit_outcomes WHERE session_id=? AND operation_id=?',[destinationId,prior.attemptId]);let saved;try{saved=JSON.parse(outcome?.outcome_json);}catch{direct.fail();}
+      const expectedOutcome={sessionId:destinationId,status:'new',savedSampleCount:prior.savedSampleCount,issuerIncarnation:prior.incarnation,removalGeneration:prior.removalGeneration};
+      const expectedVector=direct.vector(all.legacy.filter(r=>r.uid===prior.uid).slice(0,prior.priorLegacyOps.length),all.direct.filter(r=>r.uid===prior.uid).slice(0,prior.generation));
+      if(prior.actor!==actor||prior.incarnation!==base.incarnation||prior.verifiedRevision!==expectedRevision||prior.removalGeneration!==base.removalGeneration||prior.postSetupHash!==base.setupHash||prior.savedSampleCount!==base.setup.samples.length||issued?.operation_id!==prior.attemptId||outcome?.actor_id!==actor||canonicalize(saved)!==canonicalize(expectedOutcome)||await bindingVectorWithDb(db,prior.uid)!==expectedVector||!member||member.cup_uuid!==prior.uid||member.sample_code!==prior.code||directCodec.metadataHash(parseMetadata(member.sample_metadata_json))!==prior.newMetadataHash||await direct.row(db,destinationId))direct.fail();return {sessionId:destinationId,status:'new',sampleId:prior.sampleId,sampleCode:prior.code,attemptId:prior.attemptId,savedSampleCount:prior.savedSampleCount};}
+    const {pending:p}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==expectedRevision||p.phase!=='write_verified')direct.fail();const a=p.attempt,c=a.candidate,now=new Date().toISOString();
+    const receipt={version:1,purpose:'direct',operationId,actor,destinationId,incarnation:p.incarnation,setupHash:p.setupHash,removalGeneration:p.removalGeneration,verifiedRevision:p.revision,uid:p.original.uid,kind:p.original.kind,settings:p.original.settings,oldSession:p.original.metadata.u,oldCode:p.original.metadata.z,oldMetadataHash:directCodec.metadataHash(p.original.metadata),oldBindingHash:p.oldBindingHash,sampleId:c.id,code:c.sampleCode,attemptId:a.attemptId,newMetadataHash:directCodec.metadataHash(a.frozen.payload),bytesHash:a.frozen.bytesHash,eligibility:p.eligibility,consentVersion:1,readHash:p.verification.readHash,at:p.verification.at,generation:all.direct.filter(r=>r.uid===p.original.uid).length+1,priorLegacyOps:all.legacy.filter(r=>r.uid===p.original.uid).map(r=>r.operationId),priorVector:p.bindingVector};
+    await db.runAsync('INSERT INTO samples(id,session_id,cup_uuid,cup_number,cupping_form,cupping_mode,sample_number,sample_code,sample_metadata_json,coffee_name_origin,process,position_index,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[c.id,destinationId,c.cupUUID,c.cupNumber,c.cuppingForm,c.cuppingMode,c.sampleNumber,c.sampleCode,JSON.stringify(validateMetadata(a.frozen.payload)),c.coffeeNameOrigin,c.process,base.setup.samples.length,now,now]);
+    await db.runAsync("UPDATE sessions SET samples_in_session=?,form_locked=1,status='new',updated_at=? WHERE id=?",[base.setup.samples.length+1,now,destinationId]);
+    await db.runAsync('INSERT INTO sample_code_commit_outcomes(session_id,operation_id,actor_id,outcome_json) VALUES(?,?,?,?)',[destinationId,a.attemptId,actor,JSON.stringify({sessionId:destinationId,status:'new',savedSampleCount:base.setup.samples.length+1,issuerIncarnation:p.incarnation,removalGeneration:p.removalGeneration})]);
+    if(await db.getFirstAsync('SELECT 1 FROM local_tasting_revisions WHERE session_id=? AND local_profile_id=?',[destinationId,actor]))await commitRevisionWithDb(db,destinationId,actor);
+    receipt.postSetupHash=(await reassignmentDestinationWithDb(db,destinationId,actor)).setupHash;receipt.savedSampleCount=base.setup.samples.length+1;
+    const json=canonicalize(receipt);await db.runAsync('INSERT INTO local_direct_reassignment_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)',[operationId,actor,destinationId,p.incarnation,p.original.uid,receipt.generation,receipt.oldSession,receipt.oldCode,p.oldBindingHash,c.id,c.sampleCode,a.attemptId,json,sha256(json)]);
+    await db.runAsync('DELETE FROM local_pending_direct_reassignments WHERE destination_session_id=? AND operation_id=?',[destinationId,operationId]);
+    return {sessionId:destinationId,status:'new',sampleId:c.id,sampleCode:c.sampleCode,attemptId:a.attemptId,savedSampleCount:base.setup.samples.length+1};
+  },acknowledge);
+}
 export async function inspectCupReassignmentClear({destinationId,operationId,expectedRevision,readResult,isCurrent}){
   let read=null,uid=null;try{uid=hardwareUid(readResult?.tag);read=readRemovalTag(readResult);}catch{}
   return reassignmentTransaction(destinationId,isCurrent,async(db,actor)=>{
@@ -650,6 +781,7 @@ export async function inspectCupReassignmentClear({destinationId,operationId,exp
   });
 }
 export async function observePendingCupReassignmentRead(readResult,{isReadCurrent}={}){
+  if(await observePendingDirectRead(readResult,{isReadCurrent}))return true;
   let uid;try{uid=hardwareUid(readResult?.tag);}catch{return false;}
   let read=null;try{read=readRemovalTag(readResult);}catch{}
   const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();
@@ -668,7 +800,7 @@ export async function observePendingCupReassignmentRead(readResult,{isReadCurren
 export async function commitCupReassignmentClear({destinationId,operationId,expectedRevision,isCurrent}){
   return reassignmentTransaction(destinationId,isCurrent,async(db,actor,base)=>{
     const receipts=await reassign.receipts(db),prior=receipts.find(receipt=>receipt.operationId===operationId);
-    if(prior){if(prior.verifiedRevision!==expectedRevision||prior.actor!==actor||prior.destinationId!==destinationId||prior.incarnation!==base.incarnation||prior.setupHash!==base.setupHash||prior.removalGeneration!==base.removalGeneration||
+    if(prior){if((await reassignmentReceiptsWithDb(db)).direct.some(receipt=>receipt.uid===prior.uid&&receipt.priorLegacyOps.includes(prior.operationId))||prior.verifiedRevision!==expectedRevision||prior.actor!==actor||prior.destinationId!==destinationId||prior.incarnation!==base.incarnation||prior.setupHash!==base.setupHash||prior.removalGeneration!==base.removalGeneration||
       receipts.filter(receipt=>receipt.uid===prior.uid).length!==prior.generation||await reassign.pendingRow(db,destinationId))reassign.fail();return {destinationId,operationId,cleared:true};}
     const pending=await currentReassignmentWithDb(db,destinationId,actor,operationId);if(pending.revision!==expectedRevision||pending.phase!=='clear_verified')reassign.fail();
     const {metadata,uid,...clear}=pending.frozen;
@@ -1705,7 +1837,7 @@ export async function findPendingSessionByCupUUID({ cupUUID, excludeSessionId } 
   const excludedId = cleanString(excludeSessionId);
 
   await reassign.assertNoReassignment(db,null,normalizedCupUUID);
-  const retired=await reassign.receipts(db);
+  const combined=await reassignmentReceiptsWithDb(db),retired=[...combined.legacy,...combined.direct];
   const rows=await db.getAllAsync(`SELECT s.id,s.session_uuid AS sessionUUID,s.session_display_id AS sessionDisplayId,
     s.session_name AS sessionName,s.session_type AS sessionType,s.status,s.session_date AS sessionDate,s.updated_at AS updatedAt,
     sm.sample_metadata_json AS metadataJson FROM samples sm JOIN sessions s ON sm.session_id=s.id
@@ -2602,7 +2734,7 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=nul
   await db.withExclusiveTransactionAsync(async txn=>{
     assertScanCurrent();await requireSameTastingActor(actor);
     await reassign.assertNoReassignment(txn,null,target);await assertNotRetiredBindingWithDb(txn,target,observed);
-    bindingGeneration=await reassignmentGenerationWithDb(txn,target);
+    bindingGeneration=await bindingVectorWithDb(txn,target);
     if(await txn.getFirstAsync('SELECT session_id FROM local_pending_draft_removals WHERE cup_uuid=?',[target]))throw new Error('removal:unfinished');
     const existing=await findSessionBySessionUUIDWithDb(txn,observed.u);
     const enrollment=existing?await txn.getFirstAsync('SELECT incarnation FROM local_participant_tasting_enrollments WHERE session_id=?',[existing.id]):null;
@@ -2611,12 +2743,12 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=nul
     observedContext=existing?canonicalize({id:existing.id,incarnation:enrollment?.incarnation??null,revision:revision.revision,hash:revision.hash,selection:selection?.contextToken??null}):null;
     await requireSameTastingActor(actor);assertScanCurrent();
     await reassign.assertNoReassignment(txn,null,target);await assertNotRetiredBindingWithDb(txn,target,observed);
-    if(await reassignmentGenerationWithDb(txn,target)!==bindingGeneration)tastingFail('tasting:stale_membership');
+    if(await bindingVectorWithDb(txn,target)!==bindingGeneration)tastingFail('tasting:stale_membership');
   });
   await db.withExclusiveTransactionAsync(async txn=>{
     await requireSameTastingActor(actor);assertScanCurrent();
     await reassign.assertNoReassignment(txn,null,target);await assertNotRetiredBindingWithDb(txn,target,observed);
-    if(await reassignmentGenerationWithDb(txn,target)!==bindingGeneration)tastingFail('tasting:stale_membership');
+    if(await bindingVectorWithDb(txn,target)!==bindingGeneration)tastingFail('tasting:stale_membership');
     if(await txn.getFirstAsync('SELECT session_id FROM local_pending_draft_removals WHERE cup_uuid=?',[target]))throw new Error('removal:unfinished');
     let session=await findSessionBySessionUUIDWithDb(txn,observed.u);
     if(observedContext){
@@ -2687,7 +2819,7 @@ async function resolveCodeSampleFromMetadata({cupUUID,metadata,isScanCurrent=nul
   });
   await requireSameTastingActor(actor);
   await reassign.assertNoReassignment(db,null,target);await assertNotRetiredBindingWithDb(db,target,observed);
-  if(await reassignmentGenerationWithDb(db,target)!==bindingGeneration)tastingFail('tasting:ack_changed');
+  if(await bindingVectorWithDb(db,target)!==bindingGeneration)tastingFail('tasting:ack_changed');
   const present=await db.getFirstAsync('SELECT sample_code AS code FROM samples WHERE session_id=? AND id=?',[output.sessionId,output.sampleId]);
   if(present?.code!==observed.z)tastingFail('tasting:ack_changed');
   if(ackToken){const current=await getLocalTastingPresentation(output.sessionId);if(current.tasting.contextToken!==ackToken||!current.session.samples.some(sample=>sample.id===output.sampleId&&sample.tastingActive===true))tastingFail('tasting:ack_changed');}
