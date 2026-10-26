@@ -33,8 +33,9 @@ attempt proof and exact post-commit setup hash/count for acknowledgment.
 Validated legacy-prefix/direct-generation causal vectors cover BOTH purposes;
 legacy receipt generations/JSON remain unchanged. New member, standard outcome,
 old-binding receipt and pending deletion commit atomically. Exact v1→v2→v3 or
-v2→v3 migration shares one outer exclusive transaction and preserves every old
-row. Target hash independently reproduced:
+v2→v3 migration shares one outer exclusive transaction and preserves every legacy
+business, pending-operation and receipt row and the profile; schema markers and
+user_version intentionally change. Target hash independently reproduced:
 `3d46cbe6f32dac3b83ad944856cf76643b7c89fe22f6aed6b9f0538ea80222fe`.
 V1/v2 binaries reject v3; no downgrade, reset, repair or old-store import.
 

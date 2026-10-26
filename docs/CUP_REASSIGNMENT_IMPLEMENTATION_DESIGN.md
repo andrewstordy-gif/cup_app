@@ -12,8 +12,9 @@ actor/destination/incarnation/UID, unique UID+direct_generation, old composite/
 binding hash, new sample/code/attempt, format1, canonical receipt/hash; no FK).
 Exact marker3/user_version7/static reviewed manifest. Fresh initializes v3;
 recognized v1→v2→v3 and v2→v3 run under one outer exclusive transaction, validating
-each bundled source and final target before marker commit. All old rows/profile/
-pending work remain byte-identical; partial/unknown stores reject unchanged.
+each bundled source and final target before marker commit. Legacy business,
+pending-operation and receipt rows and the profile remain unchanged; schema
+markers/user_version intentionally advance. Partial/unknown stores reject unchanged.
 V2 binaries reject v3 rather than downgrade. No import/reset.
 
 Direct pending canonical keys:
