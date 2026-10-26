@@ -596,8 +596,33 @@ export async function stageCupReassignment({observation,consentVersion,drawerDra
   });
 }
 export async function getCupReassignment({destinationId,isCurrent=()=>true}){
+  if(!validSession(destinationId))reassign.fail();
+  const db=await getLocalDatabase(),actor=await getLocalProfileIdentity();let captured,row;
+  const identity=async txn=>{
+    reassignCurrent(isCurrent);await requireSameTastingActor(actor);
+    const session=await txn.getFirstAsync('SELECT * FROM sessions WHERE id=?',[destinationId]);
+    const issuer=await txn.getFirstAsync('SELECT * FROM sample_code_issuers WHERE session_id=?',[destinationId]);
+    if(!validActor(actor)||session?.local_creator_profile_id!==actor||session?.session_uuid!==destinationId||
+      issuer?.actor_id!==actor||issuer.profile!==103||!validActor(issuer.incarnation))reassign.fail();
+    return canonicalize({session:{...session},issuer:{...issuer}});
+  };
+  // An absent unrelated journal is a recovery read, not authorization to write
+  // a reassignment. Do not make older addition/removal recovery pass its guards.
+  await db.withExclusiveTransactionAsync(async txn=>{
+    captured=await identity(txn);row=await reassign.pendingRow(txn,destinationId);
+    await requireSameTastingActor(actor);reassignCurrent(isCurrent);
+  });
+  if(!row){
+    await db.withExclusiveTransactionAsync(async txn=>{
+      if(await identity(txn)!==captured||await reassign.pendingRow(txn,destinationId))reassign.fail();
+      await requireSameTastingActor(actor);reassignCurrent(isCurrent);
+    });
+    await requireSameTastingActor(actor);reassignCurrent(isCurrent);return null;
+  }
   return reassignmentTransaction(destinationId,isCurrent,async(db,actor)=>{
-    const row=await reassign.pendingRow(db,destinationId);if(!row)return null;
+    if(await identity(db)!==captured)reassign.fail();
+    const current=await reassign.pendingRow(db,destinationId);
+    if(!current||current.operation_id!==row.operation_id||current.content_hash!==row.content_hash||current.phase!==row.phase)reassign.fail();
     return reassign.publicPending(await currentReassignmentWithDb(db,destinationId,actor,row.operation_id));
   });
 }
