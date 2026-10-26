@@ -124,7 +124,8 @@ For NTAG cups:
 
 - The app writes session/sample metadata only.
 - Metadata is stored as a single NDEF text record.
-- The physical NFC tag id is used as the sample identifier when no smart-cup UUID exists.
+- The hardware tag ID identifies the physical cup. Assigned sample identity is
+  the session reference plus its two-character sample code, not the hardware ID.
 - The cupping screen opens with all scoring fields available immediately.
 - Temperature and brewing state are unavailable.
 
@@ -193,8 +194,11 @@ When adding a sample:
 
 - Smart cups are written as 4-record smart payloads.
 - NTAG cups are written as metadata-only payloads.
-- The app stores the sample in the local database.
-- Verification compares the physical cup/tag and compact metadata against the stored sample.
+- The app durably stages the intended assignment before writing; it is not yet
+  an added session sample.
+- A separate scan verifies the same hardware cup/tag and complete intended
+  assignment (plus the required Smart Cup state/settings). Only successful
+  verification and atomic local commit add the sample to the session.
 
 ### Brewing
 

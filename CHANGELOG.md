@@ -8,6 +8,24 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
+## Pending integration — 2026-10-26 — Codex PM/Release Manager
+
+- R1-149 prepares the reviewed local session workflow for PR review, **not yet
+  merged or released**: both forms, per-session two-character codes, verified
+  assignment/recovery, explicit Save/Lock, creator/participant grey-card tasting,
+  scoped removal, completion/edit reopening and current-revision Blind display.
+- Includes verified Quick Cupping handoff, DRAFT scan/clear/check removal and
+  explicit warned cup reassignment with a fresh write scan and separate check.
+  Cancelling retains editable details; a write callback alone never adds a sample.
+- Integrated sessions use `cup_sessions_v1.db`, preserving the main profile and
+  recognized integrated v1/v2 data through the reviewed transactional v3 upgrade.
+  Old main/experiment stores remain untouched and are not imported. This is
+  ordinary installation-local SQLite, not encrypted production storage.
+- Upload remains disconnected/disabled. No backend, queue, old-tag conversion,
+  generic repair or pilot-readiness claim. See
+  [the final integration audit](docs/R1_149_FINAL_INTEGRATION_AUDIT.md) for exact
+  validation, inherited test failures, device evidence and remaining gates.
+
 ## [2026-10-09] — Codex Release Manager
 
 - R1-011 versions the pure SCA Legacy form contract to accept 0.00–10.00 quality marks in 0.25 steps, while distinguishing Cup App's extension from the 2009 protocol's printed 6.00–9.75 table. The active `NDEF4.f=2` mapping now pins an immutable Legacy v2 definition; old v1 responses remain untouched and read-only. This changes no app binary or mobile UI. Versionless `f=2` tags cannot yet establish a safe account-free cold join; R1-010 must integrate and verify the v2 contract before phone testing or Release 1 claims. Merged through protected [PR #19](https://github.com/andrewstordy-gif/cup_app/pull/19) at `80725da170db00497769cabba6c4545994d39620`; exact integrated `main` validation passed. No build was distributed.

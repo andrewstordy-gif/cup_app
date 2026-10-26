@@ -874,12 +874,16 @@ imports, repairs, resets or aliases either historical session database. The main
 the existing secure initialization and invalid identity fails closed. Experiment
 profile identity and old ownership are never imported.
 
-The complete bundled non-internal schema fingerprint, user_version 5, integrated
-marker version 1 and foundation marker version 1 are required. A truly empty
-store is initialized atomically with its integrated marker written last; partial,
-unknown or weakened existing schemas fail closed without repair. See
-`DATABASE_SCHEMA.md` and `src/data/integratedSessionSchema.js` for this bounded
-manifest, not a generic forward-migration mechanism.
+The current complete bundled non-internal schema fingerprint, user_version 7,
+integrated marker version 3 and foundation marker version 1 are required. Only
+the exact reviewed integrated v1 (marker1/user_version5) or v2
+(marker2/user_version6) schema may upgrade to v3, in one exclusive transaction
+preserving business and recovery rows. An older binary rejects the newer store;
+there is no downgrade/reset or prototype import. A truly empty store initializes
+atomically with its integrated marker written last; partial, unknown or weakened
+existing schemas fail closed without repair. See `DATABASE_SCHEMA.md` and
+`src/data/integratedSessionSchema.js` for the exact manifests and recognized
+upgrade paths, not a generic forward-migration mechanism.
 
 For this enrolled local policy, sample identity is the session reference plus
 immutable two-character code, never the ordinal/count hint. Proven participant
