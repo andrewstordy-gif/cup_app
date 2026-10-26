@@ -1267,10 +1267,14 @@ export function CuppingSessionDetailsScreen({
     }
   };
 
-  const handleVerifySample = async (sampleId) => {
+  const handleVerifySample = async (sampleId, isCheckCurrent = () => true) => {
     const setupEpoch=setupEpochRef.current;
-    verifiedObservationRef.current=null;
     const pending = pendingAdditionRef.current?.candidate.id === sampleId ? pendingAdditionRef.current : null;
+    const current=()=>setupEpoch===setupEpochRef.current&&isCheckCurrent()&&
+      (!pending||pendingAdditionRef.current?.operationId===pending.operationId);
+    if(!current())return null;
+    verifiedObservationRef.current=null;
+    let comparisonStarted=false;
     const sample = pending?.candidate || samples.find((entry) => entry.id === sampleId);
     if (!sample) {
       return false;
@@ -1285,8 +1289,12 @@ export function CuppingSessionDetailsScreen({
     try {
       setScanStatusMessage(`Scan cup ${sample.cupUUID} to verify its session data...`);
       const result = await readNdefMinimal();
-      if(await observePendingCupReassignmentRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('reassignment:unfinished');
-      if(await observePendingDraftRemovalRead(result,{isReadCurrent:()=>setupEpoch===setupEpochRef.current}))throw new Error('removal:unfinished');
+      if(!current())return null;
+      if(await observePendingCupReassignmentRead(result,{isReadCurrent:current}))throw new Error('reassignment:unfinished');
+      if(!current())return null;
+      if(await observePendingDraftRemovalRead(result,{isReadCurrent:current}))throw new Error('removal:unfinished');
+      if(!current())return null;
+      comparisonStarted=true;
       const parsed = result?.parsed || {};
       const tag = result?.tag;
       const tagClassification = classifyNfcTagReadResult(result);
@@ -1361,6 +1369,7 @@ export function CuppingSessionDetailsScreen({
         return false;
       }
     } catch (error) {
+      if(!current())return null;
       const message = error?.message || "Unable to verify cup.";
       const normalizedMessage = String(message).toLowerCase();
       const isUserCancelled =
@@ -1368,6 +1377,7 @@ export function CuppingSessionDetailsScreen({
         normalizedMessage.includes("session was cancelled");
 
       await playNfcFailureFeedback(error);
+      if(!current())return null;
       void logAppError({
         screen: "CuppingSessionDetails",
         route: "Cupping Session Details",
@@ -1379,11 +1389,12 @@ export function CuppingSessionDetailsScreen({
       if (isUserCancelled) {
         setScanStatusMessage("");
       } else {
-        setScanStatusMessage(message);
+        setScanStatusMessage(comparisonStarted?message:"Cup check could not be completed. Scan the same cup again; no re-write is needed.");
       }
-      return false;
+      // Null means no completed comparison, never verified or a payload mismatch.
+      return comparisonStarted?false:null;
     } finally {
-      setVerifyingSampleId(null);
+      if(current())setVerifyingSampleId(null);
     }
   };
 
@@ -1560,6 +1571,9 @@ export function CuppingSessionDetailsScreen({
       else setIsAddSheetVisible(true);
       return;
     }
+    if(pendingAdditionBusyRef.current?.kind==='standalone-check'){
+      pendingAdditionBusyRef.current.cancelled=true;setVerifyingSampleId(null);
+    }
     if (checkingSampleId) {
       const { [checkingSampleId]: _closedOverride, ...remainingOverrides } = pendingCheckSampleOverridesRef.current;
       pendingCheckSampleOverridesRef.current = remainingOverrides;
@@ -1574,19 +1588,24 @@ export function CuppingSessionDetailsScreen({
     if (!checkingSampleId) {
       return;
     }
+    if(pendingAdditionRef.current&&pendingAdditionRef.current.candidate.id!==checkingSampleId)return;
 
     const pending = pendingAdditionRef.current?.candidate.id === checkingSampleId ? pendingAdditionRef.current : null;
     if (pending) {
       if (pendingAdditionBusyRef.current) return;
       const operation = { epoch: setupEpochRef.current, operationId: pending.operationId, kind: 'check', cancelled: false };
       pendingAdditionBusyRef.current = operation;
-      const current = () => !operation.cancelled && operation.epoch === setupEpochRef.current && pendingAdditionRef.current?.operationId === operation.operationId;
+      const current = () => pendingAdditionBusyRef.current===operation && !operation.cancelled && operation.epoch === setupEpochRef.current && pendingAdditionRef.current?.operationId === operation.operationId;
       setIsCheckingCup(true);
       setPendingSaveError("");
       try {
-        const verified = pending.phase === 'verified' || await handleVerifySample(checkingSampleId);
+        const verified = pending.phase === 'verified' ? true : await handleVerifySample(checkingSampleId,current);
         if (!current()) return;
-        if (!verified) { setCheckSampleStatus("mismatch"); return; }
+        if (verified!==true) {
+          setCheckSampleStatus(verified===false?"mismatch":"pending");
+          if(verified===null)setPendingSaveError("Cup check could not be completed. Scan the same cup again; no re-write is needed.");
+          return;
+        }
         if (pending.phase !== 'verified') {
           const observation=verifiedObservationRef.current;
           if(observation?.operationId!==pending.operationId)throw new Error('Cup check changed.');
@@ -1632,17 +1651,24 @@ export function CuppingSessionDetailsScreen({
       } finally {
         if (pendingAdditionBusyRef.current === operation) {
           pendingAdditionBusyRef.current = null;
-          if (operation.epoch === setupEpochRef.current) setIsCheckingCup(false);
+          setIsCheckingCup(false);setVerifyingSampleId(null);
         }
       }
       return;
     }
 
+    if(pendingAdditionBusyRef.current)return;
+    const operation={epoch:setupEpochRef.current,kind:'standalone-check',cancelled:false};
+    pendingAdditionBusyRef.current=operation;
+    const current=()=>pendingAdditionBusyRef.current===operation&&!operation.cancelled&&operation.epoch===setupEpochRef.current;
     setIsCheckingCup(true);
-    const verified = await handleVerifySample(checkingSampleId);
-    setIsCheckingCup(false);
+    setPendingSaveError("");
+    let verified,wasCurrent=false;
+    try{verified=await handleVerifySample(checkingSampleId,current);wasCurrent=current();}
+    finally{if(pendingAdditionBusyRef.current===operation){pendingAdditionBusyRef.current=null;setIsCheckingCup(false);setVerifyingSampleId(null);}}
+    if(!wasCurrent)return;
 
-    if (verified) {
+    if (verified===true) {
       const pendingQuickStartReady = pendingQuickStartReadyRef.current;
       pendingQuickStartReadyRef.current = null;
       setCheckingSampleId(null);
@@ -1654,7 +1680,8 @@ export function CuppingSessionDetailsScreen({
       return;
     }
 
-    setCheckSampleStatus("mismatch");
+    setCheckSampleStatus(verified===false?"mismatch":"pending");
+    if(verified===null)setPendingSaveError("Cup check could not be completed. Scan the same cup again; no re-write is needed.");
   };
 
   const handleRewriteFromCheckScreen = async () => {
