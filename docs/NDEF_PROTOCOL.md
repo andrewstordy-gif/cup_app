@@ -224,7 +224,10 @@ No general repair/reset/reassignment or neighbour-tag rewrite is authorized.
 R1-147 supersedes the following clear-first sequence for NEW explicit operations:
 detect old assignment/read, obtain interruption-warning consent, fresh same-cup
 scan writes complete new assignment directly, separate Check Cup proves it before
-atomic local retirement+addition. NTAG uses the ordinary one-record assignment;
+atomic local retirement+addition. NTAG uses the ordinary one-record assignment.
+R1-148 confirmation stages intent and requests the fresh scan after the native
+confirmation modal has dismissed, without returning to entry or another tap.
+This one-shot authorization is never restored from persisted recovery.
 Smart intentionally writes READY `{s:1}`, telemetry `{}`, preserved validated
 settings and complete new metadata. First dispatch requires exact still-current
 original state/settings; own-attempt rewrites require READY/settings equality,
