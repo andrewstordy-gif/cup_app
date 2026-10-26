@@ -7,7 +7,10 @@ reassignment with three actual scans: (1) read old assignment, end radio session
 show the interruption warning and obtain explicit consent; (2) fresh same-cup
 scan deliberately writes the new assignment; (3) separate Check Cup verifies
 before one atomic local retirement/addition commit. No intermediate blank write,
-automatic scanner after consent, or member on a write-success callback. The
+member on a write-success callback. R1-148 owner revision: confirmed consent
+starts the fresh write scan after durable staging and native confirmation-modal
+dismissal, without returning to the entry drawer or another button press. This
+does not authorize a scanner/write on load, recovery or cancellation. The
 historical R1-142 contract below continues to govern already-pending legacy clear
 operations and receipts, which are never relabeled as direct-write evidence.
 

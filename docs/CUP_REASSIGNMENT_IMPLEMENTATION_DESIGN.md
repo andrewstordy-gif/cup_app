@@ -73,8 +73,10 @@ Replay/final ack requires same actor/issuer/member/outcome/receipt/vector and
   no native/database import inside generic NFC transport.
 
 Details uses NEW direct inspector/stager after assigned-cup detection; legacy
-clear recovery APIs/modes stay separate. Consent restores drawer with explicit
-SCAN & WRITE CUP; fresh second scan writes once via unchanged readAndWriteNdefMinimal,
+clear recovery APIs/modes stay separate. R1-148: after durable consent staging and
+confirmation-modal dismissal, request the fresh write scan directly, without
+showing the drawer or requiring SCAN & WRITE CUP. Recovery still uses explicit
+drawer actions and never starts automatically. Fresh second scan writes via unchanged readAndWriteNdefMinimal,
 then existing CheckSampleScreen displays separate verification/read-retry or
 save-only. Explicit rewrite is allowed only for validated original/own attempt,
 never arbitrary changed payload. Pending UID cannot move to another cup. Existing
