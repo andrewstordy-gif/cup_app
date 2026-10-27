@@ -1,5 +1,17 @@
 # Reassign Cup — proposed narrow contract
 
+## R1-152 approved explicit drawer restart
+
+27 October 2026. Restored/closed unverified direct additions return editable
+name/process/count/explicit sample mode and SCAN & ADD CUP. That deliberate
+action validates current fields and writes through the existing fresh-attempt
+same-cup safeguards, retaining spent prior attempts and allocating one fresh
+code before dispatch; separate Check Cup alone can verify/commit the new attempt.
+It does not read-check/commit the prior attempt first. No radio action on restore,
+no alternate UID/foreign overwrite, and no mode inferred from session defaults.
+Check dialog read retries remain same-code/read-only; verified Save-only and
+all legacy clear/removal recovery retain their existing behavior.
+
 ## R1-151 approved old-content exception — direct purpose only
 
 27 October 2026 owner approval supersedes only the requirement that OLD coffee

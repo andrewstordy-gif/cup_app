@@ -226,6 +226,7 @@ Product behaviour is defined by PRODUCT_SPEC section 6.8, not by visual preceden
 - Use existing Leave/Stay for unsaved setup/form edits. Leave discards ordinary uncommitted edits, but retains a pending physical NFC operation. Deliberate whole-session deletion also discards its pending NFC verification, without changing cups.
 - Whole-session deletion warns before deleting local records/results. If upload is pending, explicitly state that pending upload is cancelled/deleted and will not send; already uploaded results remain. Never imply remote erasure or that an already-sent request can be recalled.
 - NFC pending work is clearly unfinished/DRAFT and resumes with existing physical scan affordance labelled **Rescan to verify**, not an automatic rewrite. No fake verification/success animation from the write callback.
+- R1-152 exception: the editable unverified direct-addition drawer uses **SCAN & ADD CUP** for an explicitly requested fresh-code same-cup restart; load itself never scans. Check Retry stays read-only and verified recovery stays Save-only.
 - At Upload after recompletion, use the agreed **Replace previous results?** confirmation covering queued and already uploaded records, with **Yes, replace / No, keep existing**. Save or completion never gives upload consent.
 
 On Sessions cards use shared non-interactive icons in neutral grey with equivalent accessible status text:

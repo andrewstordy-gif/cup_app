@@ -1,5 +1,16 @@
 # Cup reassignment — bounded implementation design
 
+## R1-152 approved UI-only restart checkpoint
+
+27 October 2026. Restore both explicit cup-count/mode flags to non-default.
+The actual drawer's SCAN & ADD CUP for unverified direct intent validates current
+fields and calls the existing fresh-write prepare path (new code/prior attempts,
+same UID/original-or-own-attempt/state/settings and actor/context guards). No
+repository/schema/native change. Existing internal/check action semantics stay
+read-first; the drawer passes a distinct explicit restart invocation, never a
+synthetic verified or rewrite-dialog proof. Verified intent stays Save-only.
+Label/cancel/restart restoration is stateless UI; load never arms a write.
+
 ## R1-151 approved implementation checkpoint
 
 27 October 2026 PM/independent reviewer approval before runtime. Add a direct-only

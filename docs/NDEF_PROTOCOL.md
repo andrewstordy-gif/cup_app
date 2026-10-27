@@ -243,6 +243,12 @@ atomic local retirement+addition. NTAG uses the ordinary one-record assignment.
 R1-148 confirmation stages intent and requests the fresh scan after the native
 confirmation modal has dismissed, without returning to entry or another tap.
 This one-shot authorization is never restored from persisted recovery.
+R1-152 permits an explicit SCAN & ADD CUP restart from a restored/closed editable
+unverified direct drawer: validate current fields, use the existing guarded fresh
+same-cup write/new-code path, then separate Check Cup. Never auto-write on restore
+or first check/commit the old attempt. Existing recognised-original/own-attempt,
+state/settings/UID/context fences remain. Check retries allocate no code and
+verified Save recovery remains save-only; legacy clear operations are unchanged.
 Smart intentionally writes READY `{s:1}`, telemetry `{}`, preserved validated
 settings and complete new metadata. First dispatch requires exact still-current
 original state/settings; own-attempt rewrites require READY/settings equality,

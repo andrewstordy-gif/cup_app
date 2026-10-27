@@ -411,6 +411,15 @@ The retained creator session and its assigned cups must agree. Before any physic
 
 If the cup changes but final local Save fails, retain the earlier durable recovery intent and DRAFT; retry existing Save idempotently without duplicate samples or unnecessary rewrites. Leaving, app closure or interrupted verification preserves that intent and resumes at **Rescan to verify**, never an automatic rewrite. A mismatch stays unfinished and must not silently overwrite another assignment. Physical sample removal still clears and verifies its assignment. New explicit reassignment instead follows the approved direct write/check exception in section 6.7: one consent-bound same-cup assignment write, then separate verification and atomic local commit. Legacy already-pending clear/check recovery and receipts retain their original meaning. Exact canonical bytes and affected `i`/`z`/`y` count/position consistency require a reviewed technical contract and physical conformance gate; this decision invents no new wire fields or clearing bytes.
 
+**Owner clarification, 27 October 2026 (R1-152):** an unverified direct assignment
+restored or closed back to the editable Add drawer shows **SCAN & ADD CUP**.
+Restore its explicit sample mode/count without placeholder flags. Pressing that
+action deliberately restarts writing the current validated details to the same
+allowed cup, with a fresh spent code and separate Check Cup afterward. It does
+not check or commit the old attempt first. Restoration itself never starts NFC;
+Check dialog Retry Check remains read-only/same-code, verified Save recovery
+remains save-only, and legacy clear/removal recovery is unchanged.
+
 #### 6.8.4 Local deletion and unsaved exits
 
 The Sessions-list delete cross is available in **all states for both roles**, independent of setup-edit authority. Confirm before deleting that local session, samples, saved scores and notes. Whole-session deletion requires no NFC scan, changes no cup and changes no creator/other-device copy or previously accepted service results. It also discards that session's pending NFC verification and cancels/deletes its queued upload. Pending work cannot resurrect the deleted local session through stale callbacks or restart.
