@@ -420,6 +420,16 @@ not check or commit the old attempt first. Restoration itself never starts NFC;
 Check dialog Retry Check remains read-only/same-code, verified Save recovery
 remains save-only, and legacy clear/removal recovery is unchanged.
 
+**Owner revision, 27 October 2026 (R1-155):** explicit SCAN & ADD CUP from the
+editable unverified direct drawer may abandon that unfinished local binding and
+choose a cup afresh while retaining the current fields. Spent codes/history stay
+unchanged; no physical clear, receipt or membership is invented. Fresh assigned
+cups require new inspection/eligibility and interruption-warning consent; blank
+supported cups use ordinary Add. Consent/write/Check still binds the newly chosen
+same cup. Verified recovery cannot be abandoned and remains save-only. A definite
+pre-dispatch failure returns editable fields, not misleading Check; any possibly
+dispatched write retains verification recovery. No automatic action on restore.
+
 #### 6.8.4 Local deletion and unsaved exits
 
 The Sessions-list delete cross is available in **all states for both roles**, independent of setup-edit authority. Confirm before deleting that local session, samples, saved scores and notes. Whole-session deletion requires no NFC scan, changes no cup and changes no creator/other-device copy or previously accepted service results. It also discards that session's pending NFC verification and cancels/deletes its queued upload. Pending work cannot resurrect the deleted local session through stale callbacks or restart.

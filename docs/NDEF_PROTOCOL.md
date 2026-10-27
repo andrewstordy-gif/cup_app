@@ -249,6 +249,14 @@ same-cup write/new-code path, then separate Check Cup. Never auto-write on resto
 or first check/commit the old attempt. Existing recognised-original/own-attempt,
 state/settings/UID/context fences remain. Check retries allocate no code and
 verified Save recovery remains save-only; legacy clear operations are unchanged.
+R1-155 supersedes only that drawer's old-UID restriction: explicit restart may
+abandon the unverified local intent, retain spent codes/current fields and inspect
+the selected cup afresh. It does not transfer old consent or clear the old cup.
+Foreign assigned cups require a fresh warning; same-destination issued/uncommitted
+content retains ordinary retry semantics. Every actual new write uses a fresh
+code, and a new consented write/Check stays same-cup bound. Verified/legacy work
+is not abandoned. Definite preflight/no-dispatch failures return the drawer;
+uncertain dispatched work remains pending Check. No encoding/transport change.
 Smart intentionally writes READY `{s:1}`, telemetry `{}`, preserved validated
 settings and complete new metadata. First dispatch requires exact still-current
 original state/settings; own-attempt rewrites require READY/settings equality,

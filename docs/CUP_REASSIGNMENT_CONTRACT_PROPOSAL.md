@@ -1,5 +1,18 @@
 # Reassign Cup — proposed narrow contract
 
+## R1-155 approved explicit restart releases unverified binding
+
+27 October 2026 owner revision. Editable SCAN & ADD CUP may explicitly abandon
+an unverified direct intent and choose a cup afresh, preserving current fields and
+all spent codes/saved results. Abandonment creates no receipt/member and performs
+no NFC clear/write; it cannot recall a physical write already dispatched. Verified
+work is excluded. Fresh inspection preserves active/pending/duplicate/envelope/
+Smart guards; assigned B requires fresh warning consent, not consent carried from
+A. Same A with local issued/uncommitted metadata uses ordinary retry rules.
+New consented write/Check remains same-UID bound. Stale old operations/observations
+cannot recreate/dispatch/commit. Definite preflight failure returns editable
+fields; possibly dispatched attempts retain Check recovery. Restore never scans.
+
 ## R1-152 approved explicit drawer restart
 
 27 October 2026. Restored/closed unverified direct additions return editable

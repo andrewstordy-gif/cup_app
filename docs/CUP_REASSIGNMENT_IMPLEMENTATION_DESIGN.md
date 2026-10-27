@@ -1,5 +1,26 @@
 # Cup reassignment — bounded implementation design
 
+## R1-155 approved existing-schema restart checkpoint
+
+Explicit editable unverified restart uses a dedicated repository abandonment
+command with current actor/destination/issuer incarnation/setup/removal/vector/
+root/revision/current-predicate fences. Delete only the unverified direct journal;
+preserve ledger/spent codes and all business/history rows. No archive/receipt or
+schema change, no physical recall/clear claim. Revoke prior in-memory destination
+observation handles inside that transaction; stage rechecks its exact captured
+handle identity inside its own transaction so a delayed consent cannot recreate
+the abandoned root. Conservative handle revocation after rollback is fail-closed.
+Existing transaction marker/final ack rejects replacement pending work.
+
+Details captures the explicit restart operation/epoch, validates current fields,
+awaits abandonment, clears only matching UI context and enters the existing fresh
+Add route. A blank B uses ordinary Add; assigned B requires new eligibility and
+warning consent; same A issued/uncommitted uses existing retry. Within any new
+consent/write/check the same-cup rules remain. Separate Check commits only the new
+attempt. Verified Save and legacy clear/removal are unchanged. Track authorization
+at the existing beforeWrite seam: a failure before any authorized dispatch returns
+the editable drawer, while possibly dispatched writes keep pending verification.
+
 ## R1-152 approved UI-only restart checkpoint
 
 27 October 2026. Restore both explicit cup-count/mode flags to non-default.
