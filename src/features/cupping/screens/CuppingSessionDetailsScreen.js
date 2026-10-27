@@ -993,7 +993,11 @@ export function CuppingSessionDetailsScreen({
   };
 
   const handleScanCup = async () => {
-    if(cupReassignmentRef.current){await handleCupReassignmentAction();return;}
+    if(cupReassignmentRef.current){
+      if(cupReassignmentRef.current.purpose==='direct'&&cupReassignmentRef.current.phase!=='write_verified')await handleDirectCupReassignmentAction(null,true,true);
+      else await handleCupReassignmentAction();
+      return;
+    }
     if(cupReassignmentBusyRef.current)return;
     if(draftRemovalRef.current||draftRemovalBusyRef.current)return;
     if (lockOperationRef.current) return;
@@ -1747,7 +1751,8 @@ export function CuppingSessionDetailsScreen({
   const restoreCupReassignmentFields = pending => {
     const draft=pending.drawerDraft;setSheetCoffeeNameOrigin(draft.coffeeNameOrigin);setSheetProcess(draft.process);
     setSheetCupNumber(draft.cupNumber);setSheetCuppingMode(draft.cuppingMode);setSheetErrors({});
-    setScanStatusMessage(pending.purpose==='direct'?(pending.phase==='consented'?'Scan the same cup to write its new assignment.':pending.phase==='write_verified'?'The cup is verified. Resume saving; no re-write is needed.':'Reassignment is unfinished. Resume checking the same cup; no automatic write will occur.'):pending.phase==='clear_verified'?'The clear is verified. Resume saving it before adding the cup.':'Cup reassignment is unfinished. Resume its clear/check before adding a cup.');
+    if(pending.purpose==='direct'){setIsSheetCupNumberDefault(false);setIsSheetCuppingModeDefault(false);}
+    setScanStatusMessage(pending.purpose==='direct'?(pending.phase==='write_verified'?'The cup is verified. Resume saving; no re-write is needed.':'Use SCAN & ADD CUP to write these details to the same cup, then check it separately. No automatic write will occur.'):pending.phase==='clear_verified'?'The clear is verified. Resume saving it before adding the cup.':'Cup reassignment is unfinished. Resume its clear/check before adding a cup.');
   };
   const handleDismissCupReassignmentPrompt = expected => {
     if(!expected||(cupReassignmentPromptRef.current!==expected&&cupReassignmentLaunchRef.current?.prompt!==expected)||expected.epoch!==setupEpochRef.current)return;
@@ -1807,15 +1812,17 @@ export function CuppingSessionDetailsScreen({
       if(pending.phase==='staged'){await cancelStagedCupReassignment({destinationId:pending.destinationId,operationId:pending.operationId,expectedRevision:pending.revision,isCurrent:current});if(!current())return;cupReassignmentRef.current=null;setCupReassignment(null);}
       if(pending.purpose==='direct'&&pending.phase==='consented'){await cancelDirectCupReassignment({destinationId:pending.destinationId,operationId:pending.operationId,expectedRevision:pending.revision,isCurrent:current});if(!current())return;cupReassignmentRef.current=null;setCupReassignment(null);}
       if(!current())return;cupReassignmentDialogRef.current=null;setCupReassignmentDialog(null);setIsAddSheetVisible(true);
-      if(pending.phase!=='staged')setScanStatusMessage('Cup reassignment is unfinished. Use RESUME CUP CHECK to continue.');
+      if(pending.phase!=='staged')setScanStatusMessage(pending.purpose==='direct'?(pending.phase==='write_verified'?'The cup is verified. Use SAVE SAMPLE; no re-write is needed.':'Use SCAN & ADD CUP to write current details to the same cup, then check it separately.'):'Cup reassignment is unfinished. Use RESUME CUP CHECK to continue.');
     }catch{if(current())setScanStatusMessage('Reassignment status could not be confirmed. Reopen the saved session.');}
     finally{if(cupReassignmentBusyRef.current===operation){cupReassignmentBusyRef.current=null;if(operation.epoch===setupEpochRef.current)setIsReassigningCup(false);}}
   };
-  const handleDirectCupReassignmentAction = async (expectedDialog=null,rewrite=false) => {
+  const handleDirectCupReassignmentAction = async (expectedDialog=null,rewrite=false,restartFromDrawer=false) => {
     const original=cupReassignmentRef.current;
     if(original?.purpose!=='direct'||cupReassignment?.operationId!==original.operationId||cupReassignmentRenderEpoch!==setupEpochRef.current||cupReassignmentBusyRef.current||pendingAdditionBusyRef.current||saveOperationRef.current||lockOperationRef.current)return;
     if(expectedDialog&&(cupReassignmentDialogRef.current!==expectedDialog||expectedDialog.operationId!==original.operationId||expectedDialog.revision!==original.revision||expectedDialog.epoch!==setupEpochRef.current))return;
-    if(rewrite&&expectedDialog?.mode!=='rewrite')return;
+    if(restartFromDrawer&&(expectedDialog||!rewrite||!isAddSheetVisible||original.phase==='write_verified'||cupReassignment.revision!==original.revision))return;
+    if(rewrite&&!restartFromDrawer&&expectedDialog?.mode!=='rewrite')return;
+    if(restartFromDrawer&&(!validateAddSheet()||!['blind','open'].includes(sheetCuppingMode)||isLegacy&&sheetCuppingMode!=='open'))return;
     const operation={epoch:setupEpochRef.current,operationId:original.operationId};cupReassignmentBusyRef.current=operation;setIsReassigningCup(true);
     const current=()=>!operation.cancelled&&cupReassignmentBusyRef.current===operation&&operation.epoch===setupEpochRef.current&&cupReassignmentRef.current?.operationId===operation.operationId;
     const remember=pending=>{if(!current())throw new Error('direct_reassignment:unfinished');cupReassignmentRef.current=pending;setCupReassignment(pending);return pending;};
@@ -2394,7 +2401,7 @@ export function CuppingSessionDetailsScreen({
         isCuppingModeDefault={isSheetCuppingModeDefault}
         errors={sheetErrors}
         loading={isNfcWriting || isReassigningCup || Boolean(pendingAdditionRef.current) && isCheckingCup}
-        scanLabel={cupReassignment?cupReassignment.purpose==='direct'?(cupReassignment.phase==='consented'?'SCAN & WRITE CUP':cupReassignment.phase==='write_verified'?'SAVE SAMPLE':'RESUME CUP CHECK'):cupReassignment.phase==='staged'?'SCAN CUP TO CLEAR':cupReassignment.phase==='clear_verified'?'SAVE CLEAR':'RESUME CUP CHECK':undefined}
+        scanLabel={cupReassignment?cupReassignment.purpose==='direct'?(cupReassignment.phase==='write_verified'?'SAVE SAMPLE':'SCAN & ADD CUP'):cupReassignment.phase==='staged'?'SCAN CUP TO CLEAR':cupReassignment.phase==='clear_verified'?'SAVE CLEAR':'RESUME CUP CHECK':undefined}
         statusMessage={scanStatusMessage}
         errorMessage={cupBlockedMessage}
         onChangeCoffeeNameOrigin={value => { if (!pendingAdditionBusyRef.current) setSheetCoffeeNameOrigin(value); }}
