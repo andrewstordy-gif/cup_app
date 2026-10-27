@@ -694,14 +694,26 @@ export async function inspectDirectCupReassignment({destinationId,readResult,isC
   });
 }
 export async function stageDirectCupReassignment({observation,consentVersion,drawerDraft,isCurrent}){
-  if(consentVersion!==1||!directObservations.has(observation))direct.fail();const captured=JSON.parse(directObservations.get(observation)),draft=JSON.parse(canonicalize(drawerDraft));direct.drawer(draft);
+  if(consentVersion!==1||!directObservations.has(observation))direct.fail();const capturedJson=directObservations.get(observation),captured=JSON.parse(capturedJson),draft=JSON.parse(canonicalize(drawerDraft));direct.drawer(draft);
   return directTransaction(captured.destinationId,isCurrent,async(db,actor,base)=>{
+    if(directObservations.get(observation)!==capturedJson)direct.fail();
     if(actor!==captured.actor||base.incarnation!==captured.incarnation||base.setupHash!==captured.setupHash||base.removalGeneration!==captured.removalGeneration||await bindingVectorWithDb(db,captured.original.uid)!==captured.bindingVector)direct.fail();
     const prior=direct.pending(await direct.row(db,captured.destinationId));
-    if(prior){await currentDirectWithDb(db,captured.destinationId,actor,prior.operationId);if(prior.phase!=='consented'||prior.oldBindingHash!==captured.oldBindingHash||canonicalize(prior.drawerDraft)!==canonicalize(draft))direct.fail();return direct.safe(prior);}
+    if(prior){await currentDirectWithDb(db,captured.destinationId,actor,prior.operationId);if(prior.phase!=='consented'||prior.oldBindingHash!==captured.oldBindingHash||canonicalize(prior.drawerDraft)!==canonicalize(draft)||directObservations.get(observation)!==capturedJson)direct.fail();return direct.safe(prior);}
     await reassignmentConflictsWithDb(db,captured.destinationId,captured.original.uid);const eligibility=await reassignmentEligibilityWithDb(db,captured.destinationId,captured.original,actor);
-    if(eligibility.eligibility!==captured.eligibility||eligibility.sourceToken!==captured.sourceToken)direct.fail();
+    if(eligibility.eligibility!==captured.eligibility||eligibility.sourceToken!==captured.sourceToken||directObservations.get(observation)!==capturedJson)direct.fail();
     return direct.safe(await direct.write(db,{...captured,operationId:generateId(),consentVersion,drawerDraft:draft,attempt:null,priorAttempts:[],verification:null},'consented'));
+  });
+}
+export async function abandonUnverifiedDirectCupReassignment({destinationId,operationId,expectedRevision,isCurrent}){
+  return directTransaction(destinationId,isCurrent,async(db,actor)=>{
+    const {pending}=await currentDirectWithDb(db,destinationId,actor,operationId);
+    if(pending.revision!==expectedRevision||pending.phase==='write_verified')direct.fail();
+    // Observation handles are installation-memory only. Revoke before deletion;
+    // delayed stage callbacks recheck their captured handle inside their txn.
+    for(const [handle,json]of directObservations)if(JSON.parse(json).destinationId===destinationId)directObservations.delete(handle);
+    await db.runAsync('DELETE FROM local_pending_direct_reassignments WHERE destination_session_id=? AND operation_id=?',[destinationId,operationId]);
+    return {abandoned:true};
   });
 }
 export async function getDirectCupReassignment({destinationId,isCurrent=()=>true}){

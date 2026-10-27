@@ -37,8 +37,8 @@ async function main(){
  for(const form of [1,2])for(const smart of [false,true]){
   const c=capture(true),{env,h}=await start(form,smart);c.output.length=0;await h.run('handleDirectCupReassignmentAction');const labels=c.output.filter(([prefix])=>prefix==='NFC reassignment probe').map(([,v])=>v.category);for(const label of ['native-request','read-callback','prepare-call','prepared','authorized','native-return'])assert(labels.includes(label));assert.equal(h.writes.length,1);assert.equal(h.samples.length,0);assert(!JSON.stringify(c.output).includes('PROTECTED OLD'));env.sqlite.close();c.restore();
  }
- // Actual UI keeps the existing misleading Check recovery on pre-dispatch failure.
- {const c=capture(true),{env,h}=await start(1,false);await h.run('handleDirectCupReassignmentAction');await h.run('handleCloseCupReassignment',h.cupReassignmentDialog);h.tagId='OTHER';c.output.length=0;await h.run('handleScanCup');assert.equal(h.writes.length,1,'rejected restart adds no write');assert.equal(h.cupReassignmentDialog.mode,'check');assert(c.output.some(([,v])=>v.stage==='ui-write'&&v.category==='prepare-call'&&v.rejected));env.sqlite.close();c.restore();}
- log('PASS R154 strict dev-only fixed-label privacy/nonthrowing; exact fc04589 repo result/error/SQL/transaction/frozen-byte differential success+failures incl sentinel identity, throwing logger; actual UI stages and unchanged Check recovery bothforms/families.');
+ // R155 intentionally corrects only definite pre-dispatch UI failure to drawer.
+ {const c=capture(true),{env,h}=await start(1,false);h.tagId='OTHER';c.output.length=0;await h.run('handleDirectCupReassignmentAction');assert.equal(h.writes.length,0,'same-consented-cup guard still rejects');assert.equal(h.cupReassignmentDialog,null);assert.equal(h.isAddSheetVisible,true);assert(c.output.some(([,v])=>v.stage==='ui-write'&&v.category==='prepare-call'&&v.rejected));env.sqlite.close();c.restore();}
+ log('PASS R154 strict dev-only fixed-label privacy/nonthrowing; exact fc04589 prepare result/error/SQL/transaction/frozen-byte differential success+failures incl sentinel identity, throwing logger; actual UI stages and R155 definite-preflight drawer bothforms/families.');
 }
 main().catch(e=>{console.log=log;console.error(e);process.exitCode=1;});
