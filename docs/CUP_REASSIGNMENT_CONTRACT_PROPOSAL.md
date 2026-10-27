@@ -1,5 +1,19 @@
 # Reassign Cup — proposed narrow contract
 
+## R1-151 approved old-content exception — direct purpose only
+
+27 October 2026 owner approval supersedes only the requirement that OLD coffee
+assignment content validate as current typed metadata. Capture bounded exact
+English UTF-8 Text payload bytes plus UID/family/state/settings after strict
+supported-envelope and protected-record validation. Nonempty unsupported old
+content uses the approved unknown warning; no old session/code is invented.
+Known local active/pending/duplicate UID conflicts remain blocking independently
+of parsing. Strict typed evidence, when available, is recomputed from these bytes.
+Fresh dispatch must match the exact original bytes/state/settings. New output,
+READY transition, separate typed check, atomic commit and every recovery/current
+fence below remain. Empty-object metadata still uses ordinary Add. Existing
+format1 direct and legacy clear evidence retains its exact original meaning.
+
 ## R1-147 approved superseding contract — NEW operations only
 
 26 October 2026. PRODUCT_SPEC6.7/6.8.3 owner approval replaces clear-first NEW

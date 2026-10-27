@@ -8,6 +8,8 @@ unchanged 14-character lowercase session reference, and `y` remains physical
 cup count 1–8. Shared identity is `(u,z)`, never the physical UID or local order.
 Numeric assignments are historical and unsupported by this profile; the client
 rejects them rather than converting, overwriting or claiming creator ownership.
+The sole replacement exception is explicit R1-151 reassignment below: old bytes
+are opaque consent evidence, never converted into a valid current assignment.
 
 NTAG writes one English UTF-8 Text record; Smart Cup writes four ordered Text
 records: `{s:1}`, `{}`, the validated preserved compact settings (including
@@ -220,6 +222,19 @@ requires current original state/settings equality, so it cannot rewind state.
 No general repair/reset/reassignment or neighbour-tag rewrite is authorized.
 
 ### R1-144 explicit reassignment extension
+
+R1-151 owner revision: the Add/reassignment purpose may inspect one NTAG or four
+Smart Well-Known English UTF-8 Text records before the general classifier. Each
+payload is bounded to 262144 bytes and the message to 1048576 payload bytes.
+Hardware UID/family and Smart records1–3 remain strictly validated, including
+state0–4, compact telemetry and settings. A nonempty final Text payload may be
+older numeric, partial, extra-field or otherwise unsupported assignment content.
+Capture its exact payload bytes/hash, not reserialized JSON. Empty-object `{}`
+metadata retains ordinary Add. This is not general formatting, repair, import or
+permission to overwrite unsupported hardware/protected records. Consent and the
+fresh write scan bind exact old bytes/UID/family/state/settings; new output and
+separate verification retain the strict current assignment contract. Do not
+replay old telemetry or expose old content in dialogs, accessibility or logs.
 
 R1-147 supersedes the following clear-first sequence for NEW explicit operations:
 detect old assignment/read, obtain interruption-warning consent, fresh same-cup

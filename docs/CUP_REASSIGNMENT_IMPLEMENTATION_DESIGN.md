@@ -1,5 +1,47 @@
 # Cup reassignment — bounded implementation design
 
+## R1-151 approved implementation checkpoint
+
+27 October 2026 PM/independent reviewer approval before runtime. Add a direct-only
+old-envelope reader; do not change the classifier, physical-removal reader,
+native adapter, new-wire encoder or ordinary import. Require one NTAG/four Smart
+Well-Known English UTF-8 Text records, valid byte arrays/UID/family, at most
+262144 bytes per payload/1048576 total. Strict Smart state/telemetry/settings
+validation is unchanged. Opaque final Text may be unsupported JSON/shape; `{}`
+remains ordinary Add. Format2 original is exactly
+`{uid,kind,state,settings,assignment:{payloadBytes,payloadHash,typedMetadata}}`.
+Recompute payload hash and optional strict typedMetadata from exact bytes;
+unsupported content yields null, never a fabricated session/code. Capture before
+await, preserve no telemetry, expose no raw old content through safe DTOs/logs.
+Original comparison is exact payload bytes/state/settings; new read-back and own
+attempt rewrite require strict current typed metadata/settings/READY. Existing
+format1 pending operations continue their original semantic typed comparison;
+raw-byte evidence absent from old rows is not retrospectively invented.
+
+Eligibility first checks destination/pending/known local UID and physical
+observations independently of old parsing. Any active or duplicate conflict
+blocks; only exact supported old typed evidence can grant known-creator-complete.
+All other eligible old content requires the existing unknown interruption warning.
+New exact opaque binding hash is domain-separated SHA256 of
+`{version:2,uid,kind,assignmentHash}`. New receipt has mandatory oldAssignmentHash;
+oldSession/oldCode/oldMetadataHash are actual strict derived evidence together or
+all null. Retire exact raw UID/family/assignment hash, plus legitimate strict
+semantic binding when present; never suppress every binding on a UID.
+
+Integrated v4 marker4/user_version8 rebuilds only the two direct tables, copying
+all existing format1 SQL values/JSON/hashes unchanged, adding nullable
+old_assignment_hash. Version-dependent constraints permit format1/2; receipt old
+logical columns are nullable only for format2. Format1 decoded objects/vector
+bytes remain exactly their original JSON (no added null fields). Format2 pending
+JSON bound2MiB; format1 stays524288. Oversize staging/reservation fails atomically.
+Both versions share the existing direct generation/combined causal vector. Fresh
+v4 and exact recognized v1→v2→v3→v4/v2→v3→v4/v3→v4 execute under one outer exclusive
+transaction with static reviewed complete source/target manifests and rollback.
+No business-row/profile reset/backfill; old binaries reject v4. Genuine old
+all-phase direct and clear fixtures must resume operationally after upgrade.
+R148 confirm-to-scan and all existing actor/incarnation/revision/CAS/read-first/
+save-only/atomic retirement+member/final-ack fences remain unchanged.
+
 ## R1-147 implementation checkpoint (supersedes NEW clear-first operations)
 
 PM/reviewer checkpoint, 26 October 2026. New purpose-specific module
