@@ -618,6 +618,11 @@ export function CuppingSessionDetailsScreen({
   const isSessionFormSupported = isSessionFormReady(sessionId, sessionForm) && (!isLegacy || sessionMode === 'open');
   const isSessionFormLoading = Boolean(sessionId) && sessionForm?.loadedSessionId !== sessionId;
   const canEditSessionSetup = !cupReassignment && !isReassigningCup && !draftRemoval && !isRemovingDraftSample && (!sessionId || (isSessionFormSupported && ownsSavedSetup));
+  const canRestartUnverifiedDirectAddition = Boolean(isAddSheetVisible && isSessionFormSupported && sessionStatus === 'new' &&
+    cupReassignment?.purpose === 'direct' && cupReassignment.phase !== 'write_verified' &&
+    savedSessionIdRef.current === cupReassignment.destinationId &&
+    (sessionId ? ownsSavedSetup && sessionId === cupReassignment.destinationId : sessionUUID === cupReassignment.destinationId) &&
+    !isReassigningCup && !draftRemoval && !isRemovingDraftSample);
   const canSelectSessionForm = !isSessionLocked && !isQuickStartSession && canEditSessionSetup;
   const lockInputKey = currentSetupInputKeyRef.current;
   const canLockSession = Boolean(sessionId && savedSessionIdRef.current === sessionId && !isQuickStartSession &&
@@ -998,7 +1003,7 @@ export function CuppingSessionDetailsScreen({
     if(cupReassignmentRef.current){
       const pending=cupReassignmentRef.current;
       if(pending.purpose!=='direct'||pending.phase==='write_verified'){await handleCupReassignmentAction();return;}
-      if(!isAddSheetVisible||!canEditSessionSetup||!isSessionFormSupported||cupReassignment?.operationId!==pending.operationId||cupReassignment?.revision!==pending.revision||cupReassignmentRenderEpoch!==setupEpochRef.current||cupReassignmentBusyRef.current||pendingAdditionBusyRef.current||saveOperationRef.current||lockOperationRef.current||draftRemovalRef.current||draftRemovalBusyRef.current)return;
+      if(!canRestartUnverifiedDirectAddition||cupReassignment?.operationId!==pending.operationId||cupReassignment?.revision!==pending.revision||cupReassignmentRenderEpoch!==setupEpochRef.current||cupReassignmentBusyRef.current||pendingAdditionBusyRef.current||saveOperationRef.current||lockOperationRef.current||draftRemovalRef.current||draftRemovalBusyRef.current)return;
       if(!validateAddSheet()||!['blind','open'].includes(sheetCuppingMode)||isLegacy&&sheetCuppingMode!=='open')return;
       const operation={kind:'restart',epoch:setupEpochRef.current,operationId:pending.operationId};cupReassignmentBusyRef.current=operation;setIsReassigningCup(true);
       const current=()=>!operation.cancelled&&cupReassignmentBusyRef.current===operation&&operation.epoch===setupEpochRef.current&&cupReassignmentRef.current?.operationId===pending.operationId&&cupReassignmentRef.current?.revision===pending.revision;
@@ -1022,7 +1027,7 @@ export function CuppingSessionDetailsScreen({
     const setupEpoch = setupEpochRef.current;
     if (pendingAdditionBusyRef.current || saveOperationRef.current) return;
     setCupBlockedMessage("");
-    if (!canEditSessionSetup) {
+    if (!canEditSessionSetup && !restartedDirect) {
       setScanStatusMessage("Session setup is read-only on this profile.");
       return;
     }

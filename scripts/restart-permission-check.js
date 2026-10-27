@@ -1,0 +1,39 @@
+// R156 source-derived render permissions and captured actual Details callbacks.
+// Synthetic SQLite/native mocks only; no phone/tag operations.
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {execFileSync}=require('node:child_process'),{parse}=require('@babel/parser'),generate=require('@babel/generator').default;
+const {fixture}=require('./helpers/sample-code-fixture'),{seed,loadUi,read,renderPermissions}=require('./unverified-drawer-restart-check');
+const {meta,snapshot,codes}=require('./direct-cup-reassignment-check'),{formIdentity}=require('../src/features/forms/sessionFormRoute');
+const root=path.resolve(__dirname,'..'),screen='src/features/cupping/screens/CuppingSessionDetailsScreen.js',S='recoveryload01',dir=fs.mkdtempSync(path.join(os.tmpdir(),'cup-r156-'));let serial=0;
+const baseline=execFileSync('git',['show','30978c6:'+screen],{cwd:root,encoding:'utf8'});
+function find(n,p){if(!n||typeof n!=='object')return null;if(p(n))return n;for(const v of Object.values(n))for(const c of Array.isArray(v)?v:[v]){const hit=find(c,p);if(hit)return hit;}return null;}
+function captured(h,text){const deps=h.dependencies(),node=find(parse(text,{sourceType:'module',plugins:['jsx']}),n=>n.type==='VariableDeclarator'&&n.id?.name==='handleScanCup');return new Function(...Object.keys(deps),'return ('+generate(node.init).code+')')(...Object.values(deps));}
+async function setup(form=1,smart=false,route='saved',neighbor=false){const env=fixture(path.join(dir,`${++serial}.db`));let attempt=await seed(env,form,smart,form===2?'open':'blind',route==='quick'?'7':'4');
+ if(neighbor){const p=attempt.pending;await env.repo.inspectDirectCupReassignmentWrite({destinationId:S,operationId:p.operationId,expectedRevision:p.revision,readResult:read(smart,attempt.frozen.payload),isCurrent:()=>true});const verified=await env.repo.getDirectCupReassignment({destinationId:S});await env.repo.commitDirectCupReassignment({destinationId:S,operationId:p.operationId,expectedRevision:verified.revision,isCurrent:()=>true});
+  const offer=await env.repo.inspectDirectCupReassignment({destinationId:S,readResult:read(smart,meta(form),'04CC'),isCurrent:()=>true}),drawerDraft={coffeeNameOrigin:'Second',process:'2',cupNumber:2,cuppingMode:form===2?'open':'blind'};
+  const pending=await env.repo.stageDirectCupReassignment({observation:offer.observation,consentVersion:1,drawerDraft,isCurrent:()=>true});attempt=await env.repo.prepareDirectCupReassignmentWrite({destinationId:S,operationId:pending.operationId,expectedRevision:pending.revision,readResult:read(smart,meta(form),'04CC'),drawerDraft,isCurrent:()=>true});await attempt.beforeWrite();
+ }
+ env.restart();const h=await loadUi(env,form,smart,attempt.frozen.payload);if(neighbor)h.tagId='04CC';
+ if(route!=='saved'){h.sessionId=null;h.sessionForm=formIdentity(form);h.isQuickStartSession=route==='quick';if(route==='quick'){// Actual Quick uses a saved destination before its route gains an id.
+   h.sessionType='7';const deps=h.dependencies;h.dependencies=()=>({...deps(),quickStartSessionTypeValue:7});
+  }}
+ return {env,h,attempt};
+}
+async function main(){
+ {const {env,h}=await setup();assert.equal(renderPermissions(h,baseline).canEditSessionSetup,false);const before=snapshot(env);await captured(h,baseline)();assert.equal(h.writes.length,0);assert.equal(snapshot(env),before,'RED baseline actual restored render returns before abandonment/native');env.sqlite.close();}
+ console.log('PASS RED30978c6 actual handler + source-derived false ordinary permission reproduces inert restart.');
+ for(const form of [1,2])for(const smart of [false,true])for(const route of ['saved','new','quick']){
+  const {env,h}=await setup(form,smart,route);const render=renderPermissions(h);assert.equal(render.canEditSessionSetup,false);assert.equal(render.canRestartUnverifiedDirectAddition,true,JSON.stringify({form,smart,route,render,mode:h.sessionMode,status:h.sessionStatus}));
+  h.sheetCoffeeNameOrigin='Retained edited fields';h.sheetProcess='3';h.sheetCupNumber=3;h.tagId='04BB';h.physicalPayload={};
+  const previous=h.dependencies;let abandoned=false;h.dependencies=()=>{const deps=previous(),abandon=deps.abandonUnverifiedDirectCupReassignment;return {...deps,abandonUnverifiedDirectCupReassignment:async args=>{assert.equal(renderPermissions(h).canEditSessionSetup,false);const value=await abandon(args);abandoned=true;assert.equal(renderPermissions(h).canEditSessionSetup,false,'rerender busy/pending remains read-only');return value;}};};
+  const handler=captured(h,fs.readFileSync(path.join(root,screen),'utf8'));await handler();assert(abandoned);assert.equal(h.writes.length,1,'same captured false ordinary permission passes own successful restart continuation');assert.equal(h.pendingAdditionRef.current.phase,'check');assert.equal(codes(env),2);assert.equal(h.writes[0].text4.n,'Retained edited fields');assert.equal(h.writes[0].text4.p,3);assert.equal(h.writes[0].text4.y,3);assert.equal(h.samples.length,0);env.sqlite.close();
+ }
+ for(const form of [1,2])for(const smart of [false,true]){const {env,h}=await setup(form,smart,'saved',true),before=JSON.stringify(h.samples[0]);assert.equal(h.samples.length,1);assert.equal(h.sessionForm.formLocked,true);assert.equal(renderPermissions(h).canRestartUnverifiedDirectAddition,true,'metadata form lock is not sample-add lock');h.tagId='04DD';h.physicalPayload={};await h.run('handleScanCup');assert.equal(h.writes.length,1);await h.run('handleScanToCheckCup');assert.equal(h.samples.length,2);assert.equal(JSON.stringify(h.samples[0]),before,'existing verified DRAFT sample unchanged');env.sqlite.close();}
+ console.log('PASS captured false ordinary permission across awaited abandon/rerender: both forms/families saved/New/Quick routes; pinned nonempty DRAFT preserves first sample.');
+ for(const attack of ['owner','form','loading','status','destination','savedRef','newDestination','newForm','hidden','operation','revision','epoch','busy','additionBusy','save','lock','removal','removalBusy']){
+  const {env,h}=await setup();if(attack==='owner')h.setupAccess={...h.setupAccess,canManageSetup:false};if(attack==='form')h.sessionForm={...h.sessionForm,formHash:'bad'};if(attack==='loading')h.sessionForm={...h.sessionForm,loadedSessionId:'other'};if(attack==='status')h.sessionStatus='pending';if(attack==='destination')h.cupReassignment={...h.cupReassignment,destinationId:'other'};if(attack==='savedRef')h.savedSessionIdRef.current='other';if(attack==='newDestination'){h.sessionId=null;h.sessionForm=formIdentity(1);h.sessionUUID='other';}if(attack==='newForm'){h.sessionId=null;h.sessionForm={...formIdentity(1),form_hash:'bad'};}if(attack==='hidden')h.isAddSheetVisible=false;if(attack==='operation')h.cupReassignment={...h.cupReassignment,operationId:'other'};if(attack==='revision')h.cupReassignment={...h.cupReassignment,revision:0};if(attack==='busy')h.cupReassignmentBusyRef.current={};if(attack==='additionBusy')h.pendingAdditionBusyRef.current={};if(attack==='save')h.saveOperationRef.current={};if(attack==='lock')h.lockOperationRef.current={};if(attack==='removal')h.draftRemoval={};if(attack==='removalBusy')h.draftRemovalBusyRef.current={};
+  const deps=h.dependencies;if(attack==='epoch')h.dependencies=()=>({...deps(),cupReassignmentRenderEpoch:h.setupEpochRef.current-1});const before=snapshot(env);await h.run('handleScanCup');assert.equal(h.writes.length,0,attack);assert.equal(h.reads,0,attack);assert.equal(snapshot(env),before,attack+' nonmutation');assert.equal(renderPermissions(h).canEditSessionSetup,false);env.sqlite.close();
+ }
+ console.log('PASS actual source owner/form pin/loading/status/destination/ref/visible/op/revision/epoch/busy/save/lock/removal denials without native or DB mutation; ordinary permission never unlocked.');
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});
