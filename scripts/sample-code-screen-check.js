@@ -32,7 +32,7 @@ function harness(env,form=1,id='nfzyy8y0pqizn6') {
     savedSetupSnapshotRef:ref(null),savedSetupInputKeyRef:ref(null),writes:[],reads:0,tagId:'TEST-TAG',isSheetCupNumberDefault:false,isSheetCuppingModeDefault:false,
   };
   h.dependencies=()=>{
-    const dep={...constants,...h,...env.repo,canonicalize:require('../src/data/sampleCodeProfile').canonicalize,readCodeTagContext:require('../src/data/sampleCodeProfile').tagContext,Platform:{OS:h.platformOS||'android'},Keyboard:{dismiss(){}},CUP_NUMBER_OPTIONS:constants.CUP_NUMBER_OPTIONS,
+    const dep={...constants,...h,...env.repo,readDirectCupEnvelope:require('../src/data/directCupOldEnvelope').read,isBlankDirectCupEnvelope:require('../src/data/directCupOldEnvelope').blank,canonicalize:require('../src/data/sampleCodeProfile').canonicalize,readCodeTagContext:require('../src/data/sampleCodeProfile').tagContext,Platform:{OS:h.platformOS||'android'},Keyboard:{dismiss(){}},CUP_NUMBER_OPTIONS:constants.CUP_NUMBER_OPTIONS,
       isSmartCupHardwareTag:()=>Boolean(h.smart),classifyNfcTagReadResult:result=>({type:h.smart?'smart_cup':'ntag_cup',metadataPayload:Object.keys(result.parsed.text4||{}).length?result.parsed.text4:null}),
       NFC_TAG_TYPES:{NTAG_CUP:'ntag_cup',SMART_CUP:'smart_cup',EMPTY_TAG:'empty',GENERIC_NDEF_TAG:'generic'},
       getNfcTagIdentifier:tag=>tag.id,playNfcFailureFeedback:async()=>{},logAppError:()=>{},
@@ -51,7 +51,7 @@ function harness(env,form=1,id='nfzyy8y0pqizn6') {
     for(const name of ['validateAddSheet','pendingFieldsUnchanged','restorePendingAdditionFields','handleVerifySample','handleRewriteSample','assertPendingCodeDispatch'])dep[name]=(...args)=>h.run(name,...args);
     return dep;
   };
-  h.readResult=()=>({tag:{id:h.tagId},recordCount:h.smart?4:1,parsed:{text1:h.smart?{s:1}:null,text2:h.smart?{u:'DIFFERENT-TELEMETRY-UID'}:null,text3:h.smart?{r:40,a:96,w:240,c:70,x:3600,l:50,k:3}:null,text4:h.physicalPayload||{},raw:h.smart?{text1:'{"s":1}',text3:'{"r":40,"a":96,"w":240,"c":70,"x":3600,"l":50,"k":3}'}:{}}});
+  h.readResult=()=>({tag:{id:h.tagId,ndefMessage:(h.smart?[{s:1},{u:'DIFFERENT-TELEMETRY-UID'},{r:40,a:96,w:240,c:70,x:3600,l:50,k:3},h.physicalPayload||{}]:[h.physicalPayload||{}]).map(v=>({tnf:1,type:[84],payload:[2,101,110,...Buffer.from(JSON.stringify(v))]}))},recordCount:h.smart?4:1,parsed:{text1:h.smart?{s:1}:null,text2:h.smart?{u:'DIFFERENT-TELEMETRY-UID'}:null,text3:h.smart?{r:40,a:96,w:240,c:70,x:3600,l:50,k:3}:null,text4:h.physicalPayload||{},raw:h.smart?{text1:'{"s":1}',text3:'{"r":40,"a":96,"w":240,"c":70,"x":3600,"l":50,"k":3}'}:{}}});
   h.run=(name,...args)=>{
     const dependencies=h.dependencies();const code=generate(declaration(name)).code;
     return new Function(...Object.keys(dependencies),`return (${code});`)(...Object.values(dependencies))(...args);

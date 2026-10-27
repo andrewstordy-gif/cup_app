@@ -516,8 +516,9 @@ async function reassignmentConflictsWithDb(db,destinationId,uid,exceptOperation=
     await db.getFirstAsync('SELECT session_id FROM local_pending_draft_removals WHERE cup_uuid=? OR session_id=?',[uid,destinationId]))reassign.fail();
 }
 async function reassignmentEligibilityWithDb(db,destinationId,read,actor){
-  const metadata=validateMetadata(read.metadata);await assertNotRetiredBindingWithDb(db,read.uid,metadata);
+  const metadata=directCodec.metadata(read);if(metadata)await assertNotRetiredBindingWithDb(db,read.uid,metadata);
   const combined=await reassignmentReceiptsWithDb(db),receipts=[...combined.legacy,...combined.direct];
+  if(read.assignment&&combined.direct.some(r=>r.version===2&&r.uid===read.uid&&r.kind===read.kind&&r.oldAssignmentHash===read.assignment.payloadHash))throw new Error('reassignment:retired_binding');
   const rows=await db.getAllAsync(`SELECT DISTINCT sm.id,sm.session_id,sm.cup_uuid,sm.sample_metadata_json,s.local_creator_profile_id AS creator
     FROM samples sm JOIN sessions s ON s.id=sm.session_id LEFT JOIN physical_code_observations o ON o.session_id=sm.session_id AND o.code=sm.sample_code
     WHERE sm.cup_uuid=? OR o.physical_uid=? ORDER BY sm.session_id,sm.id`,[read.uid,read.uid]);
@@ -528,7 +529,7 @@ async function reassignmentEligibilityWithDb(db,destinationId,read,actor){
     if(row.session_id===destinationId)throw new Error('This cup already has a sample in this session. Use another cup.');
     const presentation=await getLocalTastingPresentationWithDb(db,row.session_id,'tasting',actor);
     if(!presentation.tasting.completed)throw new Error('This cup is assigned to an active local session.');
-    const exact=metadataMatches(old,metadata);
+    const exact=!!metadata&&metadataMatches(old,metadata);
     // A completed participant copy is unknown creator/global state, not release.
     if(row.creator===actor&&exact)known=true;
     sources.push({sessionId:row.session_id,sampleId:row.id,creator:row.creator,exact,token:presentation.tasting.contextToken});
@@ -677,12 +678,13 @@ async function currentDirectWithDb(db,id,actor,operationId){
 }
 export async function inspectDirectCupReassignment({destinationId,readResult,isCurrent}){
   const original=directCodec.original(directCodec.read(readResult));
+  if(directCodec.blank(original))return null;
   return directTransaction(destinationId,isCurrent,async(db,actor,base)=>{
     await reassignmentConflictsWithDb(db,destinationId,original.uid);
-    await assertNotRetiredBindingWithDb(db,original.uid,original.metadata);
-    if(original.metadata.u===destinationId&&await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[destinationId,original.metadata.z])&&!await db.getFirstAsync('SELECT id FROM samples WHERE session_id=? AND sample_code=?',[destinationId,original.metadata.z]))return null;
+    const metadata=directCodec.metadata(original);if(metadata)await assertNotRetiredBindingWithDb(db,original.uid,metadata);
+    if(metadata?.u===destinationId&&await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[destinationId,metadata.z])&&!await db.getFirstAsync('SELECT id FROM samples WHERE session_id=? AND sample_code=?',[destinationId,metadata.z]))return null;
     const eligibility=await reassignmentEligibilityWithDb(db,destinationId,original,actor),observation=generateId();
-    const captured={version:1,purpose:'direct',destinationId,actor,incarnation:base.incarnation,setupHash:base.setupHash,removalGeneration:base.removalGeneration,bindingVector:await bindingVectorWithDb(db,original.uid),original,oldBindingHash:directCodec.bindingHash(original),...eligibility};
+    const captured={version:2,purpose:'direct',destinationId,actor,incarnation:base.incarnation,setupHash:base.setupHash,removalGeneration:base.removalGeneration,bindingVector:await bindingVectorWithDb(db,original.uid),original,oldBindingHash:directCodec.bindingHash(original),...eligibility};
     if(directObservations.size>=32)directObservations.delete(directObservations.keys().next().value);directObservations.set(observation,canonicalize(captured));
     return {observation,title:'Reassign Cup?',message:eligibility.eligibility==='known_creator_complete'?'Replace its previous assignment? Other tasters may still be using it.':"We can't check its previous session. Reassigning may interrupt it."};
   });
@@ -709,7 +711,7 @@ export async function prepareDirectCupReassignmentWrite({destinationId,operation
   const read=directCodec.read(readResult),draft=JSON.parse(canonicalize(drawerDraft));direct.drawer(draft);
   const prepared=await directTransaction(destinationId,isCurrent,async(db,actor)=>{
     const {pending:p,base}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==expectedRevision)direct.fail();
-    if(p.phase==='consented'?!metadataMatches(read.metadata,p.original.metadata)||!directCodec.sameFamily(p.original,read)||read.state!==p.original.state:!directCodec.allowedRewrite(p.original,[...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code,metadataHash:directCodec.metadataHash(p.attempt.frozen.payload),bytesHash:p.attempt.frozen.bytesHash}]:[])],read))direct.fail();
+    if(p.phase==='consented'?!directCodec.sameOriginal(p.original,read):!directCodec.allowedRewrite(p.original,[...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code,metadataHash:directCodec.metadataHash(p.attempt.frozen.payload),bytesHash:p.attempt.frozen.bytesHash}]:[])],read))direct.fail();
     const eligibility=await reassignmentEligibilityWithDb(db,destinationId,p.original,actor);if(eligibility.eligibility!==p.eligibility||eligibility.sourceToken!==p.sourceToken)direct.fail();
     const attemptId=generateId(),code=await reserveWithDb(db,destinationId,actor,attemptId),candidate=pendingSampleFields({id:generateId(),cupUUID:p.original.uid,cupNumber:draft.cupNumber,cuppingForm:base.setup.cuppingForm,cuppingMode:draft.cuppingMode,sampleNumber:base.setup.samples.length+1,sampleCode:code,coffeeNameOrigin:draft.coffeeNameOrigin.trim(),process:String(normalizeProcessKey(draft.process))});
     if(candidate.cuppingForm===2&&candidate.cuppingMode!=='open')direct.fail();
@@ -758,13 +760,14 @@ export async function commitDirectCupReassignment({destinationId,operationId,exp
       const expectedVector=direct.vector(all.legacy.filter(r=>r.uid===prior.uid).slice(0,prior.priorLegacyOps.length),all.direct.filter(r=>r.uid===prior.uid).slice(0,prior.generation));
       if(prior.actor!==actor||prior.incarnation!==base.incarnation||prior.verifiedRevision!==expectedRevision||prior.removalGeneration!==base.removalGeneration||prior.postSetupHash!==base.setupHash||prior.savedSampleCount!==base.setup.samples.length||issued?.operation_id!==prior.attemptId||outcome?.actor_id!==actor||canonicalize(saved)!==canonicalize(expectedOutcome)||await bindingVectorWithDb(db,prior.uid)!==expectedVector||!member||member.cup_uuid!==prior.uid||member.sample_code!==prior.code||directCodec.metadataHash(parseMetadata(member.sample_metadata_json))!==prior.newMetadataHash||await direct.row(db,destinationId))direct.fail();return {sessionId:destinationId,status:'new',sampleId:prior.sampleId,sampleCode:prior.code,attemptId:prior.attemptId,savedSampleCount:prior.savedSampleCount};}
     const {pending:p}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==expectedRevision||p.phase!=='write_verified')direct.fail();const a=p.attempt,c=a.candidate,now=new Date().toISOString();
-    const receipt={version:1,purpose:'direct',operationId,actor,destinationId,incarnation:p.incarnation,setupHash:p.setupHash,removalGeneration:p.removalGeneration,verifiedRevision:p.revision,uid:p.original.uid,kind:p.original.kind,settings:p.original.settings,oldSession:p.original.metadata.u,oldCode:p.original.metadata.z,oldMetadataHash:directCodec.metadataHash(p.original.metadata),oldBindingHash:p.oldBindingHash,sampleId:c.id,code:c.sampleCode,attemptId:a.attemptId,newMetadataHash:directCodec.metadataHash(a.frozen.payload),bytesHash:a.frozen.bytesHash,eligibility:p.eligibility,consentVersion:1,readHash:p.verification.readHash,at:p.verification.at,generation:all.direct.filter(r=>r.uid===p.original.uid).length+1,priorLegacyOps:all.legacy.filter(r=>r.uid===p.original.uid).map(r=>r.operationId),priorVector:p.bindingVector};
+    const oldMetadata=directCodec.metadata(p.original);
+    const receipt={version:p.version,purpose:'direct',operationId,actor,destinationId,incarnation:p.incarnation,setupHash:p.setupHash,removalGeneration:p.removalGeneration,verifiedRevision:p.revision,uid:p.original.uid,kind:p.original.kind,settings:p.original.settings,oldSession:oldMetadata?.u??null,oldCode:oldMetadata?.z??null,oldMetadataHash:oldMetadata?directCodec.metadataHash(oldMetadata):null,oldBindingHash:p.oldBindingHash,sampleId:c.id,code:c.sampleCode,attemptId:a.attemptId,newMetadataHash:directCodec.metadataHash(a.frozen.payload),bytesHash:a.frozen.bytesHash,eligibility:p.eligibility,consentVersion:1,readHash:p.verification.readHash,at:p.verification.at,generation:all.direct.filter(r=>r.uid===p.original.uid).length+1,priorLegacyOps:all.legacy.filter(r=>r.uid===p.original.uid).map(r=>r.operationId),priorVector:p.bindingVector,...(p.version===2?{oldAssignmentHash:p.original.assignment.payloadHash}:{})};
     await db.runAsync('INSERT INTO samples(id,session_id,cup_uuid,cup_number,cupping_form,cupping_mode,sample_number,sample_code,sample_metadata_json,coffee_name_origin,process,position_index,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[c.id,destinationId,c.cupUUID,c.cupNumber,c.cuppingForm,c.cuppingMode,c.sampleNumber,c.sampleCode,JSON.stringify(validateMetadata(a.frozen.payload)),c.coffeeNameOrigin,c.process,base.setup.samples.length,now,now]);
     await db.runAsync("UPDATE sessions SET samples_in_session=?,form_locked=1,status='new',updated_at=? WHERE id=?",[base.setup.samples.length+1,now,destinationId]);
     await db.runAsync('INSERT INTO sample_code_commit_outcomes(session_id,operation_id,actor_id,outcome_json) VALUES(?,?,?,?)',[destinationId,a.attemptId,actor,JSON.stringify({sessionId:destinationId,status:'new',savedSampleCount:base.setup.samples.length+1,issuerIncarnation:p.incarnation,removalGeneration:p.removalGeneration})]);
     if(await db.getFirstAsync('SELECT 1 FROM local_tasting_revisions WHERE session_id=? AND local_profile_id=?',[destinationId,actor]))await commitRevisionWithDb(db,destinationId,actor);
     receipt.postSetupHash=(await reassignmentDestinationWithDb(db,destinationId,actor)).setupHash;receipt.savedSampleCount=base.setup.samples.length+1;
-    const json=canonicalize(receipt);await db.runAsync('INSERT INTO local_direct_reassignment_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,1,?,?)',[operationId,actor,destinationId,p.incarnation,p.original.uid,receipt.generation,receipt.oldSession,receipt.oldCode,p.oldBindingHash,c.id,c.sampleCode,a.attemptId,json,sha256(json)]);
+    const json=canonicalize(receipt);await db.runAsync('INSERT INTO local_direct_reassignment_receipts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[operationId,actor,destinationId,p.incarnation,p.original.uid,receipt.generation,receipt.oldSession,receipt.oldCode,p.oldBindingHash,c.id,c.sampleCode,a.attemptId,p.version,json,sha256(json),receipt.oldAssignmentHash??null]);
     await db.runAsync('DELETE FROM local_pending_direct_reassignments WHERE destination_session_id=? AND operation_id=?',[destinationId,operationId]);
     return {sessionId:destinationId,status:'new',sampleId:c.id,sampleCode:c.sampleCode,attemptId:a.attemptId,savedSampleCount:base.setup.samples.length+1};
   },acknowledge);

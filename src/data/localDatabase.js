@@ -532,7 +532,7 @@ async function prepareSchema(db) {
   );`);
   await db.execAsync(REASSIGNMENT_SCHEMA);
   await db.execAsync(DIRECT_REASSIGNMENT_SCHEMA);
-  await db.execAsync('PRAGMA user_version=7;');
+  await db.execAsync('PRAGMA user_version=8;');
 }
 
 async function runMigrations(db) {
@@ -551,9 +551,9 @@ async function runMigrations(db) {
       if(!recognized){
         await prepareSchema(handle);
         await validate(handle,{initialized:false});
-        await handle.runAsync('INSERT INTO cup_session_store_schema VALUES(3)');
+        await handle.runAsync('INSERT INTO cup_session_store_schema VALUES(4)');
         await validate(handle);
-      }else if(recognized<3)await upgrade(handle,recognized);
+      }else if(recognized<4)await upgrade(handle,recognized);
     });
     isMigrated = true;
   })().catch(error => { migrationPromise = null; throw error; });

@@ -1,5 +1,18 @@
 # Local session state foundation
 
+## R1-151 explicit replacement of opaque OLD content
+
+Only explicit direct reassignment may capture supported-envelope old assignment
+Text bytes as opaque consent evidence. Protected hardware/state/telemetry/settings
+remain strict; local stored rows and new assignments remain strict. Known active,
+duplicate and pending UID conflicts do not depend on successfully parsing the
+physical old payload. Unknown old content grants only the existing warned override,
+not ownership/import. Version2 direct evidence binds raw old bytes and optional
+recomputed current typed identity; original version1 direct/legacy clear evidence
+keeps its original semantics and operational recovery after exact v4 migration.
+Retirement is raw UID/family/hash plus actual typed identity when available, never
+UID-only. R148 three-scan and all actor/incarnation/CAS/causal-vector fences remain.
+
 ## R1-147 direct reassignment extension
 
 NEW reassignment uses distinct direct consent/write_check/write_verified intent,

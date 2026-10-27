@@ -83,6 +83,7 @@ import {
   inspectDirectCupReassignment,stageDirectCupReassignment,getDirectCupReassignment,
   prepareDirectCupReassignmentWrite,inspectDirectCupReassignmentWrite,commitDirectCupReassignment,cancelDirectCupReassignment,
 } from "../../../data/sessionRepository";
+import {read as readDirectCupEnvelope,blank as isBlankDirectCupEnvelope} from "../../../data/directCupOldEnvelope";
 
 const RECOVERED_SMART_CUP_TEXT3 = {
   triggerTemp: 40,
@@ -1059,6 +1060,15 @@ export function CuppingSessionDetailsScreen({
         await assertSessionReferenceAvailable(sessionUUID, savedSessionIdRef.current);
         const parsed = result?.parsed || {};
         const tag = result?.tag;
+        // Explicit Add purpose only: old assignment bytes need not be a current
+        // import. Protected envelope validation precedes the strict classifier.
+        if([1,4].includes(result?.recordCount)){
+          const oldEnvelope=readDirectCupEnvelope(result);
+          if(!isBlankDirectCupEnvelope(oldEnvelope)&&oldEnvelope.assignment.typedMetadata?.u!==sessionUUID){
+            reassignmentOffer=await inspectDirectCupReassignment({destinationId:savedSessionIdRef.current,readResult:result,isCurrent:()=>setupEpoch===setupEpochRef.current&&!additionOperation.cancelled});
+            if(reassignmentOffer)throw new Error('reassignment:confirmation');
+          }
+        }
         const tagClassification = classifyNfcTagReadResult(result);
         const isSmartCupHardware = isSmartCupHardwareTag(tag);
         const isRepairableSmartCup =
@@ -1087,10 +1097,6 @@ export function CuppingSessionDetailsScreen({
         }
 
         const normalizedDetectedCupUUID = normalizeCupUuid(detectedCupUUID);
-        if(tagClassification.metadataPayload&&tagClassification.metadataPayload.u!==sessionUUID){
-          reassignmentOffer=await inspectDirectCupReassignment({destinationId:savedSessionIdRef.current,readResult:result,isCurrent:()=>setupEpoch===setupEpochRef.current&&!additionOperation.cancelled});
-          if(reassignmentOffer)throw new Error('reassignment:confirmation');
-        }
         const conflictingSession = await findPendingSessionByCupUUID({
           cupUUID: normalizedDetectedCupUUID,
           excludeSessionId: sessionUUID,

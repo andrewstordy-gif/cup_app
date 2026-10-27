@@ -14,11 +14,26 @@ main profile `cup_app:user_profile` is retained; the experiment profile and
 unrelated storage/files are untouched. Only a truly empty version0 store may
 initialize. R1-147's static token-preserving SHA-256 manifest binds all 46 named
 schema objects, including constraints/indexes/issuer/journals/receipts. Current
-marker3, foundation marker1 and SQLite user_version7 must match before reads.
-Only the exact reviewed marker1/user_version5 or marker2/user_version6 integrated schemas may
+marker4, foundation marker1 and SQLite user_version8 must match before reads.
+Only the exact reviewed marker1/user_version5, marker2/user_version6 or marker3/user_version7 integrated schemas may
 upgrade atomically; this is not an old-store import or schema repair.
 Missing/extra/weakened schema is rejected, never repaired or reset. Fresh complete
 schema validation and the final marker insert share one exclusive transaction.
+
+### R1-151 opaque OLD assignment / v4
+
+The same 46-object manifest now permits direct format1/2. Exact recognized
+v1/v2/v3→v4 upgrades share one outer transaction, rebuilding only the two direct
+tables and preserving every original value/JSON/hash; old receipts gain a NULL
+`old_assignment_hash` column. New format2 pending evidence contains bounded exact
+old Text payload bytes/hash and optional recomputed strict typed metadata. New
+receipts store the raw assignment hash and nullable all-or-none actual old
+session/code/semantic hash; no logical identity is fabricated. Format1 JSON and
+its causal-vector serialization remain byte-identical and recover operationally
+under original semantic comparisons. Both formats share existing direct
+generations/combined causal vectors. No reset/import/backfill/profile change.
+V3 binaries reject v4. Current independently reviewable target hash:
+`8c58bba307f397a5352ccc1cd95f0d3adab19c5f4df8262158fca613ba2077b8`.
 
 ### R1-147 direct purpose / v3
 

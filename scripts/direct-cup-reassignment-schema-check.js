@@ -25,9 +25,9 @@ async function main(){
  const oldSchema=require(path.join(require('./direct-reassignment-migration-fixture.js').baseline,'src/data/integratedSessionSchema'));
  const independentHash=oldSchema.fingerprint(target.db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name").all());
  assert.equal(independentHash,'3d46cbe6f32dac3b83ad944856cf76643b7c89fe22f6aed6b9f0538ea80222fe');
- assert.equal(require(path.join(candidate,'src/data/integratedSessionSchema')).SCHEMA_HASH,independentHash);
+ assert.equal(require(path.join(candidate,'src/data/integratedSessionSchema')).V3_SCHEMA_HASH,independentHash);
  const env=harness(),seeded=await seedAll(env),before=rows(env.db),profile=[...env.storage];env.restart();env.reload(candidate);await env.database.getLocalDatabase();
- assert.equal(env.db.prepare('PRAGMA user_version').get().user_version,7);assert.equal(env.db.prepare('SELECT version FROM cup_session_store_schema').get().version,3);
+ assert.equal(env.db.prepare('PRAGMA user_version').get().user_version,8);assert.equal(env.db.prepare('SELECT version FROM cup_session_store_schema').get().version,4);
  const after=rows(env.db);for(const [table,values]of Object.entries(before))assert.deepEqual(after[table],values,table+' existing rows byte-equivalent');assert.deepEqual([...env.storage],profile);env.unchangedOld();
  assert.deepEqual(Object.keys(after).filter(k=>!(k in before)).sort(),['local_direct_reassignment_receipts','local_pending_direct_reassignments']);
  const stable=snapshot(env.db);env.restart();env.reload(candidate);await env.database.getLocalDatabase();assert.equal(snapshot(env.db),stable,'v3 reopen read-only');
@@ -49,12 +49,12 @@ async function main(){
  for(const mutate of [db=>db.exec('DELETE FROM cup_session_store_schema'),db=>db.exec('ALTER TABLE samples ADD COLUMN corrupt TEXT'),db=>db.exec('PRAGMA user_version=7'),db=>db.exec("PRAGMA writable_schema=ON; UPDATE sqlite_master SET sql=replace(sql,'sample_code TEXT NOT NULL CHECK','sample_code TEXTNOTNULL CHECK') WHERE name='samples'; PRAGMA writable_schema=OFF;")]){
   const bad=harness();await bad.database.getLocalDatabase();mutate(bad.db);const original=snapshot(bad.db);bad.restart();bad.reload(candidate);await assert.rejects(bad.database.getLocalDatabase(),/storage/);assert.equal(snapshot(bad.db),original);bad.unchangedOld();
  }
- for(const fault of ['CREATE TABLE local_pending_direct_reassignments','CREATE TABLE local_direct_reassignment_receipts','DROP TABLE cup_session_store_schema','INSERT INTO cup_session_store_schema VALUES(3)']){
-  const bad=harness();await addition(bad,'rollback000001',1,'written');const original=snapshot(bad.db),profile=[...bad.storage];bad.restart();bad.reload(candidate);bad.failAt(fault);await assert.rejects(bad.database.getLocalDatabase(),/injected/,fault);assert.equal(snapshot(bad.db),original,fault+' complete rollback');assert.deepEqual([...bad.storage],profile);bad.failAt(null);await bad.database.getLocalDatabase();assert.equal(bad.db.prepare('PRAGMA user_version').get().user_version,7);bad.unchangedOld();
+ for(const fault of ['CREATE TABLE local_pending_direct_reassignments','CREATE TABLE local_direct_reassignment_receipts','DROP TABLE cup_session_store_schema','INSERT INTO cup_session_store_schema VALUES(3)','INSERT INTO cup_session_store_schema VALUES(4)']){
+  const bad=harness();await addition(bad,'rollback000001',1,'written');const original=snapshot(bad.db),profile=[...bad.storage];bad.restart();bad.reload(candidate);bad.failAt(fault);await assert.rejects(bad.database.getLocalDatabase(),/injected/,fault);assert.equal(snapshot(bad.db),original,fault+' complete rollback');assert.deepEqual([...bad.storage],profile);bad.failAt(null);await bad.database.getLocalDatabase();assert.equal(bad.db.prepare('PRAGMA user_version').get().user_version,8);bad.unchangedOld();
  }
- const fresh=harness();fresh.reload(candidate);const [left,right]=await Promise.all([fresh.database.getLocalDatabase(),fresh.database.getLocalDatabase()]);assert.strictEqual(left,right);assert.equal(fresh.opened.length,1);assert.equal(fresh.db.prepare('PRAGMA user_version').get().user_version,7);fresh.unchangedOld();
+ const fresh=harness();fresh.reload(candidate);const [left,right]=await Promise.all([fresh.database.getLocalDatabase(),fresh.database.getLocalDatabase()]);assert.strictEqual(left,right);assert.equal(fresh.opened.length,1);assert.equal(fresh.db.prepare('PRAGMA user_version').get().user_version,8);fresh.unchangedOld();
  const schema=require(path.join(candidate,'src/data/integratedSessionSchema'));assert.equal(schema.fingerprint(fresh.db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE name NOT GLOB 'sqlite_*' ORDER BY type,name").all()),schema.SCHEMA_HASH);
- console.log('PASS author genuine on-disk v2→v3: bothform scores/notes/history/profile/ledgers plus every legacy pending phase and receipts unchanged, getters/reopen read-only, downgrade/corrupt/weak-token rejects unchanged, direct table/marker faults rollback+retry, fresh/concurrent v3/static target fingerprint.');
+ console.log('PASS author genuine on-disk v2→v4: bothform scores/notes/history/profile/ledgers plus every legacy pending phase and receipts unchanged, getters/reopen read-only, downgrade/corrupt/weak-token rejects unchanged, direct table/marker faults rollback+retry, fresh/concurrent v4; historical v3/static target fingerprint.');
 }
 if(require.main===module)main().catch(e=>{console.error(e);process.exitCode=1;});
 
