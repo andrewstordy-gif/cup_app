@@ -1,5 +1,43 @@
 # Local-workflow integration audit — R1-149 baseline / R1-157 refresh
 
+## Final merge-readiness review — 27 October 2026 (R1-158)
+
+Scope: the approved installation-local workflow only, not pilot release or full
+production conformance. Latest owner physical acceptance is recorded below.
+Independent release/source review and QA recommend **GO for this bounded integration**
+subject to explicit owner approval of the final head and controlled release
+checks. Independent QA disposition and final publication are in
+[R1-158](tasks/R1-158.md); no merge is authorized by recording this recommendation.
+
+The 28 old scripts remain failed, not waived or relabeled PASS. Their individually
+mapped supported-contract replacements cover the relevant affected regressions:
+19 obsolete/invalid seeds, one standalone loader, two incomplete extraction
+harnesses, four source freezes, one old ownership regex and one unsupported
+prototype-schema fixture. Specific current passing evidence covers atomic saves,
+pins/scoring/status, participant/Blind lifecycle, collision/ownership, actual
+load/callback permissions, removal, isolation and exact recognized upgrades/
+rollback/recovery. No applicable mandatory gap was identified by source review
+or independent QA.
+Historical failed tails remain unexecuted and unclaimed; the full matrix remains
+75 PASS/28 FAIL, with 27 distinct eventual supplemental passes.
+
+Main remains 34f95a8119574557e5e67cc5246888a9d1c089c4 and an ancestor of the
+candidate. Runtime/scripts/entry/package/native equality to tested f162813 and
+phone candidate 0e130ee was rechecked; R158 changes documentation only. Existing
+exact software/export evidence is reused on that basis, not described as rerun
+at this documentation head. Different physical Smart→Smart switching remains
+untested, not certified; no further routine owner phone check is required by the
+independent source reviewer for this tag-based local increment.
+
+Before merge: owner approval of exact final head/scope/limits, fresh remote-head/
+base and prospective-tree checks, preservation of recovery references and v4
+downgrade/physical-write limitations, then controlled merge and exact post-merge
+validation. Source/base changes invalidate this conditional recommendation until
+reviewed/revalidated. Main, working app and running candidate remain unchanged;
+keep PR draft/open with no auto-merge until explicit authorization. Production/
+service/upload/encryption/crash-draft/accessibility/platform/pilot gates below
+are not waived or declared complete.
+
 ## Current disposition — 27 October 2026 (R1-157)
 
 This section supersedes the dated R1-149 integration disposition below. Refresh
@@ -111,7 +149,7 @@ writes. Do not use the old numeric client on new string-code assignments.
   Source/scripts remain identical to the phone candidate. Export is not native
   installation or physical NFC certification.
 
-### Latest owner phone acceptance — NFC sticker tags
+### Latest owner phone acceptance — NFC sticker tags and one Smart Cup
 
 Owner explicitly confirmed these latest checks used **NFC sticker tags**:
 
@@ -123,12 +161,21 @@ Owner explicitly confirmed these latest checks used **NFC sticker tags**:
    new name/fresh code on the verified second sample; still DRAFT.
 4. Reopen: exactly two names/codes retained, no abandoned-attempt sample, DRAFT.
 
-These are owner-reported physical acceptance against the unchanged8097 candidate,
-not agent-performed NFC operations. Phone/iOS/tag model unspecified. Earlier
-Smart Cup reassignment/Quick reports remain valid only for their earlier source
-and scenarios; latest Smart restart/firmware conformance is not established by
-the sticker test or synthetic both-family coverage. Abandoned tags may retain
-unverified assignments; never claim clearing or recall from local abandonment.
+Subsequently, the owner confirmed DRAFT removal works (no further device-specific
+scenario supplied). With the owner's single production-firmware Smart Cup, the
+same-cup restart also passed: one sample with changed name and fresh code,
+earlier samples unchanged, and DRAFT retained after reopening. This establishes
+that specific current Smart restart scenario, not broad firmware certification.
+Different physical Smart Cup→Smart Cup switching remains untested because only
+one cup is available; the separate sticker-switch result above still applies.
+
+These are owner-reported physical acceptance against unchanged8097 candidate
+0e130ee5168f7fc4ff5262c210f8bfb470ad8f87, not agent-performed NFC operations.
+Phone/iOS/tag/cup model and exact production firmware version unspecified.
+Earlier Smart reassignment/Quick reports retain their earlier-source/scenario
+limits. Abandoned tags may retain unverified assignments; never claim clearing
+or recall from local abandonment. R1-158 assesses final merge readiness separately
+from R1-157's draft-publication-only disposition.
 
 ### Remaining boundaries and merge controls
 
