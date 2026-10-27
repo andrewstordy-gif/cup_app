@@ -1,4 +1,155 @@
-# R1-149 — Final local-workflow integration audit
+# Local-workflow integration audit — R1-149 baseline / R1-157 refresh
+
+## Current disposition — 27 October 2026 (R1-157)
+
+This section supersedes the dated R1-149 integration disposition below. Refresh
+the existing **draft PR21 only; no main merge, release or pilot approval**. The
+working app, running candidate8097, phone data and Metro process are unchanged
+by this audit. [R1-157 task](tasks/R1-157.md) records publication and final gates.
+
+### Current source and scope
+
+- Verified remote/working main: `34f95a8119574557e5e67cc5246888a9d1c089c4`.
+- Prior draft PR21 head: `b946032b7c73d83de20e235b1398e8867cd96077`.
+- Owner-tested running candidate: `0e130ee5168f7fc4ff5262c210f8bfb470ad8f87`.
+- Exact clean audit/test commit: `f1628134616052a4c2ec0552a2f325e92890aa04`.
+- Exact **src tree**, not a commit: `07bfbbf195ff2ee3340d23af9376a92169c1917e`.
+  Candidate, R156 freeze and audit have identical source/scripts/normal entry.
+  Main and prior PR head are ancestors; no conflict resolution or runtime edit
+  was needed. Subsequent refresh edits are audit/changelog/task documentation only.
+
+At this freeze:279 changed paths against main (87docs/109scripts/68src/10review/
+5root), versus prior PR262. Since prior PR there are36 changed paths before this
+refresh's report/changelog edits:8runtime/13scripts/15docs;17 newly added paths.
+The original R137 inventory and R149 counts below are historical, not current.
+R150's parked test-only branch is **not** included. App.js/package/lockfiles/
+configuration/native projects remain identical to main. Services, navigation,
+strict current validators/classifier, removal codec and profile have no delta
+since prior PR. No database, bundle, dependencies or private artifact is tracked.
+
+All previously reviewed local workflow remains included: both supported forms,
+1,296 codes/session, separate NFC verification, Save/Lock, creator/participant
+grey-card tasting/removal/completion/editing, Blind projections, verified Quick,
+physical DRAFT removal, and disconnected upload UI. This is an accumulated
+dependency/workflow integration, not merely a latest-button PR.
+
+Latest reviewed runtime commits are R151 `6de11bf`, R152 `d4bc56e`, R154
+`b7b7293`, R155 `a3f49a8` and R156 `f8ff82b`, with canonical/task and independent
+handoffs. R153 diagnosed without runtime changes. Their bounded additions:
+
+- R151 accepts bounded opaque OLD coffee assignment Text only for explicit Add/
+  reassignment consent. Protected envelope/UID/Smart records remain validated;
+  new output and separate check stay strictly canonical. No old membership,
+  identity, conversion, import or generic repair is inferred.
+- R152 restores explicit mode/count; R153/R154 isolated a preflight binding
+  rejection. The temporary R154 fixed-label, nonthrowing development-only probe
+  remains included; no identifiers/coffee/raw errors are logged. Removing it is
+  later cleanup, not newly connected telemetry.
+- R155 explicit unverified drawer restart abandons only that unfinished journal,
+  retains details and spent codes, then freshly inspects the selected cup. New
+  assigned targets require fresh warning/consent; consented write/check stays
+  same-cup bound. Old callbacks cannot revive the abandoned root. This cannot
+  recall an already dispatched physical write or clear the abandoned cup.
+- R156 corrects both actual-render permission gates. Ordinary setup remains
+  blocked during pending intent; only the successful explicit restart invocation
+  continues past its captured false ordinary permission. The prior optimistic
+  test fixture is replaced with source-derived ownership/form/readiness and
+  captured-render regressions, including existing DRAFT samples.
+
+### Current data handling and rollback
+
+Same `cup_sessions_v1.db` and main `cup_app:user_profile`; no old namespace import,
+reset, profile replacement, uninstall or unrelated storage/file deletion. Current
+integrated **v4/marker4/user_version8/foundation1**,46-object target SHA256:
+`8c58bba307f397a5352ccc1cd95f0d3adab19c5f4df8262158fca613ba2077b8`.
+Exact recognized v1/5, v2/6 and v3/7 upgrade in one outer exclusive transaction.
+Only two direct tables are rebuilt; original values/JSON/hashes/causal vectors
+retain their meaning, and old receipt rows gain a NULL new hash column. Old
+direct format1 and legacy clear recovery remain operational, not reinterpreted.
+Malformed/partial/weakened stores fail closed without repair. Old binaries reject
+v4; there is no automatic downgrade/reset. Reverting app source cannot undo cup
+writes. Do not use the old numeric client on new string-code assignments.
+
+### Current exact software evidence
+
+- Full standalone matrix at clean f162813: **103 run / 75 PASS / 28 FAIL /
+  zero timeouts**. All74 prior R155 passes retained; new R156 permission check
+  passes. The28 failed names **and normalized primary errors** match R149 and
+  R155. Matching names/errors are not a waiver or evidence every old tail ran.
+  The historical failure table below still applies; current-equivalent evidence
+  is separate. Command: `/usr/local/bin/node /private/tmp/r1-146-matrix-runner.cjs /private/tmp/cup-r1-144-reassignment /private/tmp/r1-157-final-f162813-matrix`.
+  Report: `/private/tmp/r1-157-final-f162813-matrix/report.json`.
+- **27 distinct current-equivalent supplemental suites passed**, not one
+  uninterrupted27-green run: first16 passed, then SQLite could not open a test
+  DB and the runner hit ENOSPC writing a log on the nearly full internal disk.
+  Original failures/evidence are retained. The failed/unreported/unrun11 passed
+  unchanged with temporary DBs/reports redirected to external disk. Nothing was
+  deleted/moved and no runtime/validator/test assertion was loosened.
+  Initial report `/private/tmp/r1-157-final-f162813-independent/report.json`;
+  preserved interruption `/Volumes/external/cup-r1-157-scratch.LHhsK3/initial-enospc-evidence/`;
+  remaining report `/Volumes/external/cup-r1-157-scratch.LHhsK3/final-remaining-f162813/report.json`.
+  Every inherited failure's bounded passing evidence is mapped in
+  `/Volumes/external/cup-r1-157-scratch.LHhsK3/r157-inherited-dispositions.json`.
+- Current supplemental coverage: exact rational CVA scoring/UI counts1–8,
+  atomic response/pin failures, real distinct-actor participant/Blind lifecycle,
+  controlled all-state deletion, Save/Leave/Stay and identifier collisions;
+  v1/v2/v3→v4 exact preservation/manifest/fault rollback/operational recovery;
+  opaque envelope/native/conflict/mixed-format causal chain, stale intent/issuer
+  ABA and source-derived captured-render permission; read-only Check recovery,
+  verified Quick command/navigation and held/duplicate modal races. These are
+  bounded current scenarios, not all historical tails or all P0 requirements.
+- Independent nonauthor combined-source review PASS at f162813: all8 runtime
+  delta files examined in context, six selected checks independently passed;
+  architecture/data/security/privacy/NFC/recovery/UX, no unresolved HIGH/CRITICAL
+  or mandatory finding. This is a bounded delta review plus the distinct R149
+  historical full-stack evidence, not an exhaustive new full-stack proof.
+- Normal-entry iOS export PASS at f162813,768 modules,3326770-byte Hermes bundle
+  `AppEntry-34afa80e6847590cce0850d0b120efe8.hbc`, SHA256
+  `c74f358febd9a965a255d51b66191cadfb18b65157a369cbee5e9c9ea498eb9f`.
+  Command: `PATH="/usr/local/bin:$PATH" /usr/local/bin/node node_modules/expo/bin/cli export --platform ios --output-dir /private/tmp/r1-157-ios-f162813`.
+  This is this export's hash, not a byte-identical claim about earlier bundles.
+  Source/scripts remain identical to the phone candidate. Export is not native
+  installation or physical NFC certification.
+
+### Latest owner phone acceptance — NFC sticker tags
+
+Owner explicitly confirmed these latest checks used **NFC sticker tags**:
+
+1. Corrected SCAN & ADD CUP starts scanning; separate verification adds one
+   fresh-code sample exactly once; destination remains DRAFT.
+2. For a second addition, close Check before verification: details and explicit
+   mode restored, only first sample listed, no automatic scan/write.
+3. Change name and restart with another tag: exactly two samples; first unchanged,
+   new name/fresh code on the verified second sample; still DRAFT.
+4. Reopen: exactly two names/codes retained, no abandoned-attempt sample, DRAFT.
+
+These are owner-reported physical acceptance against the unchanged8097 candidate,
+not agent-performed NFC operations. Phone/iOS/tag model unspecified. Earlier
+Smart Cup reassignment/Quick reports remain valid only for their earlier source
+and scenarios; latest Smart restart/firmware conformance is not established by
+the sticker test or synthetic both-family coverage. Abandoned tags may retain
+unverified assignments; never claim clearing or recall from local abandonment.
+
+### Remaining boundaries and merge controls
+
+All original deferred production/service/upload/accessibility/platform/crash-
+draft/manual-fallback limitations below remain. No upload behavior or pilot
+readiness is connected/claimed. Inherited fixture/reference failures remain test
+debt with bounded disposition, not blanket P0 waivers. Main protection rechecked:
+enforce_admins true, no force/deletion, zero required approvals and no required
+status checks; process gates remain necessary. Nine historical cosmetic EOF
+warnings remain untouched. No unrelated source cleanup is included.
+
+Publish only an independently reviewed fast-forward of existing draft PR21;
+no force push, main change or auto-merge. Before any later merge: explicit owner
+approval of exact head/scope/limits, applicable physical gate disposition, fresh
+remote main/head check and required prospective/post-merge validation. This
+audit/PR refresh does not authorize that later merge. Final publication/readback
+is recorded in R1-157; the running phone candidate stays0e130ee.
+
+---
+
+## Historical R1-149 record — 26 October 2026 (preserved)
 
 26 October 2026. Audit complete for draft PR preparation, not merge approval or
 pilot release. Source/review and software evidence are qualified below.

@@ -8,7 +8,7 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
-## Pending integration — 2026-10-26 — Codex PM/Release Manager
+## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet
   merged or released**: both forms, per-session two-character codes, verified
@@ -17,8 +17,13 @@ Each entry should include the date, the agent that made the change, and a short 
 - Includes verified Quick Cupping handoff, DRAFT scan/clear/check removal and
   explicit warned cup reassignment with a fresh write scan and separate check.
   Cancelling retains editable details; a write callback alone never adds a sample.
+- R1-157 refreshes the draft audit/PR through R1-156: explicit reassignment can
+  consent-bind opaque older assignment content without relaxing new output or
+  protected Smart records. Explicit unverified restart preserves fields/spent
+  codes and freshly checks another chosen cup; actual restart permissions and
+  captured-render tests are corrected without unlocking ordinary setup controls.
 - Integrated sessions use `cup_sessions_v1.db`, preserving the main profile and
-  recognized integrated v1/v2 data through the reviewed transactional v3 upgrade.
+  recognized integrated v1/v2/v3 data through the reviewed transactional v4 upgrade.
   Old main/experiment stores remain untouched and are not imported. This is
   ordinary installation-local SQLite, not encrypted production storage.
 - Upload remains disconnected/disabled. No backend, queue, old-tag conversion,
