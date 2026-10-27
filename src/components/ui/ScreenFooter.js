@@ -63,6 +63,8 @@ export function ScreenFooterDual({
   primaryAccessibilityLabel,
   primaryStyle,
   primaryTextStyle,
+  primaryIcon,
+  primaryIconOnly,
   secondaryLabel,
   onSecondaryPress,
   secondaryDisabled,
@@ -83,6 +85,8 @@ export function ScreenFooterDual({
         accessibilityLabel={primaryAccessibilityLabel}
         style={primaryStyle}
         textStyle={primaryTextStyle}
+        icon={primaryIcon}
+        iconOnly={primaryIconOnly}
       />
       <FullPageButton
         label={secondaryLabel}

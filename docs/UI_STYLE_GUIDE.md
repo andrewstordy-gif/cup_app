@@ -40,7 +40,7 @@ Some older screens still contain legacy card styles, small square buttons, and a
 ### Make The Next Action Obvious
 
 - Keep one dominant action at the bottom of the screen.
-- Use iOS blue for the neutral forward action: `SCAN CUP`.
+- Reserve blue for physical-cup actions, including `SCAN CUP`, NFC writing and verification. Do not use blue for upload, completion, ordinary navigation or status indicators in the agreed session flow.
 - Use charcoal for a required commit action: `SAVE`.
 - Keep secondary actions visually quieter than primary actions.
 
@@ -72,7 +72,7 @@ Use a restrained neutral palette.
 | `panel` | `#EEF0F2` | Drawer headers and subtle grouped areas |
 | `input` | `#F4F5F6` | Notes input background |
 | `border` | `#D7DADD` | Dividers and quiet control borders |
-| `action` | `#3478F6` | Primary scan action |
+| `action` | `#3478F6` | Physical-cup scan/write/verification action |
 | `danger` | `#DC2626` | Errors and destructive actions only |
 
 The existing Home screen uses `#007AFF` for its scan button. When shared button tokens are consolidated, standardise scan actions on one approved blue. Use `#3478F6` unless a visual review selects the native iOS value instead.
@@ -197,13 +197,15 @@ Cupping header:
 
 ### Bottom Action
 
-Use one fixed bottom action button.
+Use the existing fixed bottom action pattern. The approved Session Details footer has the original two-action combinations below; do not replace them with extra links above assessment scores.
 
 | State | Label | Colour |
 | --- | --- | --- |
 | Ready to scan | `SCAN CUP` | Blue `action` |
 | Unsaved edits | `SAVE` | Charcoal `ink` |
 | Loading | Short progress label or spinner | Disabled neutral |
+| Session tasting in progress | `COMPLETE SESSION` alongside `SCAN CUP` | Neutral charcoal completion; blue scan |
+| Session complete, both roles | Original upload control alongside `SCAN CUP` | Neutral grey/charcoal upload; blue scan |
 
 Standard dimensions:
 
@@ -213,6 +215,29 @@ Standard dimensions:
 - Label typography: system font, `15`, weight `700`, uppercase, `1` letter spacing
 
 Use this label treatment consistently for prominent footer actions, full-width dialog choices, and other primary app actions.
+
+### Session state, removal and upload indicators
+
+Product behaviour is defined by PRODUCT_SPEC section 6.8, not by visual precedent. Roles are per session. Preserve original Session Details controls and stable assessment Save/Scan, notes/keyboard and nine-score single-row layout. Do not add duplicate completion controls or competing “My tasting complete” statuses. A saved empty draft remains visible under its actual session name; blind mode hides coffee identity, not session names.
+
+- Keep the session-list delete cross available to either role in DRAFT, PENDING, IN PROGRESS and COMPLETE. Do not tie local deletion visibility to setup-edit permission.
+- Creator assigned-cup removal requires physical NFC clearing/verification. Participant sample removal is local-only. Both require clear contextual warning; do not visually imply a participant removal rewrites a cup.
+- Incomplete completion must show an immediate accessible warning using the existing dialog pattern, identify remaining local samples neutrally and direct the user to finish/save their assessments. Do not rely on a distant inline paragraph or add a new primary completion control. Dismissal is non-mutating.
+- Use existing Leave/Stay for unsaved setup/form edits. Leave discards ordinary uncommitted edits, but retains a pending physical NFC operation. Deliberate whole-session deletion also discards its pending NFC verification, without changing cups.
+- Whole-session deletion warns before deleting local records/results. If upload is pending, explicitly state that pending upload is cancelled/deleted and will not send; already uploaded results remain. Never imply remote erasure or that an already-sent request can be recalled.
+- NFC pending work is clearly unfinished/DRAFT and resumes with existing physical scan affordance labelled **Rescan to verify**, not an automatic rewrite. No fake verification/success animation from the write callback.
+- R1-152 exception: the editable unverified direct-addition drawer uses **SCAN & ADD CUP** for an explicitly requested fresh-code same-cup restart; load itself never scans. Check Retry stays read-only and verified recovery stays Save-only.
+- At Upload after recompletion, use the agreed **Replace previous results?** confirmation covering queued and already uploaded records, with **Yes, replace / No, keep existing**. Save or completion never gives upload consent.
+
+On Sessions cards use shared non-interactive icons in neutral grey with equivalent accessible status text:
+
+| Icon | Meaning |
+| --- | --- |
+| Cloud-clock | Explicitly authorised upload pending, including an older snapshot |
+| Cloud-check | Durable upload acknowledgement covers the current saved version |
+| None | Neither pending upload nor confirmed current-version upload |
+
+Saving changed scores/notes removes cloud-check. An older queued acknowledgement must not restore it or imply newer scores were sent. Revised results regain the check only after their upload is confirmed. Icons are status, not buttons, and do not replace the local tasting-state badge. Preserve quiet neutral styling and avoid introducing arbitrary colours or extra controls.
 
 ### Secondary Action
 
@@ -230,6 +255,14 @@ Reference example: `ADD AROMA` on the Brewing screen.
 | Radius | `28` |
 
 Use secondary actions sparingly. They should sit near the related primary action and remain visually quieter than blue `SCAN CUP` or charcoal `SAVE`.
+
+#### Quiet physical text action
+
+For DRAFT preparation, `Remove sample` is centered sentence-case text below
+`ADD SAMPLE`, not another filled pill. Use `text_secondary_body`, blue `action`
+(muted when disabled), no fill/border, a minimum 44-point centered touch target
+and subtle pressed opacity. Preserve its physical scan/clear behavior and
+accessibility meaning; typography is never responsively scaled.
 
 ### Dialogs
 

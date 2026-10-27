@@ -2,9 +2,9 @@
 
 **Status:** Proposed canonical technical contract for Release 1 implementation
 
-**Version:** 1.1
+**Version:** 1.2
 
-**Date:** 2 October 2026
+**Date:** 18 October 2026
 
 **Scope:** Domain model, local-first persistence, synchronisation, blind-data isolation, fresh production-schema cutover, and provider reachability
 
@@ -25,7 +25,7 @@ Release 1 is a local-first NFC-tag product. It MUST work without Smart Cup telem
 The following remain parameters or unresolved decisions, not values chosen by this contract:
 
 - account-free participant access expiry after session completion;
-- participant reopening duration;
+- service-side participant access/reopening duration (not a restriction on the approved installation-local edit/reopen flow);
 - host session-reopen grace period;
 - retention and deletion periods;
 - paid-plan, trial, and pilot-entitlement details;
@@ -41,6 +41,23 @@ Unresolved duration values do not permit an indefinite or missing production pol
 FR-028B is resolved for the two Release 1 forms: `NDEF4.f=1` means SCA CVA and `NDEF4.f=2` means SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023). These are the only Release 1 form values. Quick QC and Purchasing/selection are subsequent-release concepts with no assigned or reserved values. Implementations MUST reject an unknown or unsupported `f` visibly and MUST NOT guess, silently map it to SCA CVA, or invent, persist, or transmit a production value for a future form.
 
 For this mapping, Release 1 SCA CVA is the Affective Assessment only. CVA Descriptive, Physical, and Extrinsic assessments are not additional Release 1 forms. The SCA Legacy form has its own versioned field and scoring meaning; its marked quality scales, cup-by-cup checks, and defect deductions must not be represented by the CVA Affective input contract.
+
+### 2.2 Approved installation-local ownership and screen-state stage
+
+The Product Owner-approved local-profile stage precedes authenticated commercial/service ownership. A cryptographically random persistent non-user-editable local profile ID is initialized independently of Profile form completion. Display fields do not change it. New local sessions record immutable creator provenance inside the data-writing boundary. Setup mutations derive the current actor from stored identity and require an ownership match; NFC data, route flags, supplied IDs and editable organisation labels are not grants. A profile can create one session and participate in another. Foreign/unknown ownership, damaged identity and old records fail closed for setup; no migration automatically claims them. Installation-local ownership is not authenticated identity, tamper/cloning protection, an organisation membership, entitlement or service credential. Later account linking requires explicit verified migration. Existing production encryption, grants, tenant isolation, provider and pilot gates remain mandatory.
+
+The canonical mobile screen/state policy is PRODUCT_SPEC section 6.8. Implementations MUST keep these concepts separate:
+
+- durable **has-ever-started** history, which prevents blind preparation visibility returning through stale status or score clearing;
+- durable **has-ever-completed** history, which permanently locks creator setup under this approved flow;
+- current saved tasting revision plus active local sample membership/coverage;
+- explicit completion/reveal of that exact current revision/coverage;
+- temporary creator setup DRAFT with the progress state to restore after verified Save;
+- independent immutable consented upload snapshots, transport states and acknowledgements.
+
+The installed-app DRAFT/PENDING/IN PROGRESS/COMPLETE labels MUST NOT overwrite or be inferred as service host-global lifecycle transitions. Opening/typing alone does not change committed progress. Explicitly saving changed scores/notes, or participant additions/removals, invalidates current completion/reveal and current-version upload success atomically. Reading a completed form or discarding unsaved edits leaves committed completion intact. Creator additions/removals before first completion remain permitted after tasting starts, with metadata locks and physical consistency; after first completion, tasting may reopen but setup stays locked.
+
+Participant membership is a local roster of scanned samples, not an inferred host roster. Preserve assigned sample positions. Local removal deletes that participant's sample/results only and cannot write a tag or change another copy. Last-sample removal preserves visible IN PROGRESS and forbids empty completion. The reviewed prototype's one response stream per sample is not private multi-taster storage; its explicit attribution compatibility action cannot silently claim historical/foreign data or bypass historical read-only evidence. Preserve old values, form definitions, provenance and scoring meaning; no reset or silent completion/reveal/recalculation migration.
 
 ## 3. Architectural boundaries and ownership
 
@@ -156,7 +173,7 @@ Required fields:
 - `access_expires_at` (null only for `provisional_local`; every authoritative grant supplies a finite policy-derived value)
 - `created_at`, `updated_at`
 
-A participant belongs to exactly one session. An access grant MUST be session-scoped and MUST NOT authorise another session or organisation. Local identity continuity MAY survive restart on the same device. It MUST NOT be silently promoted to a host account or cross-session identity. In a blind Session, the transaction that explicitly changes `completion_state` to `complete` also changes `identity_projection_state` from `hidden` to `revealed_after_completion` and records `identity_revealed_at`. That identity transition is monotonic for the retained local record: reopening or editing a Response cannot set it back to `hidden`. It is durable for this participant/device and does not create share consent or network work.
+A participant aggregate belongs to exactly one session; a persistent local profile may have different roles in other sessions. Access grants remain session-scoped. In a blind local tasting, explicit completion atomically validates current saved results and local membership coverage, records completion/reveal evidence and sets `revealed_after_completion`. That projection is revision-specific, not monotonic: saved actual score/note edits or participant sample additions/removals atomically reopen and set it back to `hidden`. Durable started/ever-completed history remains. These transactions work offline and create no share consent or network work. Already-seen information cannot be made secret again by re-hiding.
 
 ### 5.4 Session
 
@@ -172,7 +189,7 @@ Required fields:
 - `reopen_until` (nullable pending policy)
 - `contract_version`, `created_at`, `updated_at`
 
-`form_key`, `form_version`, and `identity_mode` are session-level values. They MUST NOT vary by sample or participant. Once any response exists, `form_key` and `form_version` are immutable. A participant does not select or alter them.
+`form_key`, `form_version`, and `identity_mode` are session-level values. They MUST NOT vary by sample or participant. Once written to assigned cups, session name/type/form and coffee name/process are locked; changing assigned data requires physical removal/reassignment under PRODUCT_SPEC section 6.8. Independently, once any Response exists, its pinned form key/version/definition hash and scoring meaning remain immutable, including manual/no-tag capture; physical removal is not permission to reinterpret old responses. A participant never selects or alters setup.
 
 Permitted lifecycle transitions are:
 
@@ -182,7 +199,7 @@ draft -> prepared -> live -> completed -> reopened -> completed -> archived
   +---------+---------+----------+-------------------------+-> archived
 ```
 
-Starting, completing, reopening, and archiving are explicit host actions. Reopening MUST be audit logged and allowed only by the unresolved grace-period policy. A completion action requires confirmation. No participant result automatically completes or closes the session.
+This is the **service host-global lifecycle**, not the mobile local-tasting state machine in section 2.2. Host-global complete/reopen/archive commands remain authorised/audited and follow the approved service grace/access policy. Mobile Complete Session completes only that taster's current saved local revision/coverage; saved tasting changes reopen locally without closing/reopening other phones or fabricating a service Audit Event. No participant result automatically closes the service session.
 
 ### 5.5 Sample
 
@@ -234,11 +251,11 @@ staged -> writing -> written_unverified -> verified_pending_activation -> active
 active -> superseded                    failed-after-write -> rollback_pending
 ```
 
-1. **Stage:** In one local transaction, create a `staged` candidate with the complete intended participant-safe payload, its canonical hash, and `replaces_assignment_id`. Keep the last verified assignment `active`. A newly registered cup with no prior assignment remains unassigned.
+1. **Stage:** In one local transaction, create a `staged` candidate with the complete intended NDEF-allowlisted payload, its canonical hash, physical identity and prior assignment evidence. A currently assigned cup must undergo explicit physical removal and verification before a new assignment write; `replaces_assignment_id` is lineage, not permission to overwrite. Do not end a last verified database assignment merely because a replacement is staged; verified removal ends it. A newly registered cup with no prior assignment remains unassigned.
 2. **Write intent:** Persist `writing` before beginning the external NFC operation. Retries reuse the same candidate and payload hash.
-3. **Write:** After the adapter reports a completed write, persist `written_unverified`. This state is not success.
-4. **Read-back verify:** Read the tag again and compare its complete canonical payload and physical identifier with the staged intent. An exact match records verification evidence and moves to `verified_pending_activation`. A mismatch or unreadable tag moves to `failed` or a retryable `written_unverified` state with an explicit error; it never activates.
-5. **Activate:** In one idempotent local transaction, end/supersede the previous active assignment, activate the verified candidate, and persist the verification time. Only this transition reports assignment success/readiness.
+3. **Write:** After the adapter reports a completed write, persist `written_unverified`. This state is not success; the previously durable intent must remain recoverable if this persistence step fails.
+4. **Read-back verify:** Require a separate physical rescan of the same tag; compare its complete canonical payload and physical identifier with the staged intent. An exact match records verification evidence and moves to `verified_pending_activation`. A mismatch/unreadable tag stays visibly unfinished; it never activates or silently rewrites.
+5. **Activate/Save:** In an idempotent explicit session Save transaction, end/supersede the previous active assignment, activate the verified candidate, persist verification and restore PENDING/IN PROGRESS according to durable started history. Until verified and saved, creator setup stays DRAFT. Final Save failure retains the previously durable intent; retry does not duplicate samples or unnecessarily rewrite the cup. Staging failure MUST prevent external writing.
 
 Resolver behavior is deterministic at every state:
 
@@ -249,9 +266,9 @@ Resolver behavior is deterministic at every state:
 - `failed`, `cancelled`, `rollback_pending`, and `superseded` records never resolve as active;
 - a cold participant device without the host's assignment journal may bootstrap provisionally from one structurally valid NDEF payload under section 10.1, but later reconciliation MUST confirm or conflict that provisional mapping.
 
-On restart, recovery examines each non-terminal intent and performs a fresh read where possible. If the tag exactly matches the candidate, recovery verifies and activates idempotently. If it exactly matches the last verified payload, the last verified assignment stays active and the candidate can be retried or failed. If it matches neither, the cup is not ready and requires host recovery. A persisted `verified_pending_activation` may repeat the activation transaction; a later contradictory physical read is treated as tag drift and blocks readiness.
+On Leave/restart, unfinished operations remain DRAFT and resume at **Rescan to verify**, never an automatic rewrite. A matching candidate records verification; explicit Save activates idempotently. A previous/other payload mismatch remains unfinished and requires an explicit corrective path; it cannot be guessed successful or silently overwritten. A persisted verified operation can retry final Save; a later contradictory physical read is tag drift and blocks readiness.
 
-Cancellation before physical writing marks the candidate `cancelled`. After writing starts, cancellation first enters `rollback_pending`: the app must rewrite and verify the last verified payload before marking the candidate cancelled. Where there is no safely restorable payload or tag protection policy prevents restoration, the cup remains `failed`/not ready for manual recovery; this contract does not invent a tag-clearing policy. A failed or interrupted write MUST NOT report success.
+Cancellation before physical writing has no tag effect. Deliberate **whole local-session deletion** is a distinct exception: discard its pending verification and local intent without any tag write, and prevent stale callbacks/recovery from resurrecting it. Ordinary Leave/crash instead preserves intent. Physical cup removal/reassignment while retaining the session requires explicit NFC clearing then separate verification before reassignment. A physical undo of a write, if offered, cannot claim restoration until the prior payload is physically restored and verified. This contract does not invent unassignment bytes or automatically roll back tags. Exact unassignment representation and `i`/`z`/`y` consistency across affected cups must pass a separately reviewed protocol/conformance gate before dynamic setup ships.
 
 ### 5.8 Response
 
@@ -293,13 +310,13 @@ A Share Operation is the durable record of one explicit consent action. Required
 - `queued_at`, `last_attempt_at`, `acknowledged_at`
 - `attempt_count`, `last_error_code`, `retry_after`
 
-Every transaction that changes any Response, Tasting Event, or participant completion state increments `participant_revision` exactly once. The outbox payload is the immutable aggregate cut at `participant_snapshot_revision`: it contains every Response owned by that participant in the Session, including completion state, plus an explicit `response_revision_vector` of `{response_id, current_revision}` entries. The vector is sorted by canonical `response_id`; each included event is bounded by the named Response revision. A Response created after the cut or an event committed at a later aggregate revision is not part of the snapshot.
+Every transaction changing committed Response/Event data, participant local sample membership or completion increments `participant_revision` exactly once. The outbox is an immutable aggregate cut at `participant_snapshot_revision`: it captures the active local sample roster, its owned Responses and completion coverage, plus the sorted `response_revision_vector` of `{response_id, current_revision}` entries. Each event is bounded by the named revision. Later-created Responses/events or removed memberships cannot be silently folded into an old consent. A separately reviewed snapshot membership/removal contract must define how a newer active roster supersedes reporting coverage while retaining accepted raw/audit evidence; omission must not be guessed to authorise remote raw-data deletion.
 
 Snapshot creation MUST occur in one local database transaction that:
 
 1. obtains a write lock or equivalent serializable boundary for the participant/session aggregate;
 2. reads and freezes the current `participant_revision`;
-3. enumerates all participant Responses in that Session and their exact revision vector;
+3. captures active local sample membership, its owned Responses and exact revision/coverage vector;
 4. materializes and canonicalizes the envelope defined in section 8.1;
 5. computes the canonical hash;
 6. records consent, the immutable Share Operation, and the queued outbox bytes; and
@@ -397,7 +414,9 @@ private/local -> complete -> queued -> sharing -> shared
 
 No session completion, host action, connectivity change, background task, or timer may create initial share consent. Background processing MAY retry an already consented queued/failed operation. A participant MUST see the state and have a safe retry path.
 
-If a participant edits after sharing, the accepted snapshot remains unchanged. The new local revision returns the current result to `complete` for sharing purposes and requires another press of **Share results**. The prior Share Operation remains `shared`.
+If a participant saves actual edits after sharing, accepted/queued immutable snapshots remain unchanged and the local tasting returns IN PROGRESS with blind details hidden. Existing authorised queued bytes remain eligible to send; do not pause/cancel solely because of edits. New results require completion again and explicit Upload/Share results. At that press, confirmation must cover queued **or previously uploaded** records. Yes creates a new operation/snapshot/revision, safely superseding older unstarted queue work without mutating its bytes/ID; No leaves prior work/results unchanged. In-flight older operations can still arrive, so acceptance must enforce revision order.
+
+The grey cloud-clock represents pending authorised work, including an older snapshot. The grey cloud-check requires durable acknowledgement of the **current saved revision and active local membership coverage**. Saving edits invalidates it; an old queued acknowledgement cannot restore it, re-complete/reveal the tasting or recreate removed local samples. Both indicators are status-only with accessible text. Upload is available only for completed current results; an older queued operation's eligibility is independent of this button availability.
 
 ## 7. Local persistence and acknowledgement
 
@@ -533,18 +552,18 @@ Only after this durable transaction commits may the service return success. The 
 The system MUST NOT use timestamp-only last-write-wins for responses, session identity, cup assignment, or participant completion/reveal state.
 
 - Immutable shared snapshots never mutate in place.
-- A new explicitly shared revision is stored as a later revision linked to the earlier accepted snapshot.
+- A new explicitly shared revision is stored as a later revision linked to the earlier accepted snapshot. The service atomically advances the latest accepted projection only for a newer revision in the verified tenant/session/participant/response-stream lineage; late older arrivals cannot overwrite newer results. Preserve raw snapshots/events and divergent-revision conflicts. Detailed stream membership/removal and cross-device ordering contracts require design/review; do not infer a global clock or cross-profile last-write-wins rule.
 - Divergent response revisions from the same base are both preserved and flagged for authorised resolution.
 - Concurrent Cup Assignments that violate uniqueness are rejected or quarantined; the app never guesses which sample is correct.
 - Session form/version conflicts block ingestion because response meaning cannot be inferred safely.
-- Blind/open Session-mode conflicts choose the more restrictive participant projection until an authorised, audited host decision resolves the mode. This conflict rule does not reverse a participant's already persisted post-completion reveal on that device.
+- Blind/open Session-mode conflicts choose the more restrictive participant projection until an authorised, audited host decision resolves the mode. Current-revision completion/re-hiding still follows section 2.2; no package conflict or reconciliation may bypass it.
 
 ## 9. Blind-data classification and projections
 
 ### 9.1 Data classes
 
 - **Protected sample identity in Cup App presentation:** display name when identifying, origin, supplier, process, lot, roast reference, external reference, notes, and any value that can reveal the coffee. NDEF4's documented `n` name/origin and `p` process are an explicit raw-tag threat-model exception, not permission to display them early in Cup App.
-- **Neutral participant identity:** `blind_code`, neutral session label, sample position, form metadata, and Cup Assignment reference.
+- **Neutral participant identity:** `blind_code`, sample position, form metadata, and Cup Assignment reference. The actual saved session name remains visible and searchable under PRODUCT_SPEC section 6.8; blind protection applies to coffee identity, not replacing session names with neutral labels.
 - **Participant result data:** participant display name, responses, notes, descriptors, completion, consent, and share status.
 - **Operational data:** non-secret identifiers, schema versions, state flags, error codes, and timestamps.
 
@@ -554,8 +573,8 @@ Classification is conservative: when a field may reveal sample identity, treat i
 
 | Projection | Before this participant completes | After this participant completes |
 | --- | --- | --- |
-| Host-authorised local/service view | Protected identity allowed | Protected identity allowed |
-| Account-free participant UI/accessibility tree | Neutral blind code only; no protected coffee metadata in any participant-facing surface | Locally held coffee metadata is visible for this participant/device and remains visible during later permitted review/editing |
+| Creator local setup / service host view | Local creator preparation identity only before durable tasting start; service host-authorised reporting remains separate | Local setup stays locked after first completion; service host-authorised reporting remains separate |
+| Local taster UI/accessibility tree (creator or participant) | Neutral blind identity; creator preparation exception only as above | Local metadata visible only while current saved revision/coverage is explicitly complete; saved edits/membership changes re-hide |
 | Participant encrypted offline cache/package | May retain protected `n`/`p` values read from NDEF4, but participant-facing selectors expose only the neutral blind projection | The same local values become eligible for the revealed participant projection; no download is required |
 | Participant network response | No protected coffee metadata; server/API filtering remains mandatory | Still no protected coffee metadata in Release 1; local reveal does not depend on a service response |
 | Share envelope/outbox | No item exists without a separate **Share results** action | Completion/reveal still creates no item; a later explicit share follows sections 5.10 and 8 and need not duplicate coffee metadata already identified by Sample aliases |
@@ -566,7 +585,7 @@ Classification is conservative: when a field may reveal sample identity, treat i
 
 Blind protection MUST be enforced by the participant-facing projection boundary. In blind mode before completion, selectors/serializers for UI, page titles, URLs, notifications, screen-reader labels, cached previews, production diagnostics, participant API responses, and API error details MUST omit protected coffee metadata even when encrypted local storage contains `n`/`p` from NDEF4. General UI components MUST receive the neutral projection rather than broad Sample or raw-NDEF objects. Service/API projection filtering remains mandatory and cannot be replaced with visual hiding.
 
-Reveal is the local consequence of this participant explicitly completing the blind Session. In one durable local transaction the app validates completion, records completion and reveal timestamps, and switches that participant/device to `revealed_after_completion`. The transition works offline, requires no host-global state, server refresh, reveal QR, or tag rewrite, and is not reversed by reopening/editing the local result or by later host Session closure/archive. It does not create consent, an outbox item, a Share Operation, or any upload. Only an applicable deletion/reset operation may later remove the locally held data.
+Reveal is the local consequence of explicit completion of current saved revision and local sample coverage. One durable transaction validates required saved scores and records completion/reveal evidence. Saving actual score/note edits or participant additions/removals atomically reopens/re-hides; unsaved/discarded edits do not. Neither transition depends on host-global state, service refresh, a reveal QR, tag write or upload. Historical completion evidence is preserved independently from the current projection; no automatic ownership/reveal inference is authorised. Re-hiding cannot undo human knowledge. Service closure/grant changes cannot supply a reveal or override local revision checks.
 
 Deliberate inspection of raw tag contents using a third-party NFC reader is outside the Release 1 threat model. This narrow exception does not weaken protection for participant results, notes, credentials, access grants, tenant data, device secrets, service responses, logs, analytics, or any field not expressly allowed by `NDEF_PROTOCOL.md`.
 
@@ -601,6 +620,12 @@ All Cup App data other than the deliberately participant-readable canonical NDEF
 - Recovery, rotation, revocation, restore, and crypto-erasure actions are authorised and minimally audited. Implementations MUST test that database files, application backups, exported service objects, and captured transport do not expose representative sensitive fixtures without the appropriate keys.
 
 ### 9.4 Retention, display-name removal, deletion, and anonymisation
+
+#### Mobile local-copy deletion (distinct from service erasure)
+
+Either role may use the session-list delete cross in every local state. Confirm deletion of local session/samples/scores/notes; discard pending NFC verification with no tag write and cancel/delete queued local uploads. Warn explicitly when an upload is pending and that already uploaded results remain. Local sample deletion by a participant affects only their scanned roster/results. These commands do not need creator setup permission and do not mutate physical cups, other copies or accepted service results. Deletion and worker dispatch must be coordinated durably; stale callbacks/acknowledgements/recovery cannot resurrect local records or resume cancelled retries. An already-dispatched request may already have been accepted and cannot be falsely promised recalled; resolve that race without silently issuing service erasure. Storage/retention mechanisms must honour authorised local deletion without retaining deleted payloads under a new recovery journal.
+
+#### Authorised tenant/service erasure
 
 An approved policy supplies finite durations and any authorised hold rules. Missing policy never means “retain forever” or “delete immediately”; production creation/issuance fails closed as section 2 states.
 
@@ -681,7 +706,7 @@ Reconciliation MUST be one idempotent local transaction keyed by normalized `pub
 - rewrite or resolve foreign keys through the alias map without changing event content, local revisions, participant aggregate revisions, or consent snapshots;
 - merge only records whose public reference, normalized NFC identity, sample position, form key/version, and identity mode agree;
 - record the service package/version, validated Organisation/Host/assigner provenance, and replace `provisional_local` with the service-valid session-scoped grant;
-- preserve the participant's durable `identity_projection_state`; reconciliation or a later package MUST NOT re-hide an already completed participant's locally revealed metadata or reveal an incomplete participant;
+- preserve durable start/ever-completed history and recompute current identity projection from the local saved revision/coverage and explicit completion; a later package cannot reveal an incomplete/reopened tasting or restore removed local sample membership;
 - leave queued share snapshot bytes byte-for-byte immutable and place authoritative alias bindings only in the separately validated transport wrapper excluded from the snapshot hash.
 
 Repeating the same authoritative package produces no additional rows or revisions. Provisional rows remain provenance evidence and are excluded by construction from authoritative repositories/views before and after reconciliation. A domain-ID collision with different content, missing validated Organisation/Host/assigner authority, mismatched form/version or mode, unknown/revoked session, conflicting Sample/Assignment, or duplicate authoritative mapping is quarantined. Local observations remain readable and are never discarded; sharing stays visibly failed/blocked until an authorised resolution or a new join artifact establishes scope. The app MUST NOT silently attach local results to a merely similar service record.
@@ -713,7 +738,7 @@ Every service read, share, reconciliation continuation, and deletion-related par
 
 Validation derives query tenant/session scope from the verified grant and server records. A client path/body identifier can only narrow that scope and a mismatch fails closed. Expired, revoked, wrong-audience, wrong-session, wrong-tenant, wrong-subject, or insufficient-scope use returns no protected data and no distinguishable resource-existence detail.
 
-Grant revocation is supported by grant, participant, and Session. Session deletion revokes immediately; closure/archive behavior follows a mandatory configured access-state matrix with finite share grace where allowed. If that matrix or a required duration is unset, the operation is denied. Release 1 participant service responses remain blind-safe and do not supply the local reveal. Local completion reveal does not depend on a grant claim or service read and remains visible on that device. Revocation cannot make metadata already revealed offline secret again, so connected clients apply the applicable deletion/cache policy and the limitation is recorded.
+Grant revocation is supported by grant, participant, and service Session. Service deletion revokes immediately; closure/archive follows a mandatory configured access-state matrix with finite share grace where allowed. An unset matrix/duration denies the affected service operation. Mobile local-copy deletion is not service revocation/erasure. Service responses stay blind-safe and do not supply reveal. Local projection follows current revision/coverage completion independently of grant claims; saved local changes re-hide under section 2.2. Neither re-hiding nor revocation can erase already-seen human knowledge, and applicable deletion/cache limitations remain explicit.
 
 Refresh/replacement requires either a still-valid grant with refresh permission represented server-side or renewed proof from a permitted join artifact/capability. It repeats current Session, subject, audience, scope, revocation, and policy checks; issues a new `grant_id`; and revokes/replaces the old grant under a finite configured overlap bound. An expired or revoked grant alone cannot refresh itself. Reconciliation swaps `provisional_local` for the new protected grant atomically with authoritative aliases; failure leaves only local private access.
 
@@ -754,7 +779,7 @@ acknowledgeShare(operation_id, snapshot_hash, service_ack)
 recoverInterruptedWork()
 ```
 
-`appendTastingEvent` and `createShareOperation` are atomic and durable. Revision mismatch returns a conflict; it never silently overwrites.
+`appendTastingEvent` and `createShareOperation` are atomic and durable. Explicit Save is the committed event boundary; recovery draft persistence is distinct and cannot advance completion or consent. Saved changes invalidate current completion/reveal/acknowledgement eligibility in the same transaction while preserving started/ever-completed history and older authorised queues. Completion and snapshot operations validate active local membership as well as response revisions. Local deletion cancels queued dispatch/retry and invalidates outstanding callback contexts. Detailed schema/API signatures require the implementation-plan contract gate; these port sketches do not authorise guessed migrations. Revision mismatch returns a conflict, never silent overwrite.
 
 ### 12.2 SessionAccess
 
@@ -838,6 +863,48 @@ This boundary is provider-neutral. It does not require physical hosting in mainl
 
 ## 13. Fresh Release 1 schema and forward-migration contract
 
+### Installation-local integration extension (R1-137)
+
+Before the later encrypted production boundary below, the approved isolated
+candidate initializes `cup_sessions_v1.db` using the reviewed installation-local
+schema. This is ordinary Expo SQLite, not satisfaction of production encryption,
+service authorization, tenancy, upload or migration requirements. It never opens,
+imports, repairs, resets or aliases either historical session database. The main
+`cup_app:user_profile` is retained unchanged when valid; missing identity uses
+the existing secure initialization and invalid identity fails closed. Experiment
+profile identity and old ownership are never imported.
+
+The current complete bundled non-internal schema fingerprint, user_version 8,
+integrated marker version 4 and foundation marker version 1 are required. Only
+the exact reviewed integrated v1 (marker1/user_version5), v2
+(marker2/user_version6) or v3 (marker3/user_version7) schema may upgrade to v4, in one exclusive transaction
+preserving business and recovery rows. An older binary rejects the newer store;
+there is no downgrade/reset or prototype import. A truly empty store initializes
+atomically with its integrated marker written last; partial, unknown or weakened
+existing schemas fail closed without repair. See `DATABASE_SCHEMA.md` and
+`src/data/integratedSessionSchema.js` for the exact manifests and recognized
+upgrade paths, not a generic forward-migration mechanism.
+
+For this enrolled local policy, sample identity is the session reference plus
+immutable two-character code, never the ordinal/count hint. Proven participant
+and creator local tasting removal clears only that actor's target results and
+retains its known card grey, superseding older participant-delete descriptions
+in section 2.2 only for this policy. Active membership, durable removal generation,
+actor/incarnation and saved-response coverage bind completion/reveal and stale
+operation rejection. DRAFT physical removal is a separate purpose-bound verified
+clear; it retires the assignment/code and does not reclaim issued codes. No
+completion/removal transition grants setup authority or upload permission.
+
+The R1-138 explicit Quick exception consumes the sole sample's durable verified
+addition proof, bound to current creator/issuer incarnation/issued operation and
+roster generation. Existing setup Lock and sole activation commit together;
+neither a route flag nor write success grants assessment access. First transition
+requires blank never-started setup; replay requires the original existing active
+target and unchanged tasting-removal epoch, never restoring removed results or
+activation. Actor/UI-current checks apply before commit and acknowledgement.
+No schema, NFC payload, upload, response/history event or global DRAFT-read
+permission changes. Normal sessions keep explicit Lock and scan activation.
+
 The pre-release `cup_user_test.db` and related prototype stores are disposable implementation evidence, not a production predecessor schema. Release 1 MUST initialize a distinct, fresh encrypted database and MUST NOT open, import, transform, alias, or expose prototype records through an importer or user-facing migration flow. This contract does not authorise deletion or mutation of any existing prototype data; preservation or archival outside the Release 1 product is a separately scoped operational choice.
 
 ### 13.1 First production schema initialization
@@ -873,6 +940,8 @@ Forward migrations never synthesize participant grants, access subjects, capabil
 - Recovery evidence records the exact schema version, backup/checkpoint identity, key version, validation result, and cutover state without logging protected content or credentials.
 
 ## 14. Current prototype conflicts and disposition
+
+This table records the earlier baseline audit, not a fresh audit of the reviewed 18 October phone stack. Some gaps have since been addressed in unmerged work. Reconcile each row against the exact selected source commits through the [implementation plan](SESSION_SCREEN_STATE_IMPLEMENTATION_PLAN.md) before assigning implementation; neither this historical evidence nor a phone check establishes production conformance. The approved installation-local stage in section 2.2 preserves existing test data and does not authorize a reset through the later fresh-production-schema boundary.
 
 | Evidence | Conflict | Classification | Required follow-up |
 | --- | --- | --- | --- |
@@ -926,9 +995,9 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 
 21. Before activation, the last verified assignment remains active and a candidate-only payload never opens tasting on the host device.
 22. Crash/restart tests at each boundary—before/after staging, persisting `writing`, physical write completion, persisting `written_unverified`, read-back, persisting verification, and activation commit—produce only the documented state and never report premature success.
-23. Recovery with a tag matching the candidate verifies/activates exactly once; matching the prior payload retains the prior assignment; matching neither blocks readiness.
+23. Recovery resumes a separate physical rescan. A candidate match verifies exactly once but does not activate until explicit session Save; a prior/other payload remains unfinished, retains only previously verified applicable evidence and cannot silently trigger rewrite or readiness.
 24. Retrying a staged or interrupted write reuses the candidate ID and intended payload hash and cannot create two active assignments.
-25. Cancellation before write has no tag effect; cancellation after write cannot complete until the prior verified payload is restored and read-back verified, or the cup remains not ready.
+25. Stage failure never writes. Leave/restart preserves intent and resumes separate rescan verification, not rewrite. Whole local-session deletion instead discards pending verification without tag changes; physical removal/reassignment remains a distinct verified NFC workflow.
 26. Initial assignment with no last verified payload resolves `unassigned` through every pre-activation/failure state.
 
 ### 15.4 Sharing and conflict
@@ -948,7 +1017,7 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 
 37. Before this participant explicitly completes a blind Session, protected coffee metadata is absent from participant-facing UI/accessibility output, page titles, URLs, notifications, cached previews, ordinary diagnostics, analytics, and participant network responses. Encrypted local storage may retain real NDEF4 `n`/`p`, but only the neutral projection reaches those surfaces.
 38. Blind NDEF4 may contain real coffee name/origin `n` and process `p` with `m=b`, but contains no result, note, participant data, completion/reveal state, share state, credential, access grant, tenant secret, or device secret. A third-party reader can inspect the allowed raw metadata and is outside the Release 1 threat model.
-39. Explicit participant completion and `revealed_after_completion` commit atomically offline. Reveal immediately uses locally held metadata, survives restart and later permitted review/editing on that device, requires no host-global reveal/network refresh/reveal QR/tag rewrite, and creates no consent, outbox item, Share Operation, or upload.
+39. Explicit current-revision/coverage completion and reveal commit atomically offline and survive restart. Saved actual score/note edits and participant membership changes reopen/re-hide; unsaved/discarded edits do not. Ever-started/ever-completed history prevents preparation/setup bypass. No transition creates upload consent, network work or a tag rewrite.
 40. A provisional-local record cannot call service APIs; a reconciled session-scoped participant grant cannot read or share another session.
 41. Cross-organisation identifiers supplied by a client cannot escape server-side tenant scoping.
 42. Free-text notes and protected sample identity never appear as analytics properties.
@@ -977,7 +1046,7 @@ Subsequent implementation tasks MUST provide automated evidence for applicable i
 56. Tampering or using a wrong issuer, key/version, audience, tenant, Session, access subject, bound device, scope, time window, or request-specific Share Operation/hash is denied without protected data or resource-existence detail.
 57. Expired or revoked grants and grants for a closed, archived, or deleted Session follow the mandatory access-state matrix on every service participant read, share, grant refresh/replacement, reconciliation continuation, and deletion-related participant request; an unset matrix/duration denies that service operation. The local offline `completeParticipantAndReveal` transaction is not a service operation and is never governed or blocked by grant/access-state validation.
 58. Refresh/replacement repeats current validation, produces a new random grant ID, and revokes/replaces the old grant within the finite overlap bound; an expired or revoked grant alone cannot refresh or extend itself.
-59. Local post-completion reveal is participant/device-scoped and is not reversed by grant refresh/revocation or host Session closure/archive; Release 1 participant service responses remain blind-safe before and after completion. Tests preserve the limitation that already revealed offline metadata cannot be made secret again, while deletion/reset may remove it under policy.
+59. Local reveal is current-revision/coverage scoped. Saved changes re-hide, not service grant/host-global lifecycle claims. Participant service responses remain blind-safe, and tests distinguish visual re-hiding from erasure of already-seen knowledge. Current-version upload success cannot be restored by a stale acknowledgement.
 60. Replayed authorised issuance is idempotent or rotates under the replacement rule; bounded/rate-limited guessing receives generic non-enumerating responses, and raw references, capabilities, grants, names, or protected identities never enter security logs.
 61. Participant display-name anonymisation removes the name from all controlled primary, raw, projection, cache, queue, quarantine, export, replica, production-migration, and applicable synchronized local surfaces while preserving response semantics and only the minimized audit/tombstone fields from section 9.4.
 62. Session deletion propagates to every controlled surface, revokes grants/download links, and creates a compact tombstone that rejects a late queued/replayed share and prevents read-model, production-migration, or backup restore from resurrecting content.
@@ -1038,7 +1107,7 @@ This contract does not redesign UI. Existing Home and Cupping screens can adopt 
 - Home reads a Session projection and explicit Cup resolution state instead of inferring product state from prototype rows.
 - Cupping reads one session-level form/version and identity mode, a participant-safe Sample projection, and a Response projection.
 - Existing save controls call the transactional event boundary and show saved only after durable acknowledgement.
-- Existing completion controls atomically set local completion and, for a blind Session, permanently reveal locally held coffee metadata for that participant/device; a separate **Share results** action creates consent and the outbox item.
+- The original session-level Complete Session / Scan Cup footer is retained. Completion atomically reveals current local revision/coverage; saved edits/membership changes reopen/re-hide. No extra completion action appears above scores. COMPLETE retains Scan Cup and the original neutral-grey Upload control; explicit Upload / Share results alone creates consent/outbox.
 - Status elements map to `private/local`, `complete`, `queued`, `sharing`, `shared`, and `failed` without changing visual styling in this task.
 - Active Session and future portal views consume only authorised projections; host aggregates contain only explicitly shared results.
 - Scan flows consume the four explicit resolution outcomes and retain the current manual fallback route.

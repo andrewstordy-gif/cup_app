@@ -14,6 +14,7 @@ export function full_page_button({
   textStyle,
   icon = null,
   iconPosition = "left",
+  iconOnly = false,
   accessibilityLabel,
 }) {
   const isDisabled = disabled || loading;
@@ -34,6 +35,8 @@ export function full_page_button({
     >
       {loading ? (
         <ActivityIndicator color={colors.surface} size="small" />
+      ) : iconOnly ? (
+        <View style={styles.content}>{icon}</View>
       ) : (
         <View style={styles.content}>
           {icon && iconPosition === "left" ? <View style={styles.iconLeft}>{icon}</View> : null}

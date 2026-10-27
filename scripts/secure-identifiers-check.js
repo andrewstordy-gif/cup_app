@@ -24,13 +24,16 @@ const cryptoMock = {
 };
 
 const db = {
+  async getAllAsync() { return []; },
   async getFirstAsync(sql, args) {
+    if (sql.includes('local_tasting_started_at AS startedAt')) return existingSession ? { status: 'pending', startedAt: null, evidence: 0 } : null;
+    if (sql.includes('local_creator_profile_id AS creator')) return { creator: require('./helpers/local-profile-fixture').uuid };
     if (sql.includes("SELECT created_at, cupping_form AS cuppingForm")) {
       return existingSession ? { created_at: "2026-10-01T00:00:00.000Z", cuppingForm: existingSessionIsUnversioned ? null : 1,
         formKey: cvaIdentity().form_key, formVersion: cvaIdentity().form_version, formHash: cvaIdentity().form_hash } : null;
     }
     if (sql.includes("FROM sessions WHERE id = ? LIMIT 1")) {
-      return existingSession ? { id: existingSession } : null;
+      return existingSession ? { id: existingSession, status: 'pending' } : null;
     }
     if (sql.includes("FROM sessions WHERE session_uuid = ? LIMIT 1")) {
       return conflictingReferenceOwner
@@ -46,6 +49,7 @@ const db = {
   async withTransactionAsync(callback) {
     return callback();
   },
+  async withExclusiveTransactionAsync(callback) { return callback(db); },
 };
 
 function loadAppModule(relativePath, mocks = {}) {
@@ -80,6 +84,7 @@ const details = loadAppModule("src/features/cupping/constants/sessionDetails.js"
   "../../../utils/secureIdentifiers": identifiers,
 });
 const repository = loadAppModule("src/data/sessionRepository.js", {
+  "./userProfileRepository": require('./helpers/local-profile-fixture'),
   "./localDatabase": { getLocalDatabase: async () => db },
   "../utils/secureIdentifiers": identifiers,
   "../features/cupping/constants/sessionDetails": details,
@@ -133,7 +138,8 @@ async function main() {
   const createdProfile = await profiles.saveUserProfile({ name: "New" });
   assert.match(createdProfile.uuid, uuidPattern);
   storedProfile = JSON.stringify({ uuid: "legacy-profile-id", name: "Old" });
-  assert.equal((await profiles.saveUserProfile({ name: "Updated" })).uuid, "legacy-profile-id");
+  await assert.rejects(profiles.saveUserProfile({ name: "Updated" }), /identity is unavailable/);
+  assert.equal(JSON.parse(storedProfile).uuid, 'legacy-profile-id', 'invalid identity is preserved, not silently replaced');
   assert.equal(details.createSample({ id: "legacy-sample-id" }).id, "legacy-sample-id");
 
   const collision = "123456789abcde";
@@ -183,13 +189,16 @@ async function main() {
     sessionName: "Older prototype", samples: [{ cupUUID: "CUP-1", cuppingForm: 1 }],
   }), /older or unsupported prototype session/);
   assert.equal(databaseWrites, writesBeforeOldRow, "old unversioned rows must not be rewritten as versioned CVA");
-  for (const badForm of [undefined, "1", 2, 99]) {
+  for (const badForm of [undefined, "1", 99]) {
     const writesBeforeRejectedTag = databaseWrites;
     await assert.rejects(repository.resolveActiveSampleFromCupMetadata({
       cupUUID: "CUP-1", metadata: { u: collision, f: badForm },
     }), /form is missing, unsupported/);
     assert.equal(databaseWrites, writesBeforeRejectedTag, "unsupported scan must fail before any local write or fallback");
   }
+  await assert.rejects(repository.resolveActiveSampleFromCupMetadata({
+    cupUUID: "CUP-1", metadata: { u: collision, f: 2 },
+  }), /cupping mode is missing/);
   existingSession = null;
   await repository.assertSessionReferenceAvailable(collision);
   console.log("Secure identifier and local collision checks passed.");

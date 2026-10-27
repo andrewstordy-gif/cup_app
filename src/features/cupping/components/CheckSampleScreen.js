@@ -1,95 +1,59 @@
 import React from "react";
-import { SafeAreaView, StyleSheet, useWindowDimensions, View } from "react-native";
-import { Header } from "../../../components/ui/Header";
-import { ScreenFooter } from "../../../components/ui/ScreenFooter";
+import { SafeAreaView, ScrollView, StyleSheet, View } from "react-native";
+import { CloseButton } from "../../../components/ui/IconButton";
+import { full_page_button as FullPageButton } from "../../../components/ui/full_page_button";
 import { TypographyAuditText as Text } from "../../../components/ui/TypographyAuditText";
 import { colors } from "../../../theme/colors";
 import { spacing } from "../../../theme/spacing";
 import { typography } from "../../../theme/typography";
 
+// The existing verification caller still owns every operation and transition.
 export function CheckSampleScreen({
-  sampleNumber,
   status = "pending",
   loading = false,
   onScanToCheck,
   onRewrite,
   onClose,
+  closeDisabled = false,
+  saveError = "",
+  retrySave = false,
 }) {
-  const { width } = useWindowDimensions();
-  const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const isMismatch = status === "mismatch";
-  const resolvedSampleNumber = sampleNumber || "-";
-
   return (
     <SafeAreaView style={styles.screen}>
-      <Header
-        title={`Check Sample ${resolvedSampleNumber}`}
-        variant="back"
-        onBackPress={onClose}
-        backAccessibilityLabel="Close check sample"
-      />
-
-      <View style={[styles.content, { paddingHorizontal: 24 * scale }]}>
-        <View style={[styles.messageGroup, { gap: spacing.sm * scale }]}>
-          <Text style={styles.label}>CHECK SAMPLE</Text>
-          <Text style={styles.title}>
-            {isMismatch ? "Sample mismatch" : "Scan the written cup"}
+      <ScrollView contentContainerStyle={styles.backdrop}>
+        <View style={styles.dialog} accessibilityViewIsModal>
+          <View style={styles.heading}>
+            <Text accessibilityRole="header" style={styles.title}>
+              {isMismatch ? "Re-write Sample" : "Check Cup"}
+            </Text>
+            <CloseButton accessibilityLabel="Close dialog" onPress={onClose} disabled={closeDisabled} />
+          </View>
+          <Text style={styles.message}>
+            {saveError || (retrySave ? "The cup is verified. Retry saving the sample; no re-write is needed." : isMismatch
+              ? "Verification failed. Re-write the same cup, then check again."
+              : "Scan the same cup again to verify its details.")}
           </Text>
-          <Text style={[styles.body, { maxWidth: 360 * scale }]}>
-            {isMismatch
-              ? "The scanned cup did not match the written sample data. Re-write the sample, then scan again to check it."
-              : "Scan the same physical cup to confirm its stored sample data before continuing."}
-          </Text>
+          <FullPageButton
+            label={retrySave ? "RETRY SAVE" : isMismatch ? "RE-WRITE SAMPLE TO CUP" : "SCAN & CHECK CUP"}
+            onPress={isMismatch ? onRewrite : onScanToCheck}
+            loading={loading}
+            disabled={loading}
+            accessibilityLabel={retrySave ? "Retry save verified sample" : isMismatch ? "Re-write sample" : "Scan to check cup"}
+            style={retrySave ? null : styles.scanButton}
+          />
         </View>
-      </View>
-
-      <ScreenFooter
-        label={isMismatch ? "RE-WRITE SAMPLE" : "SCAN TO CHECK CUP"}
-        onPress={isMismatch ? onRewrite : onScanToCheck}
-        loading={loading}
-        disabled={loading}
-        accessibilityLabel={isMismatch ? "Re-write sample" : "Scan to check cup"}
-        buttonStyle={isMismatch ? styles.rewriteButton : styles.scanButton}
-        textStyle={styles.footerButtonText}
-      />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  content: {
-    flex: 1,
-    justifyContent: "center",
-  },
-  messageGroup: {
-    alignItems: "center",
-  },
-  label: {
-    ...typography.text_caption,
-    color: colors.inkSoft,
-    letterSpacing: 1,
-  },
-  title: {
-    ...typography.text_section_title,
-    color: colors.ink,
-    textAlign: "center",
-  },
-  body: {
-    ...typography.text_body,
-    color: colors.inkSoft,
-    textAlign: "center",
-  },
-  scanButton: {
-    backgroundColor: colors.action,
-  },
-  rewriteButton: {
-    backgroundColor: colors.danger,
-  },
-  footerButtonText: {
-    color: colors.surface,
-  },
+  screen: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.35)" },
+  backdrop: { flexGrow: 1, justifyContent: "center", padding: spacing.md },
+  dialog: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, backgroundColor: colors.surface, padding: spacing.md, gap: spacing.sm },
+  heading: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  title: { ...typography.text_section_title, flexShrink: 1 },
+  message: { ...typography.text_secondary_body },
+  scanButton: { backgroundColor: colors.action },
 });

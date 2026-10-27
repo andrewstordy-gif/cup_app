@@ -13,6 +13,7 @@ export function WarningDialog({
   message,
   onOk,
   onDismiss,
+  onModalDismiss,
   okLabel = "OK",
   secondaryLabel,
   onSecondary,
@@ -27,7 +28,7 @@ export function WarningDialog({
   const handleDismissRequest = () => onDismiss?.();
 
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={handleDismissRequest}>
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={handleDismissRequest} onDismiss={onModalDismiss}>
       <View style={styles.backdrop}>
         <Pressable
           style={styles.backdropPressArea}

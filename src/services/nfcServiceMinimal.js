@@ -1,5 +1,7 @@
 import NfcManager, { Ndef, NfcTech } from "react-native-nfc-manager";
 import { Platform } from "react-native";
+import { validCode, validateMetadata, encodeUtf8, decodeTextPayload } from '../data/sampleCodeProfile';
+import { readRemovalTag, freezeClear, validateFrozen, compareRemovalRead } from '../data/draftSampleRemovalCodec';
 
 let started = false;
 let nextNfcSessionAllowedAt = 0;
@@ -29,21 +31,29 @@ function logTimestamp() {
 
 function logNfcEvent(stage, payload) {
   const ts = logTimestamp();
-  if (payload === undefined) {
-    console.log(`${ts} NFC minimal ${stage}`);
-    return;
+  const safeStage = /^(?:waiting for session cooldown|session cooldown armed|read start|read result|write start|write success|write retry scheduled|read\+write start|read\+write read result|read\+write (?:metadata-only )?write (?:start|success)|read\+write write retry scheduled|write metadata-only (?:start|success)|(?:read|write|read\+write) (?:tag summary|missing ndefMessage, retrying|retry tag summary))$/.test(stage)
+    ? stage : "event";
+  const counts = {};
+  for (const key of ["delayMs", "attempt", "recordCount", "byteLength"]) {
+    const value = payload?.[key];
+    if (Number.isSafeInteger(value) && value >= 0 && value <= (key === "recordCount" ? 65535 : 2147483647)) counts[key] = value;
   }
-
-  console.log(`${ts} NFC minimal ${stage}:`, payload);
+  if (/^(?:read|write|read\+write) (?:tag summary|retry tag summary)$/.test(safeStage)) {
+    for (const key of ["tagPresent", "identifierPresent", "ndefArrayPresent"]) {
+      if (typeof payload?.[key] === "boolean") counts[key] = payload[key];
+    }
+    counts.tagType = safeTagType(payload?.tagType);
+  }
+  // Raw NDEF, decoded text, byte windows and native objects can identify a
+  // blind coffee. Emit only fixed stages, counts and allowlisted scan shape.
+  try { console.log(`${ts} NFC minimal ${safeStage}`, counts); } catch { /* Diagnostics must not interrupt NFC. */ }
 }
 
-function logNativeNfcError(stage, error) {
+function logNativeNfcError(stage) {
   const ts = logTimestamp();
-  console.log(`${ts} NFC minimal error stage: ${stage}`);
-  console.log(`${ts} NFC minimal error object:`, error);
-  console.log(`${ts} NFC minimal error message:`, error?.message);
-  console.log(`${ts} NFC minimal error code:`, error?.code);
-  console.log(`${ts} NFC minimal error stack:`, error?.stack);
+  const safeStage = ["requestTechnology", "getTag", "writeNdefMessage", "read+write writeNdefMessage"].includes(stage)
+    ? stage : "operation";
+  try { console.log(`${ts} NFC minimal error stage: ${safeStage}`); } catch { /* Diagnostics only. */ }
 }
 
 function byteToHex(value) {
@@ -108,6 +118,11 @@ function summarizeRecordForDebug(record) {
 }
 
 function normalizeNfcError(error, fallbackMessage) {
+  if (error?.code === "PENDING_CUP_CONFLICT") {
+    const conflict = new Error("This cup is already assigned to another active session. Remove it from that session before adding it here, or use a different cup.");
+    conflict.code = "PENDING_CUP_CONFLICT";
+    return conflict;
+  }
   const stack = String(error?.stack || "");
   if (stack.includes("UserCancel")) {
     return new Error("NFC read session was cancelled.");
@@ -146,7 +161,7 @@ function decodeTextRecord(record) {
   }
 
   try {
-    return Ndef.text.decodePayload(record.payload);
+    return decodeTextPayload(record.payload);
   } catch {
     return null;
   }
@@ -305,6 +320,7 @@ function compactText3Payload(payload) {
     ...(maxCupTemp !== undefined ? { c: maxCupTemp } : {}),
     ...(maxTime !== undefined ? { x: maxTime } : {}),
     ...(ledBrightness !== undefined ? { l: ledBrightness } : {}),
+    ...(payload.k !== undefined ? { k: payload.k } : {}),
   };
 }
 
@@ -373,7 +389,7 @@ function buildExactTextRecord(text) {
     Ndef.TNF_WELL_KNOWN,
     Ndef.RTD_TEXT,
     [],
-    Ndef.text.encodePayload(text, "en"),
+    [2, 101, 110, ...encodeUtf8(text)],
   );
 }
 
@@ -478,18 +494,44 @@ async function getCurrentTag() {
   }
 }
 
-function summarizeTag(tag) {
-  if (!tag || typeof tag !== "object") {
-    return { present: false };
-  }
+// Closed native technology labels only; never echo an arbitrary native string.
+function safeTagType(value) {
+  return ["mifare", "iso15693", "iso7816", "felica", "Ndef", "NfcA", "NfcB", "NfcF", "NfcV", "IsoDep", "MifareClassic", "MifareUltralight", "NdefFormatable", "android.nfc.tech.Ndef", "android.nfc.tech.NfcA", "android.nfc.tech.NfcB", "android.nfc.tech.NfcF", "android.nfc.tech.NfcV", "android.nfc.tech.IsoDep", "android.nfc.tech.MifareClassic", "android.nfc.tech.MifareUltralight", "android.nfc.tech.NdefFormatable"].includes(value) ? value : "unknown";
+}
 
-  const ndefMessage = Array.isArray(tag.ndefMessage) ? tag.ndefMessage : [];
-  return {
-    present: true,
-    id: tag.id ?? null,
-    ndefRecordCount: ndefMessage.length,
-    keys: Object.keys(tag).sort(),
+function summarizeTag(tag) {
+  // Read data properties only; skip accessors and custom array methods.
+  // Malformed diagnostics must not affect the scanner's control flow.
+  const data = (object, key) => {
+    try { return Object.getOwnPropertyDescriptor(object, key)?.value; } catch { return undefined; }
   };
+  const own = key => data(tag, key);
+  try {
+    const tagPresent = Boolean(tag && typeof tag === "object" && !Array.isArray(tag));
+    const id = own("id") ?? own("identifier") ?? own("serialNumber");
+    let identifierPresent = typeof id === "string" && /[a-z0-9]/i.test(id);
+    if (Array.isArray(id)) {
+      const length = data(id, "length");
+      identifierPresent = Number.isSafeInteger(length) && length > 0 && length <= 64;
+      for (let index = 0; identifierPresent && index < length; index += 1) {
+        const byte = data(id, String(index));
+        identifierPresent = Number.isInteger(byte) && byte >= 0 && byte <= 255;
+      }
+    }
+    const ndef = own("ndefMessage"), techTypes = own("techTypes");
+    let tagType = safeTagType(own("tech"));
+    if (tagType === "unknown") tagType = safeTagType(own("type"));
+    const techCount = Array.isArray(techTypes) ? data(techTypes, "length") : 0;
+    if (Number.isSafeInteger(techCount) && techCount <= 32) {
+      for (let index = 0; tagType === "unknown" && index < techCount; index += 1) {
+        tagType = safeTagType(data(techTypes, String(index)));
+      }
+    }
+    return { tagPresent, identifierPresent, ndefArrayPresent: Array.isArray(ndef),
+      recordCount: Array.isArray(ndef) ? data(ndef, "length") : 0, tagType };
+  } catch {
+    return { tagPresent: false, identifierPresent: false, ndefArrayPresent: false, recordCount: 0, tagType: "unknown" };
+  }
 }
 
 async function getCurrentTagWithRetry(stage) {
@@ -745,9 +787,17 @@ export async function readAndWriteNdefMinimal(buildWritePayload, options = {}) {
 
     await delay(WRITE_SESSION_SETTLE_MS);
     const bytes = encodeBuiltRecords(builtRecords);
+    if (validCode(records?.text4?.z)) {
+      validateMetadata(records.text4);
+      if(typeof writePayload.beforeWrite!=='function')throw new Error('Current assignment context is unavailable. No cup was written.');
+      const status = await NfcManager.ndefHandler.getNdefStatus();
+      const capacity = status?.capacity ?? tag?.maxSize;
+      if (!Number.isSafeInteger(capacity) || capacity < bytes.length || status?.status !== 2) throw new Error('Tag capacity or writable status could not be confirmed. No cup was written.');
+    }
     let writeSucceeded = false;
     for (let attempt = 0; attempt <= WRITE_RETRY_ATTEMPTS; attempt += 1) {
       try {
+        if(validCode(records?.text4?.z))await writePayload.beforeWrite();
         await NfcManager.ndefHandler.writeNdefMessage(bytes);
         writeSucceeded = true;
         break;
@@ -791,6 +841,40 @@ export async function readAndWriteNdefMinimal(buildWritePayload, options = {}) {
     if (Platform.OS === "ios") {
       await delay(IOS_SESSION_SETTLE_MS);
     }
+  }
+}
+
+// Purpose-bound clear: no assignment-code shortcut and no automatic retry of a
+// possibly dispatched write. The repository persists writing in beforeWrite.
+export async function readAndClearNdefMinimal(prepare,options={}) {
+  try {
+    await startMinimal();
+    await requestNdefTechnology('Hold your phone near the cup to remove its sample assignment.');
+    const tag=await getCurrentTagWithRetry('read+write');
+    const readResult={tag,recordCount:Array.isArray(tag?.ndefMessage)?tag.ndefMessage.length:0};
+    if(typeof options.onRead==='function')await options.onRead(readResult);
+    const original=readRemovalTag(readResult);
+    const expected=freezeClear(original);
+    const status=await NfcManager.ndefHandler.getNdefStatus();
+    const capacity=status?.capacity??tag?.maxSize;
+    if(status?.status!==2||!Number.isSafeInteger(capacity)||capacity<expected.bytes.length)throw new Error('removal:unwritable');
+    const command=await prepare(readResult);
+    const frozen=validateFrozen(command?.frozen);
+    if(typeof command?.beforeWrite!=='function'||compareRemovalRead(frozen,original)!=='original')throw new Error('removal:context_changed');
+    const bytes=[...frozen.bytes];
+    if(status?.status!==2||!Number.isSafeInteger(capacity)||capacity<bytes.length)throw new Error('removal:unwritable');
+    await command.beforeWrite();
+    // Validate the private copy again at dispatch. Caller mutations cannot
+    // substitute arbitrary clear bytes after durable authorization.
+    validateFrozen({...frozen,bytes});
+    await NfcManager.ndefHandler.writeNdefMessage(bytes);
+    await closeIosSessionNow();
+    return {ok:true,result:command.result};
+  } catch {
+    throw new Error('removal:unfinished');
+  } finally {
+    await cancelMinimal();
+    if(Platform.OS==='ios')await delay(IOS_SESSION_SETTLE_MS);
   }
 }
 

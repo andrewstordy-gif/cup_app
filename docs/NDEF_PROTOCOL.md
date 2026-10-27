@@ -1,5 +1,46 @@
 # CUP App — Current NDEF Message Format
 
+## Integrated sample-code profile (R1-137)
+
+The approved integrated installation-local client uses the reviewed two-character sample-code contract:
+`z` is a required string matching `^[A-Z0-9]{2}$` (including `00`), `u` is the
+unchanged 14-character lowercase session reference, and `y` remains physical
+cup count 1–8. Shared identity is `(u,z)`, never the physical UID or local order.
+Numeric assignments are historical and unsupported by this profile; the client
+rejects them rather than converting, overwriting or claiming creator ownership.
+The sole replacement exception is explicit R1-151 reassignment below: old bytes
+are opaque consent evidence, never converted into a valid current assignment.
+
+NTAG writes one English UTF-8 Text record; Smart Cup writes four ordered Text
+records: `{s:1}`, `{}`, the validated preserved compact settings (including
+optional `k`), and full compact metadata. Unknown fields, duplicate JSON keys,
+unsupported form/mode, malformed UTF-8 or CUP-shaped assignments fail closed.
+No repair, formatting or automatic tag clearing is added. Native supported-tag
+capacity and writable status are queried before dispatch; unavailable capacity
+fails without a write. Secure code reservation and immutable intent precede
+dispatch. Transport retries reuse frozen encoded bytes; explicit new writes
+and re-writes reserve fresh codes.
+
+The pending record retains exact emitted metadata JSON/UTF-8 bytes, canonical
+semantic SHA-256, physical hardware UID, kind and Smart Cup settings. Text
+record encoding is deterministic; telemetry is not replayed. Separate Check Cup
+compares hardware UID (not mutable NDEF2 telemetry UUID), kind/settings, READY
+state and all typed metadata including optional `i` presence/value. Only a
+current matching check plus atomic commit adds a creator member. Closing a
+dialog retains editable details; a retry may use another fresh/allowed cup.
+Verification and save-only recovery allocate no new code. Spent codes survive
+failed/superseded attempts and sample removal while that session exists.
+
+Integrated storage is `cup_sessions_v1.db`, with the existing main local profile;
+old app/test databases and the experiment profile are not opened or copied.
+Issuance from an imported/restored session
+without its complete local issuer ledger is denied. This does not decide a
+production whole-session tombstone/retention policy, transfer or clone recovery.
+Use fresh/manually cleared spare tags, or assigned spare cups through the reviewed
+R1-147 explicit direct-reassignment path below, for candidate acceptance.
+Do not scan its string-code assignments with the old numeric client. Physical
+NFC/firmware conformance remains unverified until actual phone acceptance.
+
 > `docs/PRODUCT_SPEC.md` is the highest authority for product behaviour. This file is the normative application-side specification for the CUP NDEF protocol only where it does not conflict with the Product Specification. Protocol changes must update this document and the corresponding implementation/tests in the same change.
 
 Implementation-facing protocol note for agents working on the CUP app NFC integration.
@@ -76,22 +117,22 @@ Long write aliases are `triggerTemp`, `maxStartTemp`, `brewTime`, `maxCupTemp`, 
 NDEF4 is app-owned metadata linking a physical cup to a coffee sample and cupping session.
 
 ```json
-{"n":"Burundi","p":6,"y":3,"i":4,"z":2,"m":"b","f":1,"e":"Production QC","t":2,"d":260930,"u":"nfzyy8y0pqizn6"}
+{"n":"Burundi","p":6,"y":3,"i":4,"z":"A4","m":"b","f":1,"e":"Production QC","t":2,"d":260930,"u":"nfzyy8y0pqizn6"}
 ```
 
 - `n` — coffee name and/or origin.
 - `p` — coffee processing-method key.
 - `y` — number of physical cups used for this sample.
-- `i` — total number of samples in the session. Written when a valid integer is available.
-- `z` — this sample’s one-based position in the session. Written when a valid integer is available.
-- `m` — cupping mode: `b` for Blind Cupping or `o` for Open Cupping.
+- `i` — optional positive integer total recorded at write time; a historical hint, not live roster authority. Removing/adding a sample does not rewrite neighbouring tags.
+- `z` — required two-character uppercase alphanumeric sample code, including `00`. All 1,296 codes are available per session; each new write attempt reserves a fresh code and spent codes are not reused while that session exists. It is not a numeric ordinal.
+- `m` — this sample's cupping mode: `b` for Blind Cupping or `o` for Open Cupping. CVA samples in one session may differ (approved 21 October 2026, R1-105); local session-level mode does not override a stored target sample. Legacy remains Open-only. No encoding, field or radio change.
 - `f` — cupping-form key. Release 1 defines `1` for SCA CVA and `2` for SCA Legacy — Specialty Coffee Association Arabica Cupping Form (2004–2023).
 - `e` — session name.
 - `t` — session-type key.
 - `d` — compact session date as a six-digit `YYMMDD` number.
-- `u` — session UUID. Newly generated session IDs are 14 lowercase alphanumeric characters. `NO-SESSION` is also used as a sentinel for cups not attached to a saved session.
+- `u` — assigned session reference, exactly 14 lowercase alphanumeric characters. `NO-SESSION` belongs to the separate generic Home/firmware flow, not a valid assigned string-code payload.
 
-For both open and blind sessions, `n` may contain the real coffee name/origin and `p` may contain the real processing-method key. In blind mode, `m=b` instructs Cup App to retain those fields locally but exclude them from every participant-facing app projection until that participant explicitly completes the session. Completion durably reveals the locally held metadata on that device; it does not rewrite NDEF4, require connectivity or a host-global reveal, or share/upload results.
+For both open and blind sessions, `n` may contain the real coffee name/origin and `p` may contain the real processing-method key. In blind mode, `m=b` instructs Cup App to retain those fields locally but project them according to current local tasting completion and the narrow creator preparation exception in [PRODUCT_SPEC section 6.8](PRODUCT_SPEC.md#68-agreed-mobile-screen-and-state-map-18-october-2026). Explicit completion reveals; saved tasting changes or participant membership changes re-hide. Neither changes NDEF4, requires connectivity/host-global reveal, nor shares/uploads results. This projection clarification changes no wire field, enum, payload shape or unassignment encoding.
 
 NDEF is participant-readable and is not a confidentiality boundary. Deliberate raw inspection with a third-party NFC reader can expose `n` and `p` and is outside the Release 1 threat model. This exception is limited to the documented session/sample metadata: results, tasting notes, participant data, credentials, access grants, tenant secrets, and device secrets remain forbidden from NDEF.
 
@@ -162,3 +203,94 @@ The following files show current implementation behaviour and are useful for con
 - `src/services/nfcTagClassifier.js` — smart-cup versus NTAG classification and single-record metadata detection.
 - `README.md` — descriptive protocol overview and firmware integration notes.
 - Do not treat `archive/original-root-app` as the current protocol. It documents an older long-key schema.
+
+### Approved DRAFT-removal clearing profile
+
+Included in the integrated installation-local client; see
+[the clearing contract](DRAFT_SAMPLE_REMOVAL_NFC_CONTRACT_DRAFT.md). A validated
+creator DRAFT assignment may be cleared by an explicitly guarded operation:
+NTAG is exactly one English UTF-8 Text `{}` record (complete NDEF bytes
+`D1 01 05 54 02 65 6E 7B 7D`). Smart Cup is four ordered Text records:
+captured `{s:S}`, `{}`, exact validated existing settings, `{}`. Preserve state
+0–4 and settings including optional `k` presence/value; never replay telemetry.
+Freeze and revalidate the complete encoded bytes/hash, writable status and
+capacity; no automatic uncertain-write retry. Separate read verifies same
+hardware UID/family, empty metadata and unchanged settings. Valid evolved state
+and strict compact live telemetry are allowed; aliases, duplicates, malformed
+or partial records never prove clearing. An explicit frozen retry additionally
+requires current original state/settings equality, so it cannot rewind state.
+No general repair/reset/reassignment or neighbour-tag rewrite is authorized.
+
+### R1-144 explicit reassignment extension
+
+R1-151 owner revision: the Add/reassignment purpose may inspect one NTAG or four
+Smart Well-Known English UTF-8 Text records before the general classifier. Each
+payload is bounded to 262144 bytes and the message to 1048576 payload bytes.
+Hardware UID/family and Smart records1–3 remain strictly validated, including
+state0–4, compact telemetry and settings. A nonempty final Text payload may be
+older numeric, partial, extra-field or otherwise unsupported assignment content.
+Capture its exact payload bytes/hash, not reserialized JSON. Empty-object `{}`
+metadata retains ordinary Add. This is not general formatting, repair, import or
+permission to overwrite unsupported hardware/protected records. Consent and the
+fresh write scan bind exact old bytes/UID/family/state/settings; new output and
+separate verification retain the strict current assignment contract. Do not
+replay old telemetry or expose old content in dialogs, accessibility or logs.
+
+R1-147 supersedes the following clear-first sequence for NEW explicit operations:
+detect old assignment/read, obtain interruption-warning consent, fresh same-cup
+scan writes complete new assignment directly, separate Check Cup proves it before
+atomic local retirement+addition. NTAG uses the ordinary one-record assignment.
+R1-148 confirmation stages intent and requests the fresh scan after the native
+confirmation modal has dismissed, without returning to entry or another tap.
+This one-shot authorization is never restored from persisted recovery.
+R1-152 permits an explicit SCAN & ADD CUP restart from a restored/closed editable
+unverified direct drawer: validate current fields, use the existing guarded fresh
+same-cup write/new-code path, then separate Check Cup. Never auto-write on restore
+or first check/commit the old attempt. Existing recognised-original/own-attempt,
+state/settings/UID/context fences remain. Check retries allocate no code and
+verified Save recovery remains save-only; legacy clear operations are unchanged.
+R1-155 supersedes only that drawer's old-UID restriction: explicit restart may
+abandon the unverified local intent, retain spent codes/current fields and inspect
+the selected cup afresh. It does not transfer old consent or clear the old cup.
+Foreign assigned cups require a fresh warning; same-destination issued/uncommitted
+content retains ordinary retry semantics. Every actual new write uses a fresh
+code, and a new consented write/Check stays same-cup bound. Verified/legacy work
+is not abandoned. Definite preflight/no-dispatch failures return the drawer;
+uncertain dispatched work remains pending Check. No encoding/transport change.
+Smart intentionally writes READY `{s:1}`, telemetry `{}`, preserved validated
+settings and complete new metadata. First dispatch requires exact still-current
+original state/settings; own-attempt rewrites require READY/settings equality,
+so cached state cannot rewind an intervening firmware change. Intent/new code/
+exact message precede dispatch; each explicit write gets a fresh code while read/
+save retries allocate none. New direct journal/receipts never claim clearing.
+Already-pending legacy clear work/receipts below retain their original meaning;
+DRAFT physical removal still uses the unchanged clear/check contract. See
+CUP_REASSIGNMENT_CONTRACT_PROPOSAL's superseding R1-147 section and implementation
+design for recovery/atomicity/combined-generation safeguards. No wire field or
+native transport change; phone conformance remains a later explicit gate.
+
+The preceding clear bytes are reused unchanged after approved explicit consent
+in an owned unlocked never-started supported destination DRAFT. Known qualified
+creator COMPLETE uses the interruption warning; unknown/foreign sources require
+the unknown-session override. Qualified participant COMPLETE is unknown, never
+creator release; known active conflicts and destination duplicates block.
+Same-destination issued/uncommitted attempts keep the existing addition retry.
+
+Consent stages intent only. Explicit clear binds exact frozen original bytes and
+revision; separate read verifies. Uncertain writes resume read-first; verified
+save failure resumes save-only. No automatic write or re-clear. Clear consumes no
+code. Later explicit ordinary SCAN & ADD CUP write/separate check alone creates
+the new sample and fresh code. Old results/history remain unchanged.
+
+Home/reset/brewing, setup/add/check/rewrite/removal, Settings read/write and
+diagnostic read observers revoke same-UID contradicted verification durably
+before classification/use/error. They never promote proof; current predicates
+and captured revision/hash CAS protect newer work. Wrong UID preserves proof.
+Receipts retire exact old metadata binding, not hardware UID; new bindings work
+without UID-only lookup. Reassignment beforeWrite always validates exact current
+dispatch proof.
+
+Boundary: pre-existing diagnostic direct-write tools do not read the tag or
+consult journals. They remain unchanged and must not be used during unfinished
+reassignment. Legacy Settings/reset read observers are not a new dispatch-time
+authorization for those writes. No claim of protecting every low-level write.

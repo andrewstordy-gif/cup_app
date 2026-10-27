@@ -16,6 +16,7 @@ const bridge = {
   async getFirstAsync(sql, args = []) { return sqlite.prepare(sql).get(...args) || null; },
   async getAllAsync(sql, args = []) { return sqlite.prepare(sql).all(...args); },
   async runAsync(sql, args = []) { return sqlite.prepare(sql).run(...args); },
+  async withExclusiveTransactionAsync(callback) { return bridge.withTransactionAsync(() => callback(bridge)); },
   async withTransactionAsync(callback) {
     sqlite.exec('BEGIN');
     try { const result = await callback(); sqlite.exec('COMMIT'); return result; }
@@ -67,6 +68,7 @@ function loadRepositoryAfterRestart() {
     'expo-sqlite': { openDatabaseAsync: async () => bridge },
   });
   return load('src/data/sessionRepository.js', {
+    './userProfileRepository': require('./helpers/local-profile-fixture'),
     './localDatabase': local,
     '../utils/secureIdentifiers': identifiers,
     '../features/cupping/constants/sessionDetails': details,
@@ -87,8 +89,8 @@ async function main() {
     'old-sample', 'oldprototype01', 'OLD-CUP', 1, 1, 'blind', 1,
     'Old coffee', '1', 0, '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z'
   );
-  await assert.rejects(first.deleteSampleFromSession('old-sample'), /read-only/);
-  await assert.rejects(first.manuallyMarkSessionComplete('oldprototype01'), /read-only/);
+  await assert.rejects(first.deleteSampleFromSession('old-sample'), /local profile that created/);
+  await assert.rejects(first.manuallyMarkSessionComplete('oldprototype01'), /local profile that created/);
   assert.equal((await first.getSessionById('oldprototype01')).samples.length, 1);
 
   const quickStartId = 'newprototype01';
@@ -130,11 +132,13 @@ async function main() {
   assert.equal(afterNewCupConflict.samples[0].cuppingMode, 'blind');
   await assert.rejects(reopenedRepository.upsertSessionSampleFromCupMetadata({
     sessionId: quickStartId, cupUUID: 'CUP-1', cuppingForm: 1, cuppingMode: 'open',
-  }), /mode conflicts/);
+    cupNumber: 1, sampleNumber: 1, coffeeNameOrigin: 'Test coffee', process: '1',
+  }), /conflicts/);
   assert.equal((await reopenedRepository.getSessionById(quickStartId)).samples[0].cuppingMode, 'blind');
   await assert.rejects(reopenedRepository.upsertSessionSampleFromCupMetadata({
     sessionId: quickStartId, cupUUID: 'ANOTHER-CUP', cuppingForm: 1, cuppingMode: 'open',
-  }), /mode conflicts/);
+    cupNumber: 1, sampleNumber: 1, coffeeNameOrigin: 'Test coffee', process: '1',
+  }), /conflicts/);
   assert.equal((await reopenedRepository.getSessionById(quickStartId)).samples.length, 1);
   const oldReopened = await reopenedRepository.getSessionById('oldprototype01');
   assert.equal(oldReopened.cuppingForm, null, 'old row remains unversioned after restart');

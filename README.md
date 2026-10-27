@@ -6,6 +6,17 @@ Expo React Native app for CUP NFC cupping workflows, local session storage, smar
 
 This repository contains the pre-release NTAG prototype implementation. It is implementation evidence, not the Release 1 authority; see `docs/PRODUCT_SPEC.md`, `docs/NDEF_PROTOCOL.md`, and `docs/RELEASE_1_ARCHITECTURE_DATA_CONTRACT.md`.
 
+### Isolated integration candidate (R1-137)
+
+Normal startup uses Expo's `node_modules/expo/AppEntry.js`, not a fixture preview.
+The installation-local workflow uses a fresh `cup_sessions_v1.db`, validates its
+complete schema before use, and never opens/imports/resets `cup_user_test.db` or
+`cup_r1_103_sample_codes_test.db`. It retains the existing main profile at
+`cup_app:user_profile`; experiment profiles are not copied. Diagnostics use the
+separate `error-logs-sessions-v1/` directory. Existing unrelated data is untouched.
+This is an isolated candidate, not approval to merge/install or a claim of
+encrypted production storage. See the integration task for outstanding gates.
+
 - Recovery checkpoint: `prototype-baseline-2026-10-01`
 - iOS bundle id: `com.andrewstordy.cup`
 
@@ -113,7 +124,8 @@ For NTAG cups:
 
 - The app writes session/sample metadata only.
 - Metadata is stored as a single NDEF text record.
-- The physical NFC tag id is used as the sample identifier when no smart-cup UUID exists.
+- The hardware tag ID identifies the physical cup. Assigned sample identity is
+  the session reference plus its two-character sample code, not the hardware ID.
 - The cupping screen opens with all scoring fields available immediately.
 - Temperature and brewing state are unavailable.
 
@@ -129,10 +141,10 @@ The NFC layer classifies reads as:
 
 Smart cup hardware is detected from the iOS tag shape and hardware id, not only from the number of NDEF records. This prevents a flaky smart cup read from being treated as an NTAG and accidentally rewritten as metadata-only.
 
-If a smart cup has collapsed to a single metadata record, the add-sample flow can rebuild the 4-record smart payload. In that recovery path, `NDEF2` and `NDEF3` are restored with safe defaults until the firmware refreshes live status/settings:
-
-- `NDEF2`: physical tag id, temp `0`, time `0`, battery `0`
-- `NDEF3`: `r=40`, `a=93`, `w=240`, `c=70`, `x=3600`, `l=100`
+The integrated assignment/clearing path requires a supported complete tag shape.
+It does not authorize automatic collapsed-Smart repair or invented state/settings.
+Explicit DRAFT removal preserves Smart state/settings and separately verifies
+the clear, as specified in `docs/NDEF_PROTOCOL.md`.
 
 ## Session Metadata
 
@@ -143,8 +155,8 @@ Compact keys:
 - `n` = coffee
 - `p` = coffee process key
 - `y` = cups per sample
-- `i` = samples in session
-- `z` = sample number
+- `i` = optional historical write-time sample-count hint (not current roster authority)
+- `z` = two-character uppercase alphanumeric sample code, unique per session
 - `m` = cupping mode (`b` blind, `o` open)
 - `f` = Release 1 form (`1` SCA CVA, `2` SCA Legacy 2004–2023)
 - `e` = session name
@@ -155,7 +167,7 @@ Compact keys:
 Example:
 
 ```json
-{"n":"Burundi","p":6,"y":3,"i":3,"z":2,"m":"b","f":1,"e":"NTAG","t":1,"d":260506,"u":"nfzyy8y0pqizn6"}
+{"n":"Burundi","p":6,"y":3,"i":3,"z":"A4","m":"b","f":1,"e":"NTAG","t":1,"d":260506,"u":"nfzyy8y0pqizn6"}
 ```
 
 NDEF4 has no sample-colour field. The prototype source may still contain legacy references to `k`; those references are non-conformant implementation evidence and must not be reproduced in Release 1.
@@ -182,8 +194,11 @@ When adding a sample:
 
 - Smart cups are written as 4-record smart payloads.
 - NTAG cups are written as metadata-only payloads.
-- The app stores the sample in the local database.
-- Verification compares the physical cup/tag and compact metadata against the stored sample.
+- The app durably stages the intended assignment before writing; it is not yet
+  an added session sample.
+- A separate scan verifies the same hardware cup/tag and complete intended
+  assignment (plus the required Smart Cup state/settings). Only successful
+  verification and atomic local commit add the sample to the session.
 
 ### Brewing
 
