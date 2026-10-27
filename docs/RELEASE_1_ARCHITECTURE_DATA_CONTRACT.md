@@ -874,10 +874,10 @@ imports, repairs, resets or aliases either historical session database. The main
 the existing secure initialization and invalid identity fails closed. Experiment
 profile identity and old ownership are never imported.
 
-The current complete bundled non-internal schema fingerprint, user_version 7,
-integrated marker version 3 and foundation marker version 1 are required. Only
-the exact reviewed integrated v1 (marker1/user_version5) or v2
-(marker2/user_version6) schema may upgrade to v3, in one exclusive transaction
+The current complete bundled non-internal schema fingerprint, user_version 8,
+integrated marker version 4 and foundation marker version 1 are required. Only
+the exact reviewed integrated v1 (marker1/user_version5), v2
+(marker2/user_version6) or v3 (marker3/user_version7) schema may upgrade to v4, in one exclusive transaction
 preserving business and recovery rows. An older binary rejects the newer store;
 there is no downgrade/reset or prototype import. A truly empty store initializes
 atomically with its integrated marker written last; partial, unknown or weakened
