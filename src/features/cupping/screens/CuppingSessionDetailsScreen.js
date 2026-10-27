@@ -84,6 +84,7 @@ import {
   prepareDirectCupReassignmentWrite,inspectDirectCupReassignmentWrite,commitDirectCupReassignment,cancelDirectCupReassignment,
 } from "../../../data/sessionRepository";
 import {read as readDirectCupEnvelope,blank as isBlankDirectCupEnvelope} from "../../../data/directCupOldEnvelope";
+import {logReassignmentProbe} from '../../../utils/reassignmentProbe';
 
 const RECOVERED_SMART_CUP_TEXT3 = {
   triggerTemp: 40,
@@ -1829,18 +1830,25 @@ export function CuppingSessionDetailsScreen({
     const show=(pending,mode,message='')=>{if(!current())return;const dialog={destinationId:pending.destinationId,operationId:pending.operationId,revision:pending.revision,epoch:operation.epoch,mode,message};cupReassignmentDialogRef.current=dialog;setCupReassignmentDialog(dialog);setIsAddSheetVisible(false);};
     const command=pending=>({destinationId:pending.destinationId,operationId:pending.operationId,expectedRevision:pending.revision,isCurrent:current});
     const currentDraft={coffeeNameOrigin:sheetCoffeeNameOrigin.trim(),process:String(normalizeProcessKey(sheetProcess)),cupNumber:sheetCupNumber,cuppingMode:normalizeCuppingModeKey(sheetCuppingMode)};
+    let probeCategory=null;
     try{
       let pending=original;
       if(pending.phase==='consented'||rewrite){
         const drawerDraft=currentDraft;
+        probeCategory='native-request';logReassignmentProbe('ui-write',probeCategory);
         await readAndWriteNdefMinimal(async readResult=>{
+          probeCategory='read-callback';logReassignmentProbe('ui-write',probeCategory);
           if(!current())throw new Error('direct_reassignment:unfinished');
+          probeCategory='observers';
           await observePendingCupReassignmentRead(readResult,{isReadCurrent:current});
           if(await observePendingDraftRemovalRead(readResult,{isReadCurrent:current}))throw new Error('removal:unfinished');
           if(!current())throw new Error('direct_reassignment:unfinished');
+          probeCategory='prepare-call';logReassignmentProbe('ui-write',probeCategory);
           const prepared=await prepareDirectCupReassignmentWrite({...command(pending),readResult,drawerDraft});
+          probeCategory='prepared';logReassignmentProbe('ui-write',probeCategory);
           pending=remember(prepared.pending);return prepared;
         });
+        probeCategory='native-return';logReassignmentProbe('ui-write',probeCategory);
         if(current())show(pending,'check');return;
       }
       if(pending.phase!=='write_verified'){
@@ -1867,6 +1875,7 @@ export function CuppingSessionDetailsScreen({
       setScanStatusMessage('Cup verified and sample saved locally.');pendingQuickStartReadyRef.current=null;
       if(quickStart&&quickHandoff)pendingVerifiedQuickStartRef.current=Object.freeze({sessionId:saved.sessionId,sample:nextSamples.find(sample=>sample.id===quickHandoff.sampleId),handoff:quickHandoff,isCurrent:()=>operation.epoch===setupEpochRef.current&&savedSessionIdRef.current===saved.sessionId});
     }catch{
+      if(probeCategory)logReassignmentProbe('ui-write',probeCategory,true);
       if(current())try{
         const pending=await getDirectCupReassignment({destinationId:original.destinationId,isCurrent:current});if(!current())return;
         if(pending){remember(pending);if(pending.phase==='consented'){restoreCupReassignmentFields(pending);setIsAddSheetVisible(true);}else show(pending,pending.phase==='write_verified'?'save':'check','Reassignment is unfinished. Continue checking or saving; no automatic write occurred.');}

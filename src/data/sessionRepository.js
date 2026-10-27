@@ -1,6 +1,7 @@
 import { getLocalDatabase } from "./localDatabase";
 import { getLocalProfileIdentity, getOrCreateLocalProfileIdentity } from "./userProfileRepository";
 import { generateDomainId } from "../utils/secureIdentifiers";
+import { logReassignmentProbe } from '../utils/reassignmentProbe';
 import { validCode, validSession, reserveWithDb, validateMetadata, parseMetadata, metadataMatches, wireProof } from './sampleCodeProfile';
 import { assertNoPendingWithDb as assertNoAdditionWithDb, decodePending, pendingRowWithDb, pendingSaveInput,
   pendingSampleFields, stagePendingWithDb } from './pendingSampleAdditionStore';
@@ -660,21 +661,24 @@ async function directTransaction(id,isCurrent,work,acknowledge=null){
     if(current.incarnation!==after.incarnation||current.setupHash!==after.setupHash||current.removalGeneration!==after.removalGeneration||await directMarkerWithDb(txn,id)!==marker)direct.fail();if(acknowledge)await acknowledge(txn,actor,current,value);await requireSameTastingActor(actor);reassignCurrent(isCurrent);});
   await requireSameTastingActor(actor);reassignCurrent(isCurrent);return value;
 }
-async function currentDirectWithDb(db,id,actor,operationId){
+async function currentDirectWithDb(db,id,actor,operationId,probe=false){
+  let probeCategory='pending-context';try{
   const p=direct.pending(await direct.row(db,id));if(!p||p.actor!==actor||p.operationId!==operationId)direct.fail();
-  const base=await reassignmentDestinationWithDb(db,id,actor);
+  probeCategory='destination-context';const base=await reassignmentDestinationWithDb(db,id,actor);
   if(base.incarnation!==p.incarnation||base.setupHash!==p.setupHash||base.removalGeneration!==p.removalGeneration||await bindingVectorWithDb(db,p.original.uid)!==p.bindingVector)direct.fail();
-  await reassignmentConflictsWithDb(db,id,p.original.uid,operationId);
+  probeCategory='pending-context';await reassignmentConflictsWithDb(db,id,p.original.uid,operationId);
+  probeCategory='ledger';
   for(const attempt of [...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code}]:[])]){
     const issued=await db.getFirstAsync('SELECT operation_id FROM issued_sample_codes WHERE session_id=? AND code=?',[id,attempt.code]);
     if(issued?.operation_id!==attempt.attemptId||await db.getFirstAsync('SELECT operation_id FROM sample_code_commit_outcomes WHERE session_id=? AND operation_id=?',[id,attempt.attemptId]))direct.fail();
   }
-  if(p.attempt){const a=p.attempt,c=a.candidate,input=a.saveInput;
+  probeCategory='candidate-context';if(p.attempt){const a=p.attempt,c=a.candidate,input=a.saveInput;
     if(c.cuppingForm!==base.setup.cuppingForm||canonicalize(input.samples.slice(0,-1))!==canonicalize(base.setup.samples.map(pendingSampleFields))||canonicalize(input)!==canonicalize(pendingSaveInput({...base.setup,sessionUUID:id,existingSessionId:id,samplesInSession:base.setup.samples.length+1,status:'new',samples:[...base.setup.samples.map(pendingSampleFields),c],intent:'setup'})))direct.fail();
     const expected=buildCompactSessionMetadata({...c,sessionUUID:id,sessionName:base.setup.sessionName,sessionType:base.setup.sessionType,sessionDate:base.setup.sessionDate,samplesInSession:base.setup.samples.length+1});
     if(!metadataMatches(expected,a.frozen.payload)||await db.getFirstAsync('SELECT id FROM samples WHERE id=? OR (session_id=? AND (sample_code=? OR cup_uuid=?))',[c.id,id,c.sampleCode,c.cupUUID]))direct.fail();
   }
   return {pending:p,base};
+  }catch(error){if(probe)logReassignmentProbe('context',probeCategory,true);throw error;}
 }
 export async function inspectDirectCupReassignment({destinationId,readResult,isCurrent}){
   const original=directCodec.original(directCodec.read(readResult));
@@ -708,11 +712,20 @@ export async function getDirectCupReassignment({destinationId,isCurrent=()=>true
   return directTransaction(destinationId,isCurrent,async(txn,currentActor)=>{const latest=await direct.row(txn,destinationId);if(await identity(txn)!==captured||latest?.operation_id!==row.operation_id||latest.content_hash!==row.content_hash||latest.phase!==row.phase)direct.fail();return direct.safe((await currentDirectWithDb(txn,destinationId,currentActor,row.operation_id)).pending);});
 }
 export async function prepareDirectCupReassignmentWrite({destinationId,operationId,expectedRevision,readResult,drawerDraft,isCurrent}){
-  const read=directCodec.read(readResult),draft=JSON.parse(canonicalize(drawerDraft));direct.drawer(draft);
+  let probeCategory='envelope';try{
+  const read=directCodec.read(readResult);probeCategory='drawer';const draft=JSON.parse(canonicalize(drawerDraft));direct.drawer(draft);
+  probeCategory='destination-context';
   const prepared=await directTransaction(destinationId,isCurrent,async(db,actor)=>{
-    const {pending:p,base}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==expectedRevision)direct.fail();
-    if(p.phase==='consented'?!directCodec.sameOriginal(p.original,read):!directCodec.allowedRewrite(p.original,[...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code,metadataHash:directCodec.metadataHash(p.attempt.frozen.payload),bytesHash:p.attempt.frozen.bytesHash}]:[])],read))direct.fail();
-    const eligibility=await reassignmentEligibilityWithDb(db,destinationId,p.original,actor);if(eligibility.eligibility!==p.eligibility||eligibility.sourceToken!==p.sourceToken)direct.fail();
+    probeCategory='pending-context';const {pending:p,base}=await currentDirectWithDb(db,destinationId,actor,operationId,true);probeCategory='revision';if(p.revision!==expectedRevision)direct.fail();
+    probeCategory='cup-binding';
+    if(p.phase==='consented'?!directCodec.sameOriginal(p.original,read):!directCodec.allowedRewrite(p.original,[...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code,metadataHash:directCodec.metadataHash(p.attempt.frozen.payload),bytesHash:p.attempt.frozen.bytesHash}]:[])],read)){
+      // Classify only AFTER the original guard rejected; never rerun its parser
+      // or comparison, and never include either side's values in diagnostics.
+      try{probeCategory=read.uid!==p.original.uid?'cup-uid':read.kind!==p.original.kind?'cup-family':read.kind==='ntag'?'assignment':'smart-binding';}catch{}
+      direct.fail();
+    }
+    probeCategory='eligibility';const eligibility=await reassignmentEligibilityWithDb(db,destinationId,p.original,actor);if(eligibility.eligibility!==p.eligibility||eligibility.sourceToken!==p.sourceToken)direct.fail();
+    probeCategory='staging-or-ack';
     const attemptId=generateId(),code=await reserveWithDb(db,destinationId,actor,attemptId),candidate=pendingSampleFields({id:generateId(),cupUUID:p.original.uid,cupNumber:draft.cupNumber,cuppingForm:base.setup.cuppingForm,cuppingMode:draft.cuppingMode,sampleNumber:base.setup.samples.length+1,sampleCode:code,coffeeNameOrigin:draft.coffeeNameOrigin.trim(),process:String(normalizeProcessKey(draft.process))});
     if(candidate.cuppingForm===2&&candidate.cuppingMode!=='open')direct.fail();
     const saveInput=pendingSaveInput({...base.setup,sessionUUID:destinationId,existingSessionId:destinationId,samplesInSession:base.setup.samples.length+1,status:'new',samples:[...base.setup.samples.map(pendingSampleFields),candidate],intent:'setup'});
@@ -720,10 +733,12 @@ export async function prepareDirectCupReassignmentWrite({destinationId,operation
     const priorAttempts=[...p.priorAttempts,...(p.attempt?[{attemptId:p.attempt.attemptId,code:p.attempt.code,metadataHash:directCodec.metadataHash(p.attempt.frozen.payload),bytesHash:p.attempt.frozen.bytesHash}]:[])];
     return direct.write(db,{...p,drawerDraft:draft,attempt:{attemptId,code,candidate,saveInput,frozen},priorAttempts,verification:null},'write_check');
   });
+  logReassignmentProbe('prepare','prepared');
   const revision=prepared.revision,attemptId=prepared.attempt.attemptId,bytesHash=prepared.attempt.frozen.bytesHash;
-  const beforeWrite=()=>directTransaction(destinationId,isCurrent,async(db,actor)=>{const {pending:p}=await currentDirectWithDb(db,destinationId,actor,operationId);if(p.revision!==revision||p.phase!=='write_check'||p.attempt.attemptId!==attemptId||p.attempt.frozen.bytesHash!==bytesHash)direct.fail();const eligible=await reassignmentEligibilityWithDb(db,destinationId,p.original,actor);if(eligible.sourceToken!==p.sourceToken||eligible.eligibility!==p.eligibility)direct.fail();return true;});
+  const beforeWrite=()=>directTransaction(destinationId,isCurrent,async(db,actor)=>{let category='dispatch-context';try{const {pending:p}=await currentDirectWithDb(db,destinationId,actor,operationId,true);category='dispatch-revision';if(p.revision!==revision||p.phase!=='write_check'||p.attempt.attemptId!==attemptId||p.attempt.frozen.bytesHash!==bytesHash)direct.fail();category='dispatch-eligibility';const eligible=await reassignmentEligibilityWithDb(db,destinationId,p.original,actor);if(eligible.sourceToken!==p.sourceToken||eligible.eligibility!==p.eligibility)direct.fail();logReassignmentProbe('before-write','authorized');return true;}catch(error){logReassignmentProbe('before-write',category,true);throw error;}});
   const freeze=value=>{if(value&&typeof value==='object'){Object.values(value).forEach(freeze);Object.freeze(value);}return value;};
   return {pending:direct.safe(prepared),frozen:freeze(prepared.attempt.frozen),records:freeze({text1:{state:1},text2:{},text3:prepared.original.settings||{},text4:prepared.attempt.frozen.payload}),metadataOnly:prepared.original.kind==='ntag',beforeWrite};
+  }catch(error){logReassignmentProbe('prepare',probeCategory,true);throw error;}
 }
 export async function inspectDirectCupReassignmentWrite({destinationId,operationId,expectedRevision,readResult,isCurrent}){
   let read=null,uid=null;try{uid=hardwareUid(readResult?.tag);read=directCodec.read(readResult);}catch{}

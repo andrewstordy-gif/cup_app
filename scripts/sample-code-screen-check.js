@@ -8,6 +8,7 @@ const {execFileSync}=require('node:child_process');
 const {fixture}=require('./helpers/sample-code-fixture');
 const load=require('./helpers/load-project-module');
 const root=path.resolve(__dirname,'..');
+const {logReassignmentProbe}=load(root)('src/utils/reassignmentProbe.js');
 const screen='src/features/cupping/screens/CuppingSessionDetailsScreen.js';
 const source=fs.readFileSync(path.join(root,screen),'utf8');
 const ast=parse(source,{sourceType:'module',plugins:['jsx']});
@@ -32,7 +33,7 @@ function harness(env,form=1,id='nfzyy8y0pqizn6') {
     savedSetupSnapshotRef:ref(null),savedSetupInputKeyRef:ref(null),writes:[],reads:0,tagId:'TEST-TAG',isSheetCupNumberDefault:false,isSheetCuppingModeDefault:false,
   };
   h.dependencies=()=>{
-    const dep={...constants,...h,...env.repo,readDirectCupEnvelope:require('../src/data/directCupOldEnvelope').read,isBlankDirectCupEnvelope:require('../src/data/directCupOldEnvelope').blank,canonicalize:require('../src/data/sampleCodeProfile').canonicalize,readCodeTagContext:require('../src/data/sampleCodeProfile').tagContext,Platform:{OS:h.platformOS||'android'},Keyboard:{dismiss(){}},CUP_NUMBER_OPTIONS:constants.CUP_NUMBER_OPTIONS,
+    const dep={...constants,...h,...env.repo,logReassignmentProbe,readDirectCupEnvelope:require('../src/data/directCupOldEnvelope').read,isBlankDirectCupEnvelope:require('../src/data/directCupOldEnvelope').blank,canonicalize:require('../src/data/sampleCodeProfile').canonicalize,readCodeTagContext:require('../src/data/sampleCodeProfile').tagContext,Platform:{OS:h.platformOS||'android'},Keyboard:{dismiss(){}},CUP_NUMBER_OPTIONS:constants.CUP_NUMBER_OPTIONS,
       isSmartCupHardwareTag:()=>Boolean(h.smart),classifyNfcTagReadResult:result=>({type:h.smart?'smart_cup':'ntag_cup',metadataPayload:Object.keys(result.parsed.text4||{}).length?result.parsed.text4:null}),
       NFC_TAG_TYPES:{NTAG_CUP:'ntag_cup',SMART_CUP:'smart_cup',EMPTY_TAG:'empty',GENERIC_NDEF_TAG:'generic'},
       getNfcTagIdentifier:tag=>tag.id,playNfcFailureFeedback:async()=>{},logAppError:()=>{},
