@@ -48,6 +48,10 @@ Branch/worktree: codex/china-testflight at /Volumes/external/codex-worktrees/chi
 - New release workspace has no node_modules/Pods installed. Prefer existing configured EAS store build route once Apple build number/signing history is confirmed, avoiding a new local dependency installation on the internal disk.
 - Independent release-preparation reviewer assigned: /root/testflight_release_review. Artifact/signing and installed-phone gates remain unverified.
 
+### Independent preparation review
+
+/root/testflight_release_review: PASS for preparation scope; distribution pending remaining gates. Reviewed unchanged runtime/config source at main 8c0c49b3, version consistency, store profile, disabled upload binding and TAG entitlement. Keep README's imprecise NDEF/TAG wording from causing a capability change. No feature expansion needed. Required remaining gates: ASC latest build/personal team; reviewed version metadata with named-main/tag provenance; signed Release artifact inspection; Apple processing/compliance; owner-installed physical offline/NFC check. Review does not certify any archive or hardware result. Preparation record commit 1fa054e adds documentation only; runtime/native/config remain equal to source main.
+
 ## Handoff / remaining gates
 
 Inspect live account/build history, select build route, run relevant software checks, obtain independent release review, produce/upload signed artifact, and record installed-phone verification. No main changes, signing mutations, tag writes or upload submission have occurred in this task.
