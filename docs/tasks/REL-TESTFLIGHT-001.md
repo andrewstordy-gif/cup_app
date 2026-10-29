@@ -1,6 +1,6 @@
 # REL-TESTFLIGHT-001 — China factory demonstration build
 
-Status: Build 6 independently reviewed and submitted through EAS; Apple delivery/processing and owner installation pending.
+Status: Build 6 independently reviewed, delivered and processed by Apple; owner export-compliance declaration pending before internal testing.
 
 ## Owner and Apple confirmation — 29 October
 
@@ -31,6 +31,10 @@ Independent signed-artifact review /root/testflight_release_review PASS: indepen
 Submitted that exact build with eas submit --platform ios --profile production --id 505b55ab-5280-4d06-a638-f897de55160a --non-interactive --no-wait. Existing EAS-hosted App Store Connect API credential reused; no new credential generated. Submission 39a71987-4360-43fb-8eee-d8e908cf84e6 scheduled successfully. Scheduling is not proof of Apple delivery/processing or installation. https://expo.dev/accounts/andrewstordy/projects/cup/submissions/39a71987-4360-43fb-8eee-d8e908cf84e6
 
 Apple delivery confirmed in signed-in App Store Connect: Build Uploads row 0.1.0 (6), Processing, created October 29 at 12:13 PM. No further credentials or agreement changes required for delivery. Processing/compliance, adding to the owner's internal group and installed-phone smoke remain pending.
+
+Apple now lists Build 6 (Apple build UUID c83d9d87-b0e4-45bf-91d7-2c7bfe165f18), Missing Compliance. Manage opens encryption questionnaire. Selected 'None of the algorithms mentioned above' based on current source/dependency review (random identifiers/hashing, OS-provided services; no app cipher implementation found). Apple official documentation distinguishes OS-only encryption from app-provided encryption: https://developer.apple.com/help/app-store-connect/reference/app-information/export-compliance-documentation-for-encryption . No Info.plist declaration or runtime change made.
+
+Saving this selection was rejected by automatic approval review because it is a consequential export-compliance declaration without specific owner authorization. Do not bypass it. Owner asked to review and press Save personally; dialog left open. Apple declaration is NOT recorded as submitted. Once owner completes it, verify status and add only to existing one-person internal group; no need to rebuild the IPA.
 
 ## Installed-phone acceptance handoff
 
