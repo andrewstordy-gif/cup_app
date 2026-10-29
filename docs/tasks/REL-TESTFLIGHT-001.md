@@ -32,6 +32,12 @@ Submitted that exact build with eas submit --platform ios --profile production -
 
 Apple delivery confirmed in signed-in App Store Connect: Build Uploads row 0.1.0 (6), Processing, created October 29 at 12:13 PM. No further credentials or agreement changes required for delivery. Processing/compliance, adding to the owner's internal group and installed-phone smoke remain pending.
 
+## Installed-phone acceptance handoff
+
+Use TestFlight's stordy_cup app, version 0.1.0 (6); installed app remains CUP/cup. Install over the existing app; do not uninstall or clear its storage. Owner-only internal group, no external distribution. Do not represent the previous dev-client acceptance as acceptance of this signed Release binary.
+
+Minimal trip checks once installable: (1) fully close/reopen without Metro or the Mac connection; (2) scan the production-firmware Smart Cup and perform the intended demo flow, including separate verification if assigning a sample; (3) turn Wi-Fi/mobile data off, save a rating/note, close/reopen and confirm the same sample/code/result survives. Upload must stay disabled. Record owner results and any observed replacement/install data behaviour, not assumptions. No broad re-run of previously completed phone scripts required unless these checks reveal a regression.
+
 ## Authority and scope
 
 Owner request: prepare an installable TestFlight version for a ten-day China factory trip. Upload behaviour must remain disconnected. This is a bounded pre-release demonstration of the existing installation-local app, not a claim of Pilot-Ready or full Product Specification Release 1 conformance.
