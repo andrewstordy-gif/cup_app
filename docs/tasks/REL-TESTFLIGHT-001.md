@@ -1,6 +1,6 @@
 # REL-TESTFLIGHT-001 — China factory demonstration build
 
-Status: Build 6 running on EAS; no App Store Connect submission yet.
+Status: Build 6 finished; signed artifact checks passed; independent artifact review before App Store Connect submission.
 
 ## Owner and Apple confirmation — 29 October
 
@@ -17,6 +17,12 @@ Dispatched EAS build 505b55ab-5280-4d06-a638-f897de55160a using production, non-
 EAS build query confirms source 39968ff380fad6f341b2d42713cffba02de269aa, production/store, 0.1.0 (6). App Store Connect existing internal group cup_0.1.0_testers has exactly one tester, the owner's personal Apple account. Reuse this group for owner-only installation; do not add the build to the external group.
 
 Submission-only configuration prepared after build dispatch: eas.json submit.production.ios.ascAppId = 6762091756, the existing stordy_cup record observed in the signed-in personal ASC account. Avoids automatic app-record discovery/creation or selecting another app. This does not change the build profile, tagged source, app binary or working main. Requires independent review before submission; never generate new ASC credentials silently.
+
+### Signed artifact — 29 October
+
+EAS build finished 12:09:27 UTC. Binary preserved at output/testflight-build-6/cup-0.1.0-6.ipa in this external workspace (ignored build output), 11,343,248 bytes, SHA-256 2670426c46853a350fc402051adcf8d3abf97e392815b9c90bcec6b60f3bc69e. Initial attempt to create a new directory at the external volume root failed permissions; Python's separate TLS trust store also failed verification. No TLS bypass used. Download succeeded with system curl into the owned external workspace.
+
+codesign --verify --deep --strict PASS. Signed app: com.andrewstordy.cup, 0.1.0 (6), team 6W675PGM38, application identifier 6W675PGM38.com.andrewstordy.cup; get-task-allow false; NFC formats [TAG]; distribution profile expires June 24, 2027 with no ProvisionedDevices; minimum iOS 15.1. Bundled main.jsbundle present, 3,326,807 bytes. This establishes embedded JavaScript, not physical cold-start or NFC success. Submission-only target change d914664 independently PASS reviewed. Independent signed-artifact review requested; exact build submission only after that passes.
 
 ## Authority and scope
 
