@@ -2,6 +2,12 @@
 
 Status: Preparation in progress; no archive or upload yet.
 
+## Owner and Apple confirmation — 29 October
+
+Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
+
+Prepare 0.1.0 (6) in this isolated branch by changing only app.json iOS buildNumber and the two native CURRENT_PROJECT_VERSION values. Public version and Android unchanged. Release provenance will be an independently reviewed named release tag based on main 8c0c49b3, with metadata/documentation-only delta; main checkout stays untouched. No product feature changes or upload integration. Existing EAS production/store route selected; do not auto-submit before artifact review.
+
 ## Authority and scope
 
 Owner request: prepare an installable TestFlight version for a ten-day China factory trip. Upload behaviour must remain disconnected. This is a bounded pre-release demonstration of the existing installation-local app, not a claim of Pilot-Ready or full Product Specification Release 1 conformance.
