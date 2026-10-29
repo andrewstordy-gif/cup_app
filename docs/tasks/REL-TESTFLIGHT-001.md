@@ -1,6 +1,6 @@
 # REL-TESTFLIGHT-001 — China factory demonstration build
 
-Status: Build 6 independently reviewed, delivered and processed by Apple; owner export-compliance declaration pending before internal testing.
+Status: Build 6 enabled for owner-only internal TestFlight testing; installed-phone acceptance pending.
 
 ## Owner and Apple confirmation — 29 October
 
@@ -35,6 +35,10 @@ Apple delivery confirmed in signed-in App Store Connect: Build Uploads row 0.1.0
 Apple now lists Build 6 (Apple build UUID c83d9d87-b0e4-45bf-91d7-2c7bfe165f18), Missing Compliance. Manage opens encryption questionnaire. Selected 'None of the algorithms mentioned above' based on current source/dependency review (random identifiers/hashing, OS-provided services; no app cipher implementation found). Apple official documentation distinguishes OS-only encryption from app-provided encryption: https://developer.apple.com/help/app-store-connect/reference/app-information/export-compliance-documentation-for-encryption . No Info.plist declaration or runtime change made.
 
 Saving this selection was rejected by automatic approval review because it is a consequential export-compliance declaration without specific owner authorization. Do not bypass it. Owner asked to review and press Save personally; dialog left open. Apple declaration is NOT recorded as submitted. Once owner completes it, verify status and add only to existing one-person internal group; no need to rebuild the IPA.
+
+### Owner access confirmed — 29 October
+
+Owner reported saving the compliance declaration. Verified signed-in ASC no longer shows Missing Compliance. Existing internal group cup_0.1.0_testers now has 1 Tester / 1 Build; its Builds tab lists 0.1.0 (6), status Testing, expires in 90 days. Its sole tester remains the owner's personal account. The build became available automatically following the owner's action; no additional access mutation or external-group assignment was needed. Owner can open TestFlight under that Apple account, select stordy_cup and install/update build 6. No additional compliance action is required. Main and results-upload behaviour unchanged. Physical installation, cold start, NFC and offline persistence remain owner checks.
 
 ## Installed-phone acceptance handoff
 
