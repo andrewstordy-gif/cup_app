@@ -16,6 +16,8 @@ Dispatched EAS build 505b55ab-5280-4d06-a638-f897de55160a using production, non-
 
 EAS build query confirms source 39968ff380fad6f341b2d42713cffba02de269aa, production/store, 0.1.0 (6). App Store Connect existing internal group cup_0.1.0_testers has exactly one tester, the owner's personal Apple account. Reuse this group for owner-only installation; do not add the build to the external group.
 
+Submission-only configuration prepared after build dispatch: eas.json submit.production.ios.ascAppId = 6762091756, the existing stordy_cup record observed in the signed-in personal ASC account. Avoids automatic app-record discovery/creation or selecting another app. This does not change the build profile, tagged source, app binary or working main. Requires independent review before submission; never generate new ASC credentials silently.
+
 ## Authority and scope
 
 Owner request: prepare an installable TestFlight version for a ten-day China factory trip. Upload behaviour must remain disconnected. This is a bounded pre-release demonstration of the existing installation-local app, not a claim of Pilot-Ready or full Product Specification Release 1 conformance.
