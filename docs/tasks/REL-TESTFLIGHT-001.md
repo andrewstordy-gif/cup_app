@@ -1,6 +1,6 @@
 # REL-TESTFLIGHT-001 — China factory demonstration build
 
-Status: Build 6 finished; signed artifact checks passed; independent artifact review before App Store Connect submission.
+Status: Build 6 independently reviewed and submitted through EAS; Apple delivery/processing and owner installation pending.
 
 ## Owner and Apple confirmation — 29 October
 
@@ -23,6 +23,12 @@ Submission-only configuration prepared after build dispatch: eas.json submit.pro
 EAS build finished 12:09:27 UTC. Binary preserved at output/testflight-build-6/cup-0.1.0-6.ipa in this external workspace (ignored build output), 11,343,248 bytes, SHA-256 2670426c46853a350fc402051adcf8d3abf97e392815b9c90bcec6b60f3bc69e. Initial attempt to create a new directory at the external volume root failed permissions; Python's separate TLS trust store also failed verification. No TLS bypass used. Download succeeded with system curl into the owned external workspace.
 
 codesign --verify --deep --strict PASS. Signed app: com.andrewstordy.cup, 0.1.0 (6), team 6W675PGM38, application identifier 6W675PGM38.com.andrewstordy.cup; get-task-allow false; NFC formats [TAG]; distribution profile expires June 24, 2027 with no ProvisionedDevices; minimum iOS 15.1. Bundled main.jsbundle present, 3,326,807 bytes. This establishes embedded JavaScript, not physical cold-start or NFC success. Submission-only target change d914664 independently PASS reviewed. Independent signed-artifact review requested; exact build submission only after that passes.
+
+### Submission
+
+Independent signed-artifact review /root/testflight_release_review PASS: independently hashed IPA, verified signature with macOS trust services, decoded embedded profile, confirmed team/version/TAG/JavaScript and disabled upload source. Approved exact EAS build 505b55ab-5280-4d06-a638-f897de55160a to existing CUP app 6762091756 for owner-only internal testing. Does not certify hardware success or Pilot-Ready status.
+
+Submitted that exact build with eas submit --platform ios --profile production --id 505b55ab-5280-4d06-a638-f897de55160a --non-interactive --no-wait. Existing EAS-hosted App Store Connect API credential reused; no new credential generated. Submission 39a71987-4360-43fb-8eee-d8e908cf84e6 scheduled successfully. Scheduling is not proof of Apple delivery/processing or installation. https://expo.dev/accounts/andrewstordy/projects/cup/submissions/39a71987-4360-43fb-8eee-d8e908cf84e6
 
 ## Authority and scope
 
