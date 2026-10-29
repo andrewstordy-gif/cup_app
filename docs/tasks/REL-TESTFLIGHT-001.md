@@ -1,12 +1,20 @@
 # REL-TESTFLIGHT-001 — China factory demonstration build
 
-Status: Preparation in progress; no archive or upload yet.
+Status: Build 6 running on EAS; no App Store Connect submission yet.
 
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
 
 Prepare 0.1.0 (6) in this isolated branch by changing only app.json iOS buildNumber and the two native CURRENT_PROJECT_VERSION values. Public version and Android unchanged. Release provenance will be an independently reviewed named release tag based on main 8c0c49b3, with metadata/documentation-only delta; main checkout stays untouched. No product feature changes or upload integration. Existing EAS production/store route selected; do not auto-submit before artifact review.
+
+### Build 6 dispatch
+
+Independent reviewer /root/testflight_release_review approved exact commit 39968ff380fad6f341b2d42713cffba02de269aa for named tag china-demo-ios-0.1.0-6 and an EAS production/store build without automatic submission. Version check and both actual upload UI checks PASS; runtime src tree remains 07bfbbf195ff2ee3340d23af9376a92169c1917e, equal to main. Tag created locally at that exact commit.
+
+Dispatched EAS build 505b55ab-5280-4d06-a638-f897de55160a using production, non-interactive, freeze-credentials, no-wait; no auto-submit. Existing remote distribution certificate/profile selected, personal team 6W675PGM38, com.andrewstordy.cup, expiry June 24, 2027. EAS explicitly skipped Apple-side certificate/profile validation in non-interactive mode; actual signed artifact remains to inspect. Project archive uploaded 7.0 MB. No credentials regenerated, no agreements accepted by agent, no main or runtime changes. Expo build page: https://expo.dev/accounts/andrewstordy/projects/cup/builds/505b55ab-5280-4d06-a638-f897de55160a
+
+EAS build query confirms source 39968ff380fad6f341b2d42713cffba02de269aa, production/store, 0.1.0 (6). App Store Connect existing internal group cup_0.1.0_testers has exactly one tester, the owner's personal Apple account. Reuse this group for owner-only installation; do not add the build to the external group.
 
 ## Authority and scope
 
