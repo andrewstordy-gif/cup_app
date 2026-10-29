@@ -272,3 +272,9 @@ src07bfbbfclean. Finaltools6versions+SHA256presentwithprivate700/600permissions.
 No requiredproduct/native/NFCtests forunchangedmain. Earlierphasewording is
 explicitly historical, current status/resultcomplete. No oldchatUIreopenclaimed.
 Finaldocumentationcommit/publication receipt follows; no main or appchange.
+
+Final wording review PASS onthecompletedtaskdiff. Committed8ab9c1d67a65a136d840389a84237d94876227e2
+andpushed ONLY codex/ops-external-worktree-migration. Remote readback matched8ab9c1d;
+main remains8c0c49b3a8110cb80aab696561efac16946c2319 locally/remotely, clean.
+No PR or mainmergecreated, no privateevidence ordirtyworktreecodepushed. This
+factualreceipt canadvanceonlytheoperationsbranch; migrationassessmentunchanged.
