@@ -30,6 +30,8 @@ Independent signed-artifact review /root/testflight_release_review PASS: indepen
 
 Submitted that exact build with eas submit --platform ios --profile production --id 505b55ab-5280-4d06-a638-f897de55160a --non-interactive --no-wait. Existing EAS-hosted App Store Connect API credential reused; no new credential generated. Submission 39a71987-4360-43fb-8eee-d8e908cf84e6 scheduled successfully. Scheduling is not proof of Apple delivery/processing or installation. https://expo.dev/accounts/andrewstordy/projects/cup/submissions/39a71987-4360-43fb-8eee-d8e908cf84e6
 
+Apple delivery confirmed in signed-in App Store Connect: Build Uploads row 0.1.0 (6), Processing, created October 29 at 12:13 PM. No further credentials or agreement changes required for delivery. Processing/compliance, adding to the owner's internal group and installed-phone smoke remain pending.
+
 ## Authority and scope
 
 Owner request: prepare an installable TestFlight version for a ten-day China factory trip. Upload behaviour must remain disconnected. This is a bounded pre-release demonstration of the existing installation-local app, not a claim of Pilot-Ready or full Product Specification Release 1 conformance.
