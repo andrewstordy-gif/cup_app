@@ -70,6 +70,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Context still needed:** Whether failures occur with ordinary NFC tags, Smart Cups or both; affected phone/build; scan entry point; visible message or native scan-sheet behavior; whether retry succeeds; frequency and conditions. No corrupted record, failed write or data loss is established by this report.
 - **Disposition:** Recorded for later NFC reliability investigation with real-device evidence. No code, firmware, protocol, retry policy or verification requirement changed during feedback collection.
 
+### TF-FB-009 — Item 8: CVA completion without explicit Uniformity assessment
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026. Andrew corrected his initial reference to saving: the reported issue is that the CVA cupping form can be **completed** without assessing cup Uniformity.
+- **Reported experience:** Completion is possible without the taster first explicitly assessing Uniformity. Treat this corrected completion report as authoritative; do not substitute an ordinary draft/save-only issue.
+- **Classification:** Reported assessment/completion concern for product and validation review, not yet independently reproduced or classified as a software defect. No change to the completion gate is approved by this report alone.
+- **Relevant existing policy:** PRODUCT_SPEC section 6.8.2 approves a no-non-uniform-cups/zero-deduction default for newly initialized CVA assessments across supported cup counts. Explicit unassessed/null and selected saved sets retain their meaning; one-cup Uniformity remains not applicable/fixed zero. Determine whether the reported completion used an untouched default, an explicitly unassessed field or the one-cup case before deciding whether the implementation or approved interaction needs changing. Default initialization alone is not permission to complete the whole tasting.
+- **Evidence limits and disposition:** Cup count, field state, exact completion action and whether other required entries were present are not yet supplied. Capture these during later triage; no app or specification change started. This report does not establish that Legacy Uniformity behaves the same way.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
