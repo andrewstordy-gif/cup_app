@@ -78,6 +78,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Relevant existing policy:** PRODUCT_SPEC section 6.8.2 approves a no-non-uniform-cups/zero-deduction default for newly initialized CVA assessments across supported cup counts. Explicit unassessed/null and selected saved sets retain their meaning; one-cup Uniformity remains not applicable/fixed zero. Determine whether the reported completion used an untouched default, an explicitly unassessed field or the one-cup case before deciding whether the implementation or approved interaction needs changing. Default initialization alone is not permission to complete the whole tasting.
 - **Evidence limits and disposition:** Cup count, field state, exact completion action and whether other required entries were present are not yet supplied. Capture these during later triage; no app or specification change started. This report does not establish that Legacy Uniformity behaves the same way.
 
+### TF-FB-010 — Item 9: unwanted category-notes links returned to CVA
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026.
+- **Reported experience:** The CVA cupping form now contains a link to category notes, which Andrew says are no longer relevant. He reports that these were added back during recent AI-assisted app updates and that their presence makes the form look cluttered and messy.
+- **Classification:** Reported UI regression/unwanted return of a previously removed feature. Andrew's explanation of how it returned is recorded as his assessment; the introducing change, prior removal decision and exact affected controls have not yet been independently verified.
+- **Expected direction from feedback:** Preserve the previously agreed simpler CVA presentation rather than reintroducing irrelevant category-notes links. Confirm the earlier approved design and source provenance before scoping a correction; this report alone does not authorize deleting saved notes or changing required assessment fields.
+- **Evidence limits and disposition:** Exact link labels, locations, screenshots, affected build and introducing commits remain to establish. No UI redesign, code change, data deletion or specification change started during feedback intake.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
