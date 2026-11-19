@@ -29,6 +29,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Requested improvement:** Make the message snappier, shorter and easier to understand. No replacement wording has yet been selected or approved.
 - **Classification and disposition:** Copy/usability feedback for later scoped wording review. No app implementation has started. This feedback does not authorize removing the warning/confirmation or changing reassignment safeguards. The screenshot establishes the displayed wording, not the actual status of the cup's previous session or a failed reassignment.
 
+### TF-FB-004 — Observation 3: future manual timer for ordinary NFC cups
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026, explicitly described as an idea for future improvement.
+- **Reported gap:** During cupping with an ordinary NFC cup/tag rather than a Smart Cup, there is no timing function available to the taster.
+- **Proposed interaction:** After the initial coffee smell assessment, when water is poured into the cup, the user could press a button to start a four-minute timer. Timing would be started manually rather than supplied automatically by Smart Cup hardware.
+- **Classification and disposition:** Future enhancement idea, not a confirmed defect or approval to implement or change Release 1 scope. The Product Specification currently permits Release 1 without a brew timer; retain this proposal for later product consideration.
+- **Details still open:** Exact placement and wording, whether the timer belongs to an individual cup/sample or the whole session, repeat/start/reset behavior, end-of-timer notification, and lifecycle/background behavior. Andrew's reference to aroma/smell does not by itself redefine the form's Fragrance/Aroma fields, scoring or assessment sequence.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
