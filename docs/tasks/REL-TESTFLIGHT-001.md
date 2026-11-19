@@ -62,6 +62,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Product alignment:** PRODUCT_SPEC sections 5.2 and 12.9 already describe Release 2 AI descriptor identification, explicitly including “banana bread”: preserve exact wording, suggest an appropriate sensory-family colour, and allow correction/removal. Release 1 deterministic SCA matching remains distinct. This feedback reinforces that existing future requirement; it does not itself move it into Release 1 or authorize a new cloud dependency.
 - **Evidence limits and disposition:** Whether the raw note was retained, whether an individual word was matched, and the observed highlighting/category behavior have not been separately established. Record for later descriptor-recognition scope and validation; no app or specification changes started.
 
+### TF-FB-008 — Item 7: intermittent NFC scan/read reliability
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026: “The app doesn't always scan the and receive the NFC record consistently.”
+- **Reported experience:** NFC scanning and receipt of the cup/tag record are inconsistent; reading does not always succeed.
+- **Classification:** Reported reliability issue requiring reproduction and diagnosis, distinct from Item 1's number of setup scans and Item 5's delay opening a form after a scan. It is not yet independently reproduced or attributed to app, phone, tag, firmware, positioning or radio behavior.
+- **Context still needed:** Whether failures occur with ordinary NFC tags, Smart Cups or both; affected phone/build; scan entry point; visible message or native scan-sheet behavior; whether retry succeeds; frequency and conditions. No corrupted record, failed write or data loss is established by this report.
+- **Disposition:** Recorded for later NFC reliability investigation with real-device evidence. No code, firmware, protocol, retry policy or verification requirement changed during feedback collection.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
