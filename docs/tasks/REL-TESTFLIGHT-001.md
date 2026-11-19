@@ -86,6 +86,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Expected direction from feedback:** Preserve the previously agreed simpler CVA presentation rather than reintroducing irrelevant category-notes links. Confirm the earlier approved design and source provenance before scoping a correction; this report alone does not authorize deleting saved notes or changing required assessment fields.
 - **Evidence limits and disposition:** Exact link labels, locations, screenshots, affected build and introducing commits remain to establish. No UI redesign, code change, data deletion or specification change started during feedback intake.
 
+### TF-FB-011 — Item 10: prominent voice-to-text action for tasting notes
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026, explicitly presented as an idea.
+- **Reported experience and value:** Speaking tasting notes is particularly useful. Andrew finds the current microphone/dictation entry point insufficiently obvious and describes the native microphone control as the only current route. He also notes recent improvements in AI transcription quality; this is his rationale, not a comparative transcription evaluation performed by the project.
+- **Proposed improvement:** Place a clearly visible transcription/voice-to-text button in or beside the notes field so tasters can readily discover and use spoken note entry. Preserve editable resulting text and typed entry.
+- **Classification and product alignment:** Discoverability/interaction enhancement proposal. PRODUCT_SPEC FR-032A and section 5.1 already require native device voice capture/dictation with editable text and a typed fallback, without a custom cloud transcription dependency. An explicit notes action may improve access to that capability; the exact mechanism needs assessment. Andrew has not selected an AI provider, required cloud transcription, or requested retained audio files by this statement.
+- **Details still open and disposition:** Button placement/label, recording/listening/permission/error states, platform support, offline behavior and any deliberate broader transcription scope. Record for later design/feasibility consideration; no app change, new microphone access, external audio processing or specification change started.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
