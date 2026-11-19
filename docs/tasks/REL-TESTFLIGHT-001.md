@@ -21,6 +21,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Classification:** Usability/workflow-friction observation only, explicitly identified by Andrew as “just an observation at this stage.” This is not a reported write failure or a confirmed software defect.
 - **Disposition:** Recorded for later consideration. No requested solution, prioritization, implementation task or change to the separate NFC verification requirement is approved by this observation.
 
+### TF-FB-003 — Observation 2: reassignment warning is confusing
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026, with attached screenshot `Photo 1.jpg` showing the Session Details reassignment dialog.
+- **Current wording shown:** Title: “Reassign Cup?” Body: “We can't check its previous session. Reassigning may interrupt it.” Actions: “CANCEL” and “REASSIGN CUP”.
+- **Reported experience:** Cups often already contain an existing record. Andrew finds this message confusing and difficult to understand in that situation.
+- **Requested improvement:** Make the message snappier, shorter and easier to understand. No replacement wording has yet been selected or approved.
+- **Classification and disposition:** Copy/usability feedback for later scoped wording review. No app implementation has started. This feedback does not authorize removing the warning/confirmation or changing reassignment safeguards. The screenshot establishes the displayed wording, not the actual status of the cup's previous session or a failed reassignment.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
