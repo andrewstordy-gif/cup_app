@@ -102,6 +102,19 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Classification:** Reported summary-display omission and requested correction, scoped to CVA. Exact note-field mapping and whether recorded roast notes are persisted but omitted from the projection need verification; no loss of notes is established by this report.
 - **Disposition:** Captured for a bounded UI/projection correction task. Preserve the existing note categories and wording; Item 9's unwanted category-note links is separate from displaying recorded notes in a summary. No implementation or data/schema change started during feedback intake.
 
+### TF-FB-013 — Item 12: repeated flavour words create duplicate balloons
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026; explicitly his final observation from testing the CVA form.
+- **Reported reproduction:** Enter or dictate a flavour note containing “strawberry” repeatedly. The app creates multiple strawberry flavour balloons from those repeated mentions.
+- **Expected behavior:** Those repeated mentions identify one flavour characteristic, so the app should display one strawberry balloon for that characteristic rather than one balloon per occurrence.
+- **Classification:** Reported descriptor-display duplication and requested correction, observed with CVA. The exact note/input path and duplication mechanism have not yet been independently reproduced or diagnosed.
+- **Scope to establish during triage:** The example concerns repetitions within a note; do not infer deduplication across separate samples, assessment categories, independently recorded observations or sensory events. Preserve the original note text; no deletion or merging of underlying observations is authorized by this report.
+- **Disposition:** Record for a bounded descriptor extraction/display investigation and regression check. Distinct from Item 6's recognition of compound/non-SCA descriptors. No app change started.
+
+### Feedback intake checkpoint
+
+Andrew identified Item 12 as the final observation from his CVA-form test. Items 1–12 are recorded above (TF-FB-002 through TF-FB-013), with the initial two-phone test context in TF-FB-001. This closes the reported CVA observation list, not the release acceptance gates. No end-to-end pass, diagnosis, prioritization or approval to implement all proposals is inferred.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
