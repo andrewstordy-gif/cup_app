@@ -54,6 +54,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Evidence limits:** No timings, frequency, phone model/OS, per-phone build, sample count, logs or reproduction steps supplied yet. The preceding test context was two-phone CVA, but do not assume the delay is limited to CVA or occurs on both devices. No cause, regression comparison, lost data or failed save has been established.
 - **Disposition:** Recorded for later measurement and diagnosis. No implementation started; a UI acknowledgement alone must not be treated as a completed durable save.
 
+### TF-FB-007 — Item 6: recognise compound and non-SCA flavour descriptors
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026.
+- **Reported experience:** A flavour note such as “banana bread” describes how the coffee tastes but is not picked up as a descriptor. Andrew reports that the current app recognises only notes from the SCA vocabulary. This is a user report, not a fresh audit of the exact matcher or its dictionary.
+- **Requested improvement:** Recognise meaningful compound/free-form descriptors beyond the SCA list, preserving the phrase's intended meaning rather than restricting the user to that list. No specific recognition technology or correction interaction was selected during this feedback.
+- **Product alignment:** PRODUCT_SPEC sections 5.2 and 12.9 already describe Release 2 AI descriptor identification, explicitly including “banana bread”: preserve exact wording, suggest an appropriate sensory-family colour, and allow correction/removal. Release 1 deterministic SCA matching remains distinct. This feedback reinforces that existing future requirement; it does not itself move it into Release 1 or authorize a new cloud dependency.
+- **Evidence limits and disposition:** Whether the raw note was retained, whether an individual word was matched, and the observed highlighting/category behavior have not been separately established. Record for later descriptor-recognition scope and validation; no app or specification changes started.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
