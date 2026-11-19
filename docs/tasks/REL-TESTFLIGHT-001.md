@@ -115,6 +115,17 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 
 Andrew identified Item 12 as the final observation from his CVA-form test. Items 1–12 are recorded above (TF-FB-002 through TF-FB-013), with the initial two-phone test context in TF-FB-001. This closes the reported CVA observation list, not the release acceptance gates. No end-to-end pass, diagnosis, prioritization or approval to implement all proposals is inferred.
 
+## Legacy-form field-test feedback — collected 19 November 2026
+
+Separate numbering starts here for Andrew's Legacy-form test. The exact Legacy test date, devices, per-phone build and number of phones have not been separately confirmed; do not automatically carry over the two-phone CVA scenario. The same China TestFlight release record provides context, not proof of those details.
+
+### TF-LEG-001 — Legacy item 1: hidden/blind session unavailable
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026: “I wasn't able to do a hidden session with the legacy form.”
+- **Reported experience:** Andrew could not run a hidden/blind cupping session using the Legacy form.
+- **Existing boundary:** The current installation-local stage explicitly limits Legacy to Open Cupping (PRODUCT_SPEC section 6.8.1 and NDEF_PROTOCOL's `m` description). This report is consistent with that documented restriction; it is not evidence of a newly introduced regression. Full Release 1 blind requirements remain separate and are not declared satisfied by the Open-only increment.
+- **Classification and disposition:** User-encountered capability limitation, recorded for later product/development triage. No workaround, enablement of blind Legacy, protocol change or specification change started. Capture any further details or requested priority as Andrew provides them.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
