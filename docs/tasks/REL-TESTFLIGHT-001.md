@@ -14,6 +14,13 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Outcome:** Not yet reported. Do not mark completion, cross-phone behavior, offline operation, blind isolation, persistence or sharing as passed from this statement alone.
 - **Disposition:** Feedback intake in progress; capture Andrew's subsequent observations before defect triage or implementation scope.
 
+### TF-FB-002 — Observation 1: repeated setup scans feel slow
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026, during feedback on the two-phone CVA test.
+- **Reported experience:** Setting up a cupping session or adding a cup requires multiple scanning steps to check that the record was correctly written to the cup. Andrew finds this time-consuming and slow. No scan count or elapsed time was supplied.
+- **Classification:** Usability/workflow-friction observation only, explicitly identified by Andrew as “just an observation at this stage.” This is not a reported write failure or a confirmed software defect.
+- **Disposition:** Recorded for later consideration. No requested solution, prioritization, implementation task or change to the separate NFC verification requirement is approved by this observation.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
