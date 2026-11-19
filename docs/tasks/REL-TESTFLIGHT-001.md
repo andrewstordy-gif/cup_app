@@ -37,6 +37,23 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Classification and disposition:** Future enhancement idea, not a confirmed defect or approval to implement or change Release 1 scope. The Product Specification currently permits Release 1 without a brew timer; retain this proposal for later product consideration.
 - **Details still open:** Exact placement and wording, whether the timer belongs to an individual cup/sample or the whole session, repeat/start/reset behavior, end-of-timer notification, and lifecycle/background behavior. Andrew's reference to aroma/smell does not by itself redefine the form's Fragrance/Aroma fields, scoring or assessment sequence.
 
+### TF-FB-005 — Item 4: Square Mile's own form for the Smart Cup trial
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026; email research explicitly requested by Andrew.
+- **Trial goal:** Square Mile should adopt the Smart Cups in their normal work and want to keep using them. Andrew anticipates that asking them to learn a different cupping form alongside testing the cups will create an adoption barrier. This is Andrew's assessment, not a new refusal reported by Square Mile.
+- **Proposed improvement:** Provide a simple Square Mile-specific cupping form matching their established process for the Smart Cup trial.
+- **Primary source located:** James Haydon, “Re: Smart Cupping Cup”, [26 June 2026](https://mail.google.com/mail/u/?authuser=andrewstordy%40googlemail.com#all/19f02fbea0f26f4b), clarified [1 July 2026](https://mail.google.com/mail/u/?authuser=andrewstordy%40googlemail.com#all/19f1c8ba21334a07). James describes a manually chosen overall score of 1–14, with below 7 a fail. Other attributes use -1, 0 or +1 as analytical notes/guides; they do not mathematically determine the overall score. His July reply confirms no direct calculation and explains that the team is accustomed to this system. Emails were read; unnecessary correspondence and personal contact details are not copied here.
+- **Form reference:** The June email includes `Screenshot 2026-06-26 at 09.08.51.png`, a sheet using a fictional coffee. Attachment located/retrieved through Gmail, but its fields have not yet been visually transcribed or validated. Exact attribute names, allowed overall-score increments, required entries and other behavior remain to confirm from the source before any implementation.
+- **Classification and disposition:** Proposed trial-specific enhancement, recorded for scope/design assessment. Current Release 1 specification and NDEF mappings support exactly CVA and Legacy; adding this form needs an explicit approved trial/release boundary, immutable form identity and reviewed protocol/compatibility design. Do not relabel it as CVA/Legacy, reuse their identifiers, invent a new production NDEF value, or silently extend Release 1. No specification/app changes or contact with James authorized/performed during feedback capture.
+
+### TF-FB-006 — Item 5: perceived delay saving and opening forms
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026, referring to the latest TestFlight version taken to China.
+- **Reported experience:** After pressing Save, the form takes some time to save. After scanning a cup, the form takes some time to open.
+- **Classification:** Performance/usability observation affecting two distinct interactions: form save and scan-to-form opening. This is separate from Item 1's repeated setup/write-verification scans.
+- **Evidence limits:** No timings, frequency, phone model/OS, per-phone build, sample count, logs or reproduction steps supplied yet. The preceding test context was two-phone CVA, but do not assume the delay is limited to CVA or occurs on both devices. No cause, regression comparison, lost data or failed save has been established.
+- **Disposition:** Recorded for later measurement and diagnosis. No implementation started; a UI acknowledgement alone must not be treated as a completed durable save.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
