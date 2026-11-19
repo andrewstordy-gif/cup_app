@@ -126,6 +126,33 @@ Separate numbering starts here for Andrew's Legacy-form test. The exact Legacy t
 - **Existing boundary:** The current installation-local stage explicitly limits Legacy to Open Cupping (PRODUCT_SPEC section 6.8.1 and NDEF_PROTOCOL's `m` description). This report is consistent with that documented restriction; it is not evidence of a newly introduced regression. Full Release 1 blind requirements remain separate and are not declared satisfied by the Open-only increment.
 - **Classification and disposition:** User-encountered capability limitation, recorded for later product/development triage. No workaround, enablement of blind Legacy, protocol change or specification change started. Capture any further details or requested priority as Andrew provides them.
 
+### TF-LEG-002 — Legacy item 2: sample-card presentation
+
+- **Source:** Andrew, 19 November 2026: Legacy sample cards need work to bring them up to the same standard as CVA sample cards.
+- **Requested outcome:** Improve the Legacy cards using the established CVA presentation as the reference. Exact layout changes remain to be designed and reviewed; no redesign implemented.
+
+### TF-LEG-003 — Legacy item 3: excessive Session Details text
+
+- **Source:** Andrew, 19 November 2026: too much writing on Session Details, including unnecessary material he attributes to AI changes; requests a cleaner, more aesthetically pleasing screen.
+- **Disposition:** Record a visual/copy cleanup request. The origin of the unwanted text has not been independently established. Identify the specific text during design review; this does not authorize removing required information or warnings indiscriminately.
+
+### TF-LEG-004 — Legacy item 4: flavour pills absent
+
+- **Source:** Andrew, 19 November 2026: adding flavour notes does not add flavour pills as it does for CVA.
+- **Expected experience:** Legacy flavour notes should receive the established flavour-pill treatment. Extraction/display behaviour and underlying note persistence have not been independently checked; no data-loss claim or implementation started.
+
+### TF-LEG-005 — Legacy item 5: score sheet and cupping-details presentation
+
+- **Source:** Andrew, 19 November 2026: “The score sheet and the cupping details screen is not great.”
+- **Disposition:** Record dissatisfaction with Legacy score-sheet and cupping-details presentation alongside the more specific card/text feedback above. Exact screen references and desired changes remain to be established in design review; do not infer a scoring-calculation defect.
+
+## Cross-form field-test feedback — collected 19 November 2026
+
+### TF-CROSS-001 — Coffee beans for the sample-completion animation
+
+- **Source:** Andrew, 19 November 2026: when balloons rise after completing a sample, he would prefer coffee beans instead. Explicitly applies to both CVA and Legacy.
+- **Requested outcome:** Replace the rising balloon imagery in the sample-completion animation with coffee-bean imagery. This concerns the completion animation, separately from flavour-note pills and duplicate descriptor balloons recorded above. No animation change started.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
