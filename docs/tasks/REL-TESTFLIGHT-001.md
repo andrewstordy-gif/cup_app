@@ -94,6 +94,14 @@ This section records Andrew's direct reports about the TestFlight app taken to C
 - **Classification and product alignment:** Discoverability/interaction enhancement proposal. PRODUCT_SPEC FR-032A and section 5.1 already require native device voice capture/dictation with editable text and a typed fallback, without a custom cloud transcription dependency. An explicit notes action may improve access to that capability; the exact mechanism needs assessment. Andrew has not selected an AI provider, required cloud transcription, or requested retained audio files by this statement.
 - **Details still open and disposition:** Button placement/label, recording/listening/permission/error states, platform support, offline behavior and any deliberate broader transcription scope. Record for later design/feasibility consideration; no app change, new microphone access, external audio processing or specification change started.
 
+### TF-FB-012 — Item 11: show CVA roast notes in expanded summary cards
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026.
+- **Reported experience:** In the cupping-session summary on Session Details, expanded CVA sample cards show flavour notes and smell/aroma notes but do not show roast notes.
+- **Requested change:** Include the sample's recorded roast notes in the expanded CVA summary card so they can be reviewed alongside the other notes.
+- **Classification:** Reported summary-display omission and requested correction, scoped to CVA. Exact note-field mapping and whether recorded roast notes are persisted but omitted from the projection need verification; no loss of notes is established by this report.
+- **Disposition:** Captured for a bounded UI/projection correction task. Preserve the existing note categories and wording; Item 9's unwanted category-note links is separate from displaying recorded notes in a summary. No implementation or data/schema change started during feedback intake.
+
 ## Owner and Apple confirmation — 29 October
 
 Owner leaves tomorrow (30 October); distribution only to their own phone through internal TestFlight. Owner completed personal Apple login. App Store Connect stordy_cup (6762091756) lists 0.1.0 builds 1–5, latest build 5 uploaded June 25, expired. Personal Apple Developer account confirms team 6W675PGM38 and agreement accepted October 8; earlier ASC banner may be stale. Do not accept any new agreement automatically.
