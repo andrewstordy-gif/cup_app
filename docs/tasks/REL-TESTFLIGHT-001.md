@@ -1,6 +1,18 @@
 # REL-TESTFLIGHT-001 — China factory demonstration build
 
-Status: Build 6 enabled for owner-only internal TestFlight testing; installed-phone acceptance pending.
+Status: Build 6 enabled for owner-only internal TestFlight testing; owner feedback collection started 19 November 2026; acceptance outcomes remain pending.
+
+## Owner field-test feedback — collected 19 November 2026
+
+This section records Andrew's direct reports about the TestFlight app taken to China. It supplements the dated preparation history below; it does not infer a test pass, new product requirement, or authorization to implement a fix. The release associated with this record is 0.1.0 (6), but the installed version/build on each test phone has not yet been confirmed. Andrew previously identified app testing on 16 or 17 November; the exact date of the scenario below is not separately confirmed.
+
+### TF-FB-001 — Two-phone CVA cupping session
+
+- **Source:** Andrew, Project Manager chat, 19 November 2026: “I tested the app by running through a cupping session with two phones using the CVA form.”
+- **Recorded observation:** Andrew ran through a cupping session using two phones and the CVA form.
+- **Context not yet supplied:** Phone models/OS versions, per-phone installed build, creator/participant roles, cup/tag type and count, connectivity conditions, and detailed steps.
+- **Outcome:** Not yet reported. Do not mark completion, cross-phone behavior, offline operation, blind isolation, persistence or sharing as passed from this statement alone.
+- **Disposition:** Feedback intake in progress; capture Andrew's subsequent observations before defect triage or implementation scope.
 
 ## Owner and Apple confirmation — 29 October
 
