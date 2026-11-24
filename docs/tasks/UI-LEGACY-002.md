@@ -1,6 +1,6 @@
 # UI-LEGACY-002 — Legacy sample card structure, Stage 1
 
-- **Status:** Independent review PASS; controlled integration validation in progress, 24 November 2026.
+- **Status:** Independent review and final prospective validation PASS; protected PR integration approved, 24 November 2026.
 - **Product references:** PRODUCT_SPEC §§6.5, 6.8.1–6.8.5; FR-010, FR-013/014 (preserve existing identity boundary), FR-035. UI_STYLE_GUIDE is mandatory.
 - **Technical references:** Existing versioned Legacy response/result contract and read API; NDEF_PROTOCOL unchanged.
 - **Objective:** Implement the approved Legacy-only sample-card structure using existing saved data. Deliver one bounded, independently reviewed increment before CVA or later presentation work.
@@ -96,6 +96,15 @@ No diff to CoffeeSampleCard.js, sessionRepository.js, form-contract definitions 
 - Independently reproduced the separate obsolete `participant-sample-lifecycle-check.js` failure on candidate **213945c** and clean main **8c0c49b** using the same Node22 binary: its numeric `z:7` assignment fails unchanged sample-code validation at line 116 before card rendering/import. Keep that suite recorded as a baseline fixture limitation, not PASS. The passing current-profile participant parity suite now supplies direct participant-path evidence alongside the passing real-card/inactive and creator activation probes. No Stage 1 coverage blocker remains from that obsolete fixture.
 - Task record yielded back to Release Manager. Repeat final prospective validation against then-current main and use protected PR/process gates; this test-only PASS does not itself approve a merge or claim physical-device acceptance.
 
+### Final prospective gate and release approval — 24 November 2026
+
+- PM approved the bounded parity-probe maintenance; author committed **e3f16d9**, evidence **63418d3**, independent follow-up PASS **d482723**. No application source changes from reviewed **ca18a5b**. The updated probe explicitly checks all four display-read props before excluding only those from historical JSX parity; previous permission/CVA assertions remain intact.
+- Revalidated isolated prospective candidate **d4827237f2daffd5114daa7e7f42726a2670f1e1** against freshly fetched main **8c0c49b3a8110cb80aab696561efac16946c2319**. Candidate and prospective merge tree both **fcbff26cfcbbaf3e28d2d0e1d659707518f0fa54**, no conflicts.
+- **11 targeted checks PASS:** legacy-sample-card, form-contract (239), legacy-ui, legacy-save-queue, local-tasting-ui, legacy-select-all, assessment-sample-identity, creator-scan-activation, pending-blind-card, current-rating-progress and participant-parity-finish (all eight groups). Final logs/results under prospective `output/ui-legacy-002-release/final-*`. Two obsolete numeric sample-code fixture failures documented above remain explicitly failures, not regressions or weakened tests; the independent review confirms current participant coverage with the passing parity suite.
+- Final prospective iOS bundle **PASS**, four assets, hash **09b18672f9744432123bdc6f05063abae1c7aaa2c2f80f6e6528fa668f3d9f88** (same as reviewed source); cached Metro reported 743 modules. No install or hardware claim. Final evidence edits are documentation only; application and test identity are rechecked before merge.
+- Protected [PR #22](https://github.com/andrewstordy-gif/cup_app/pull/22) created as draft pending final gates. Connected GitHub read access works but mutation returned HTTP 403 Resource not accessible by integration; existing authenticated `gh` is used for authorized PR mutations. This was not an approval-review rejection and no permissions were changed.
+- Release Manager approves this bounded software increment for exact-head PR integration after final live head/base checks. No TestFlight/version/signing/build-distribution operation is authorized by this approval. Exact merge/post-merge evidence follows after the operation.
+
 ## Definition of Done
 
 - **PASS:** Scoped acceptance criteria — implementation/hook/canonical-result checks plus independent actual-card browser review, with truthful General notes/Defect notes mapping and no deferred pills/icons implied complete.
@@ -107,8 +116,9 @@ No diff to CoffeeSampleCard.js, sessionRepository.js, form-contract definitions 
 - **PASS:** Independent scoped code, UX/accessibility, QA and read-access/privacy review; findings resolved with exact commit evidence above.
 - **N/A — native hardware regression before software integration:** no native/NFC code, permission, entitlement or firmware behaviour changed. Physical user-test evidence is still required for any future device/release claim and is not waived.
 - **PASS:** Inspectable implementation history, clean task branch at review handoff, tests identify exact runtime, author/reviewer handoffs and changelog consolidation recorded.
-- **PENDING:** Prospective integrated-main validation before merge, protected PR/process approval, exact post-merge confirmation and final clean-state handoff. Until these are recorded the integration gate is not complete.
+- **PASS:** Prospective integrated-main validation before merge and Release Manager process approval, with exact candidate/base/tree recorded above.
+- **PENDING:** Controlled protected PR merge, exact post-merge confirmation and final clean-state handoff. Until these are recorded integration is not complete.
 
 ## Final references
 
-Implementation runtime commit: ca18a5b1026e8615378c6f63489458c78d3032c2 (preceded by cb28b04 and 219ee6c). Documentation-only evidence commit follows. Independent review / PR / prospective integration / merge remain pending.
+Implementation runtime commit: **ca18a5b1026e8615378c6f63489458c78d3032c2** (preceded by cb28b04 and 219ee6c). Test-only maintenance **e3f16d9**. Independent approvals **2d5d7f3** and **d482723**. Protected **PR #22**. Final prospective validation **d482723** against main **8c0c49b**. Merge/post-merge references pending.
