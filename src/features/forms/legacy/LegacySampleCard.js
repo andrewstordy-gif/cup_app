@@ -7,7 +7,7 @@ import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { getProcessLabel } from '../../cupping/constants/sessionDetails';
-import { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement } from './legacyCardPresentation';
+import { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement, LEGACY_SCORE_PATTERN } from './legacyCardPresentation';
 
 function Section({ title, children, scale }) {
   return <View style={[styles.section, { padding: spacing.md * scale }]}>
@@ -49,7 +49,8 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
   const state = inactive ? 'Scan cup to include in your tasting' : loading ? 'Loading saved assessment…' :
     current?.failed ? 'Saved assessment unavailable.' : presentation.final ? 'Saved' : presentation.hasSavedResponse ? 'Draft saved' : 'Not assessed';
   const scores = [...presentation.quality, { key: 'total', caption: 'TOTAL', label: 'Total score', value: presentation.total }];
-  const measurementKey = JSON.stringify([fontScale, ...scores.map(score => score.value ?? '—')]);
+  const measurementKey = JSON.stringify([LEGACY_SCORE_PATTERN, typography.text_sample_score.fontSize,
+    typography.text_sample_score.fontWeight, typography.text_sample_score.lineHeight, fontScale, ...scores.map(score => score.value ?? '—')]);
   const [measurements, setMeasurements] = useState({ key: measurementKey, widths: {} });
   // Reset before this render is committed. A late event from old content/text
   // scale cannot overwrite widths collected for the current native layout.
@@ -60,10 +61,13 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
     // the primitive now; a deferred React state updater must never read event.
     const lines = event?.nativeEvent?.lines;
     const candidateWidth = Array.isArray(lines) && lines.length === 1 ? lines[0]?.width : null;
+    const candidateHeight = Array.isArray(lines) && lines.length === 1 ? lines[0]?.height : null;
     const width = typeof candidateWidth === 'number' ? candidateWidth : null;
-    setMeasurements(previous => recordLegacyScoreMeasurement(previous, measurementKey, metric, width));
+    const height = typeof candidateHeight === 'number' ? candidateHeight : null;
+    setMeasurements(previous => recordLegacyScoreMeasurement(previous, measurementKey, metric, width, height));
   };
-  const layout = legacyCardScoreLayout(rowWidth, fontScale, scale, widths, typography.text_caption.fontSize, scores);
+  const layout = legacyCardScoreLayout(rowWidth, fontScale, scale, widths, typography.text_sample_score.fontSize, scores,
+    typography.text_sample_score.lineHeight, typography.text_caption.fontSize);
 
   return <View style={[styles.card, inactive && styles.inactive, { marginTop: spacing.md * scale }]}>
     <View style={[styles.top, { paddingHorizontal: spacing.md * scale, paddingTop: spacing.sm * scale }]}>
@@ -95,8 +99,14 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
               style={{ width: i === 7 ? layout.totalWidth : layout.qualityWidths[i], gap: spacing.xs * scale }}>
               <Text style={styles.caption}>{score.caption}</Text>
               <View style={[styles.scoreBox, presentation.final && i !== 7 && styles.finalBox,
-                i === 7 && styles.totalBox, { minHeight: 36 * scale, borderRadius: 7 * scale }]}>
-                <Text style={[styles.scoreValue, presentation.final && i !== 7 && styles.finalValue]}>{score.value ?? '—'}</Text>
+                i === 7 && styles.totalBox, { height: layout.cellHeight, borderRadius: 7 * scale }]}>
+                {i === 7 ? <Text style={styles.scoreValue}>{score.value ?? '—'}</Text> :
+                  <View accessible={false} style={[styles.rotatedValueFrame, {
+                    width: layout.valueBounds[i].width, height: layout.valueBounds[i].height,
+                    marginLeft: -layout.valueBounds[i].width / 2, marginTop: -layout.valueBounds[i].height / 2,
+                  }]}>
+                    <Text accessible={false} style={[styles.scoreValue, presentation.final && styles.finalValue]}>{score.value ?? '—'}</Text>
+                  </View>}
               </View>
             </View>
           ))}
@@ -156,7 +166,8 @@ const styles = StyleSheet.create({
   value: { ...typography.text_body, color: colors.ink },
   scoreRow: { flexDirection: 'row', paddingVertical: spacing.sm },
   caption: { ...typography.text_caption, color: colors.inkSoft, letterSpacing: 0, textAlign: 'center' },
-  scoreValue: { ...typography.text_caption, color: colors.ink, letterSpacing: 0, fontVariant: ['tabular-nums'] },
+  scoreValue: { ...typography.text_sample_score, color: colors.ink, letterSpacing: 0, fontVariant: ['tabular-nums'] },
+  rotatedValueFrame: { position: 'absolute', left: '50%', top: '50%', alignItems: 'center', justifyContent: 'center', transform: [{ rotate: '90deg' }] },
   measurementProbe: { position: 'absolute', left: 0, top: 0, width: 10000, opacity: 0, alignItems: 'flex-start' },
   scoreBox: { borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   finalBox: { backgroundColor: colors.ink, borderColor: colors.ink },

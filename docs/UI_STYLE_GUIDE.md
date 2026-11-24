@@ -421,7 +421,18 @@ Prefer dividers between rows rather than floating cards.
 
 Legacy sample cards use seven exact two-decimal quality marks (`F/A`, `FL`,
 `AF`, `AC`, `BD`, `BA`, `OV`) plus the canonical total in a single horizontal
-summary row. Use the caption typography token without responsive font scaling;
+summary row. Numeric strings use shared `text_sample_score` (13-point, 700,
+16-point line height), with seven quality values rotated clockwise as complete
+strings and the total upright at the same numeric size. Captions remain upright
+using `text_caption`. Neither token is responsively scaled. Quality cells have
+a 64-point minimum height; the upright total has a 56-point minimum width.
+Enlarge these bounds for native text measurements rather than scaling them down.
+Rotation does not affect native layout bounds: measure unrotated width/height,
+then reserve the rotated height/width footprint explicitly. Capture native
+measurement scalars before pooled events are released and invalidate old font/
+orientation measurements. Expanded Final score retains its 44-point metric.
+This pattern is implemented for Legacy first; CVA adoption is a separate stage.
+For either summary,
 retain full attribute names in accessibility labels. At enlarged text sizes,
 allow horizontal scrolling rather than clipping or shrinking precision. A
 separate 44-point chevron expands saved details; tapping the permitted header

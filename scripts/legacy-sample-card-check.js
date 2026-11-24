@@ -5,7 +5,7 @@ const path = require('node:path');
 const Module = require('node:module');
 const { transformSync } = require('@babel/core');
 const { PROFILE, resolveForm, scoreResponse } = require('../src/features/forms/contract');
-const { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement } = require('../src/features/forms/legacy/legacyCardPresentation');
+const { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement, LEGACY_SCORE_PATTERN } = require('../src/features/forms/legacy/legacyCardPresentation');
 const root = path.resolve(__dirname, '..');
 const fields = ['fragrance_aroma', 'flavor', 'aftertaste', 'acidity', 'body', 'balance', 'overall'];
 const cups = n => Array.from({ length: n }, (_, i) => i + 1);
@@ -62,35 +62,54 @@ const ownerRows = [
 ];
 const scoreCells = (values, total) => [...empty.quality.map((row, i) => ({ ...row, value: values[i] })), { key: 'total', caption: 'TOTAL', value: total }];
 // Native macOS tabular-font corroboration fixtures, not exact iOS font proof.
-const glyphWidth = value => value === '-20.00' ? 45.2 : value.length === 6 ? 43.32 : value.length === 5 ? 35.44 : 27.57;
+const glyphFixtures = {
+  1: { four: 30.3989, five: 39.0508, six: 47.7026, negative: 45.2715, dash: 11.7083 },
+  1.5: { four: 43.6905, five: 56.2571, six: 68.8237, negative: 65.1162, dash: 17.0843 },
+  2: { four: 58.0117, five: 75.1065, six: 92.2013, negative: 86.8889, dash: 22.7114 },
+};
+const glyphWidth = (value, factor = 1) => { const fixture = glyphFixtures[factor];
+  return value === '—' ? fixture.dash : value === '-20.00' ? fixture.negative : value.length === 6 ? fixture.six : value.length === 5 ? fixture.five : fixture.four; };
 const nativeWidthsFor = (cells, factor = 1) => Object.fromEntries(cells.flatMap(cell => [
-  [`${cell.key}:value`, Math.ceil(glyphWidth(cell.value) * factor)],
-  [`${cell.key}:caption`, Math.ceil((cell.caption === 'TOTAL' ? 37 : 22) * factor)],
+  [`${cell.key}:value`, { width: Math.ceil(glyphWidth(cell.value, factor)), height: 16 * factor }],
+  [`${cell.key}:caption`, { width: Math.ceil((cell.caption === 'TOTAL' ? 37 : 22) * factor), height: 16 * factor }],
 ]));
 for (const width of [320, 375, 390]) {
   const scale = Math.max(width / 616, 0.58), available = width - 32 - 2 - 12 * scale;
   for (const row of ownerRows) {
     const cells = scoreCells(row.values, row.total), nativeWidths = nativeWidthsFor(cells);
-    const layout = legacyCardScoreLayout(available, 1, scale, nativeWidths, 12, cells);
+    const layout = legacyCardScoreLayout(available, 1, scale, nativeWidths, 13, cells);
     assert(layout.contentWidth <= available + 0.001, `owner mixed-value row fits ${width}pt with native-font fixture widths`);
-    assert(layout.qualityWidths[6] >= 39 && layout.qualityWidths[0] < layout.qualityWidths[6], 'only the displayed 10.00 needs its wider column');
-    assert(layout.totalWidth >= 40, 'TOTAL caption width is included even when numeric total is narrower');
-    const enlargedWidths = nativeWidthsFor(cells, 2);
-    const enlarged = legacyCardScoreLayout(0, 2, scale, enlargedWidths, 12, cells);
-    assert.equal(enlarged.totalWidth, enlargedWidths['total:caption'] + 3, 'already OS-scaled measurements are not scaled twice');
-    assert(enlarged.contentWidth > available, 'truly impossible enlarged row scrolls');
+    assert(layout.qualityWidths.every(value => value === layout.qualityWidths[0]), 'rotated qualities share coherent column widths');
+    assert.equal(layout.totalWidth, 56, 'upright total preserves approved unscaled minimum');
+    assert.equal(layout.cellHeight, 64, 'ordinary cells preserve approved unscaled 64pt minimum');
+    for (let i = 0; i < 7; i++) {
+      assert(layout.qualityWidths[i] - 2 >= layout.valueBounds[i].height, 'rotated width reserves original text height inside borders');
+      assert(layout.cellHeight - 2 >= layout.valueBounds[i].width, 'rotated height reserves full original string width inside borders');
+      assert(layout.qualityWidths[i] - 2 >= nativeWidths[`${cells[i].key}:caption`].width, 'upright caption is not rotated or clipped');
+    }
+    for (const factor of [1.5, 2]) {
+      const enlargedWidths = nativeWidthsFor(cells, factor);
+      const enlarged = legacyCardScoreLayout(available, factor, scale, enlargedWidths, 13, cells);
+      assert.equal(enlarged.cellHeight, factor === 2 ? 80 : 64, 'native source width controls rotated height without double OS scaling');
+      assert.equal(enlarged.valueBounds[6].height, 16 * factor + 1);
+      assert(enlarged.qualityWidths[6] - 2 >= enlarged.valueBounds[6].height);
+      assert(enlarged.cellHeight - 2 >= enlarged.valueBounds[6].width);
+      if (factor === 2) assert(enlarged.contentWidth > available, 'truly impossible enlarged row scrolls');
+    }
   }
-  assert(legacyCardScoreLayout(available, 1, scale).qualityWidths.every(value => value >= 63), 'delayed measurements use conservative intrinsic fallback');
+  const unmeasured = legacyCardScoreLayout(available, 1, scale);
+  assert(unmeasured.cellHeight >= 69 && unmeasured.totalWidth >= 82, 'delayed native measurements use full unrotated-frame fallback bounds');
 }
-const measureEvent = width => ({ nativeEvent: { lines: [{ width }] } });
+const measureEvent = (width, height = 16) => ({ nativeEvent: { lines: [{ width, height }] } });
 let measurement = { key: '1:100.00', widths: {} };
-measurement = recordLegacyScoreMeasurement(measurement, measurement.key, 'overall:value', 35.44);
-assert.equal(measurement.widths['overall:value'], 36, 'native fractional glyph width rounds upward');
-assert.strictEqual(recordLegacyScoreMeasurement(measurement, measurement.key, 'overall:value', 35.44), measurement, 'same native geometry does not create a state loop');
+measurement = recordLegacyScoreMeasurement(measurement, measurement.key, 'overall:value', 39.05, 16);
+assert.deepEqual(measurement.widths['overall:value'], { width: 40, height: 16 }, 'native fractional glyph bounds round upward');
+assert.strictEqual(recordLegacyScoreMeasurement(measurement, measurement.key, 'overall:value', 39.05, 16), measurement, 'same native geometry does not create a state loop');
 for (const invalid of [NaN, 0, Infinity, 10000, null, measureEvent(20)]) {
-  assert.strictEqual(recordLegacyScoreMeasurement(measurement, measurement.key, 'overall:value', invalid), measurement, 'state helper accepts a captured width scalar only');
+  assert.strictEqual(recordLegacyScoreMeasurement(measurement, measurement.key, 'overall:value', invalid, 16), measurement, 'state helper accepts captured width scalar only');
+  assert.strictEqual(recordLegacyScoreMeasurement(measurement, measurement.key, 'overall:value', 39.05, invalid), measurement, 'state helper accepts captured height scalar only');
 }
-assert.strictEqual(recordLegacyScoreMeasurement(measurement, '2:100.00', 'overall:value', 68), measurement, 'stale native text callbacks cannot overwrite current geometry');
+assert.strictEqual(recordLegacyScoreMeasurement(measurement, '2:100.00', 'overall:value', 75.11, 32), measurement, 'stale native text callbacks cannot overwrite current geometry');
 
 // Execute the real JSX and hooks with native hosts substituted, including
 // effect cleanup, async replies and prop changes. This is not device evidence.
@@ -129,6 +148,11 @@ function load(relative) {
   return mod.exports;
 }
 const { LegacySampleCard } = load('src/features/forms/legacy/LegacySampleCard.js');
+const { typography } = load('src/theme/typography.js');
+assert.deepEqual([typography.text_sample_score.fontSize, typography.text_sample_score.fontWeight, typography.text_sample_score.lineHeight], [13, '700', 16]);
+assert.equal(typography.text_sample_score.backgroundColor, 'transparent');
+assert.equal(typography.text_caption.fontSize, 12, 'caption token stays unchanged');
+assert.equal(typography.text_primary_metric.fontSize, 44, 'expanded final-score metric stays unchanged');
 function expandFunctions(node) {
   if (Array.isArray(node)) return node.map(expandFunctions);
   if (!node || typeof node !== 'object') return node;
@@ -147,10 +171,11 @@ function runEffects() { const pending = effects; effects = []; pending.forEach(e
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 function deferred() { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
 const findButton = label => findAll(tree, node => node.props?.accessibilityLabel === label)[0];
+const flatStyle = value => (Array.isArray(value) ? value.flat(Infinity) : [value]).filter(Boolean).reduce((all, style) => ({ ...all, ...style }), {});
 function drainStateQueue() { while (stateQueue.length) stateQueue.shift()(); }
-function deliverPooled(handler, width) {
+function deliverPooled(handler, width, height = 16) {
   let released = false;
-  const event = { get nativeEvent() { if (released) throw Error('pooled native event accessed after release'); return { lines: [{ width }] }; } };
+  const event = { get nativeEvent() { if (released) throw Error('pooled native event accessed after release'); return { lines: [{ width, height }] }; } };
   handler(event); released = true;
 }
 
@@ -168,11 +193,18 @@ async function main() {
   const probe = (index, caption = false) => probes()[index * 2 + (caption ? 1 : 0)];
   function measureCurrent(factor = 1) {
     for (let i = 0; i < 8; i++) {
-      deliverPooled(probe(i).props.onTextLayout, glyphWidth(probe(i).props.children[0]) * factor);
-      deliverPooled(probe(i, true).props.onTextLayout, (i === 7 ? 37 : 22) * factor);
+      deliverPooled(probe(i).props.onTextLayout, glyphWidth(probe(i).props.children[0], factor), 16 * factor);
+      deliverPooled(probe(i, true).props.onTextLayout, (i === 7 ? 37 : 22) * factor, 16 * factor);
     }
     drainStateQueue(); render();
   }
+  const currentMetricState = () => hooks.find(value => value?.widths);
+  const metricIndex = hooks.findIndex(value => value?.widths);
+  const oldPatternKey = JSON.stringify([1, ...Array(7).fill('8.00'), '86.00']);
+  hooks[metricIndex] = { key: oldPatternKey, widths: { 'fragrance_aroma:value': 28 } };
+  render();
+  assert(currentMetricState().key.includes(LEGACY_SCORE_PATTERN) && currentMetricState().key.includes('13') && currentMetricState().key.includes('700'), 'Fast Refresh keys include pattern/font/orientation identity');
+  assert.deepEqual(currentMetricState().widths, {}, 'old upright 12pt metrics are invalidated before committing the new pattern');
   assert.equal(probes().length, 16, 'each displayed value and caption has a same-style unconstrained probe');
   const hidden = findAll(tree, node => node.props?.importantForAccessibility === 'no-hide-descendants')[0];
   assert.equal(hidden.props.accessible, false); assert.equal(hidden.props.accessibilityElementsHidden, true);
@@ -182,20 +214,33 @@ async function main() {
   deferUpdaters = true;
   measureCurrent(); // every event is released BEFORE its queued updater runs
   const qualityCell = findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0];
-  assert.equal(qualityCell.props.style.width, 31, 'released pooled events still produce the actual four-character width');
+  assert.equal(qualityCell.props.style.width, 25, 'rotated quality column uses native text height and upright caption width');
+  const rotations = findAll(tree, node => flatStyle(node.props?.style).transform?.some(transform => transform.rotate === '90deg'));
+  assert.equal(rotations.length, 7, 'exactly seven whole numeric frames rotate clockwise');
+  const frame = flatStyle(rotations[0].props.style);
+  assert.equal(frame.width, 32); assert.equal(frame.height, 17);
+  assert.equal(frame.marginLeft, -16); assert.equal(frame.marginTop, -8.5);
+  const compactTotal = findAll(tree, node => node.props?.accessibilityLabel === 'Total score: 86.00')[0];
+  assert.equal(findAll(compactTotal, node => flatStyle(node.props?.style).transform).length, 0, 'compact total remains upright');
+  const compactTotalText = findAll(compactTotal, node => node.type === 'Text' && node.props.children[0] === '86.00')[0];
+  assert.deepEqual([flatStyle(compactTotalText.props.style).fontSize, flatStyle(compactTotalText.props.style).fontWeight], [13, '700']);
+  assert.equal(compactTotal.props.style.width, 56);
   const stableMeasurement = hooks.find(value => value?.widths);
-  deliverPooled(probe(0).props.onTextLayout, 27.57); drainStateQueue();
+  deliverPooled(probe(0).props.onTextLayout, 30.3989, 16); drainStateQueue();
   assert.strictEqual(hooks.find(value => value?.widths), stableMeasurement, 'queued duplicate native measurements retain state identity');
   probe(0).props.onTextLayout({ nativeEvent: { lines: [{ width: 20 }, { width: 10 }] } }); drainStateQueue();
   assert.strictEqual(hooks.find(value => value?.widths), stableMeasurement, 'multiline pooled input does not become a false narrow measurement');
   probe(0).props.onTextLayout({ nativeEvent: { lines: [{ width: { value: 20 } }] } }); drainStateQueue();
   assert.strictEqual(hooks.find(value => value?.widths), stableMeasurement, 'nonprimitive native width never enters deferred measurement state');
-  deliverPooled(oldQualityCallback, 20); // queued before new scale is rendered
+  probe(0).props.onTextLayout({ nativeEvent: { lines: [{ width: 30, height: { value: 16 } }] } }); drainStateQueue();
+  assert.strictEqual(hooks.find(value => value?.widths), stableMeasurement, 'nonprimitive native height never enters deferred measurement state');
+  deliverPooled(oldQualityCallback, 20, 4); // queued before new scale is rendered
   props = { ...props, fontScale: 2 }; render();
   drainStateQueue(); render();
-  assert(findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0].props.style.width >= 99, 'late updater from old text scale cannot shrink current fallback');
+  assert(findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0].props.style.width >= 75, 'late old width/height updater cannot shrink current fallback');
   measureCurrent(2);
-  assert.equal(findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0].props.style.width, 59);
+  assert.equal(findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0].props.style.width, 47);
+  assert.equal(currentMetricState().widths['fragrance_aroma:value'].height, 32, 'native height already includes OS text scaling');
   deferUpdaters = false;
   const allText = findAll(tree, node => node.type === 'Text');
   assert(allText.every(node => node.props.allowFontScaling !== false && !node.props.adjustsFontSizeToFit && node.props.ellipsizeMode == null), 'no scaling disable, shrink-to-fit or clipping/ellipsis remedy');
@@ -205,6 +250,7 @@ async function main() {
   assert.equal(reads, 1, 'expanding does not reread or write'); assert.equal(opens, 2);
   const rendered = strings(tree);
   for (const label of ['Coffee / Process', 'Fragrance / Aroma', 'General notes', 'Defect notes', 'Cup assessment', 'Roast notes', 'Final score']) assert(rendered.includes(label), label);
+  assert.equal(findAll(tree, node => node.type === 'Text' && flatStyle(node.props.style).fontSize === 44 && node.props.children[0] === '86.00').length, 1, 'expanded final result remains 44pt, not the compact numeric token');
   assert(rendered.indexOf('Roast notes') < rendered.indexOf('Final score'));
   assert(!rendered.includes('UNCOMMITTED_SECRET'));
   findButton('Remove sample A1').props.onPress(); assert.equal(removes, 1); assert.equal(opens, 2, 'removal does not open tasting');
@@ -248,7 +294,9 @@ async function main() {
     measureCurrent();
     assert(strings(tree).includes(`Total score: ${total}`));
     const totalCell = findAll(tree, node => node.props?.accessibilityLabel === `Total score: ${total}`)[0];
-    assert(totalCell.props.style.width >= (total === '-20.00' ? 49 : 40), 'actual total or its caption determines the required width');
+    assert(totalCell.props.style.width >= 56, 'upright total retains its approved minimum for negative, zero and signed zero');
+    const totalBox = findAll(totalCell, node => flatStyle(node.props?.style).borderWidth === 1)[0];
+    assert(flatStyle(totalBox.props.style).height >= 64);
   }
 
   // A rating may gain a digit without changing total. Its measurement context
@@ -265,7 +313,7 @@ async function main() {
   deferUpdaters = true;
   measureCurrent();
   deliverPooled(beforeEdit, 10); drainStateQueue(); render();
-  assert.equal(findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 10.00')[0].props.style.width, 39, 'same-total value changes reject old narrow queued geometry');
+  assert.deepEqual(currentMetricState().widths['fragrance_aroma:value'], { width: 40, height: 16 }, 'same-total value changes reject old queued width and height');
   for (const row of ownerRows) {
     const ownerSnapshot = { ...maximum, response: { ...maximum.response, quality_ratings: Object.fromEntries(fields.map((key, i) => [key, Number(row.values[i]) * 4])) }, result: { ...maximum.result, display_score: row.total } };
     props = { ...props, fontScale: 1, readSavedAssessment: () => Promise.resolve(ownerSnapshot) };
@@ -277,6 +325,6 @@ async function main() {
     assert(strings(tree).includes(`Total score: ${row.total}`));
   }
 
-  console.log('PASS Legacy sample card: canonical values/lifecycle, per-displayed-value/caption native geometry, deferred updater + released pooled event regression, stale/reordered font/content callbacks, owner3L/05 mixed rows at320/375/390, full10.00/100.00/negative/zero without shrink or clipping. Software only; native owner acceptance pending.');
+  console.log('PASS Legacy sample card: canonical values/lifecycle, 13pt700 clockwise whole-quality rotation with upright total/captions, explicit rotated width/height bounds, 64pt/56pt minimums, deferred pooled-event and stale width/height/font/orientation callbacks, owner3L/05 at320/375/390, full10.00/100.00/negative/zero/missing without shrink or clipping. Software only; native owner acceptance pending.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });
