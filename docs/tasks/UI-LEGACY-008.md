@@ -29,3 +29,15 @@
 - **Limits:** No actual phone/VoiceOver/NFC check, new binary/install, data operation, main or Metro change. Phone appearance remains pending after protected integration and usual-main refresh.
 
 Exact tests/bundle, independent review, prospective/PR/merge/post-merge evidence and Definition of Done disposition follow. All operating-model gates must be PASS or justified N/A before merge; this JS-only label change is not full-device or pilot verification. Author performs no push/merge/changelog/Metro/native action.
+
+### Exact author validation —24 November2026
+
+Runtime **9dc909db23303bf4ee11253997a3e3b422374ba6**, clean tree during checks; reused verified Node22.14.0 at `../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node`.
+
+- `node22 scripts/legacy-sample-card-check.js`: **PASS**, count1/2/5/8 and invalid/missing fallback, zero qualifying-set non-inference, compact caption styling, expanded canonical/extended provenance, inactive/loading/error/stale-count transitions and retained geometry/lifecycle/native-event regressions.
+- `node22 scripts/cva-sample-card-check.js`: **PASS**, unchanged CVA/default-summary/inactive/formatting/measurement behaviour.
+- `node22 scripts/participant-parity-finish-check.js`: **PASS**, all eight existing SQLite/two-device/UI-parity groups.
+- `node22 node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-legacy-008-ios/main.jsbundle --assets-dest output/ui-legacy-008-ios --dev false`: **PASS**,771modules/fourassets. Ignored entry explicitly registers candidate `../App`. Bundle SHA256 **efc300b302a26f99ce7ed30a174f8d0d7473ce35ca354ef15dc1f2cab8735aae**. JavaScript validation only, no native build or installation.
+- `git diff --check`: **PASS**. Five declared files only. No new reads, schema/protocol/scoring/geometry/shared-font/CVA changes; canonical-contract amendments N/A for this display-only label.
+
+Author software handoff PASS; independent code/QA/UX review, protected prospective integration/PR/merge/post-merge and final Definition of Done remain pending. Physical NFC/native build/data gates N/A for this JS-only/no-data-read change; actual phone appearance/VoiceOver is not claimed and owner appearance check remains pending after integration. Documentation-only evidence commit follows runtime9dc909d.
