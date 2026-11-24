@@ -19,7 +19,7 @@
 
 ## Handoff / review / Definition of Done / release
 
-Implementation ready for exact-commit validation; independent review and integration pending.
+Implementation complete at source c1487239832d3a798dc33522a19f576bbf011b4c; independent review and integration pending.
 
 ### Implementation
 
@@ -31,13 +31,21 @@ Implementation ready for exact-commit validation; independent review and integra
 
 ### Validation / limitations
 
-Exact source commit, five regression results and candidate-source bundle hash will be appended after stable commit. Initial working-tree runs of CVA, unchanged Legacy, participant parity, creator activation and pending-blind all passed. Actual owner phone/VoiceOver/NFC testing not performed; no install/native build/Metro/data operation. Independent reviewer will perform proportionate actual-source320 header rendering. Bundling cannot establish native appearance or pilot readiness.
+Exact source **c1487239832d3a798dc33522a19f576bbf011b4c**, clean while checked. Runtime Node22.14.0 at ../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node (previous official verified validation-only runtime). All commands below exited0:
+
+- `node scripts/cva-sample-card-check.js`: PASS actual CVA header1/2/5/8, strict invalid/missing fallback, zero/negative final, saved/draft/absent support, previous/unsupported/unknown combined warnings, expanded provenance before completion, inactive and sample/status transitions, preserved edit/remove/open callbacks and permissions; pre-existing two-decimal/geometry/queued-event/default ScoreRow regressions preserved.
+- `node scripts/legacy-sample-card-check.js`: PASS unchanged Legacy header/count/provenance, geometry and lifecycle.
+- `node scripts/participant-parity-finish-check.js`: PASS two forms/two-device SQLite lifecycle, privacy/ownership, queues and exact parent parity assertions.
+- `node scripts/creator-scan-activation-check.js`: PASS SQLite/restart + actual Details/card/scan/Nav inactive/provenance/access paths.
+- `node scripts/pending-blind-card-check.js`: PASS actual SQLite and screen/card JSX Pending Blind/Open role/order masking, retained raw data.
+- `git diff --check`: PASS.
+- Explicit candidate-source iOS JavaScript bundle: PASS772modules/4assets. Command `node node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-cva-002-ios/main.jsbundle --assets-dest output/ui-cva-002-ios --dev false`. Ignored entry imports registerRootComponent from expo and App from ../App, then registers App; this deliberately resolves candidate App/src instead of the main checkout behind the shared dependency symlink. Bundle SHA256 **1d2b7a8ae5167895453db4e7b9173c39acbeb64958579162a865e7e68d67dd2c**. Entry/bundle/runtime are ignored validation artifacts, not source changes. Actual owner phone/VoiceOver/NFC testing not performed; no install/native build/Metro/data operation. Independent reviewer will perform proportionate actual-source320 header rendering. Bundling cannot establish native appearance or pilot readiness.
 
 ### Definition of Done at author handoff
 
-- Acceptance / appropriate regression / existing relevant checks / candidate bundle: pending exact-commit evidence below.
+- Acceptance / appropriate regression / existing relevant checks / candidate bundle: PASS author software evidence above; independent visual/QA review and actual owner phone remain explicitly separate.
 - Scope discipline and docs: PASS; presentation/guide only, no unrelated changes or behavioral/protocol contracts.
 - UI / accessibility: token-based neutral status, caption, existing labels/disabled controls retained; software checks plus independent visual review pending. Actual owner appearance and VoiceOver N/A at implementation gate, explicitly unverified and still needed for hardware claims.
 - Security/privacy/reliability: existing inactive blind/header suppression checked without new reads; independent reviewer checks scope. Persistence/network/NFC/data-loss changes N/A because none made.
 - Independent findings, prospective integration and exact postmerge: pending reviewer/Release Manager, not waived.
-- Clean committed history / concise handoff / changelog information: author commit and evidence follow; changelog note supplied above, Release Manager owns file.
+- Clean committed history / concise handoff / changelog information: PASS source c148723, evidence-only follow-up commit; changelog note supplied above, Release Manager owns file.
