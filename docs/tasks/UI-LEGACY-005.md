@@ -1,6 +1,6 @@
 # UI-LEGACY-005 — Shared rotated score-number design proposal
 
-- **Status:** Andrew approved implementation of the revised48-point, centred proposal. UI-LEGACY-007 on codex/ui-legacy-007-compact applies the Legacy height refinement first, preserving glyph-driven growth. CVA implementation remains deferred until the shorter Legacy phone checkpoint.
+- **Status:** Compact Legacy height implemented through UI-LEGACY-007 / protected PR26, main5c3d2f75d7615a6cf24c2c9bcaa8562451571a9f. Software review/checks passed and clean Metro checkout updated. Phone not connected for reload; actual height checkpoint pending. CVA implementation remains deferred until that checkpoint.
 - **Objective:** Preview both CVA and Legacy score numbers at the existing CVA nominal size/weight, rotated90 degrees with two decimal places, following Andrew's subsequent request for matching presentation. Keep attribute labels upright and every value visible within the card in the preview.
 - **Authority:** Andrew says the scores are now present after UI004 but look too small compared with CVA; requests trying sideways numbers. PRODUCT_SPEC6.5 exact independent Legacy meaning/precision; UI_STYLE_GUIDE; existing CVA ScoreRow source is reference, not product policy.
 - **Scope/files:** This coordination record; conversation-only preview at /Users/andrewstordy/.codex/visualizations/2026/10/01/01a0f756-62fe-7000-ad2f-08245b4001db/legacy-rotated-scores.html. No runtime, score, storage, NFC, native build, Metro or main changes. Design work on existing PM coordination branch codex/china-testflight; implementation would require a separately approved isolated task.
@@ -28,6 +28,8 @@
 - Local optional control may keep total upright for comparison; no app mutation. Check preview fits320px without clipped rotated bounds; browser geometry is not physical iPhone/VoiceOver/Dynamic Type acceptance.
 
 ## Handoff / evidence / review
+
+- Compact-height integration: https://github.com/andrewstordy-gif/cup_app/pull/26. Sole production change lowers64-point floor to48 while measured glyph bounds can grow taller. Exact prospective/post-merge card/current participant-parity/iOS JS bundle checks passed. Root updated clean normal main to5c3d2f7 and requested reload in existing Metro23693; no app connected. One devicectl reopen attempt failed with a transport connection reset, so no fresh phone load/visual acceptance is claimed. Owner should open the existing development app and reconnect to Metro. No reinstall/data operation. Detailed final evidence retained on codex/ui-legacy-007-compact.
 
 - Legacy implementation checkpoint: https://github.com/andrewstordy-gif/cup_app/pull/25. Independent review and exact prospective/post-merge card/participant-parity/JS-bundle checks passed; no native rebuild/install/data operation. Clean usual main synchronized tofd423c9; existing Metro23693 reloaded with fresh243ms/127ms iOS bundles. Owner confirmed the rotated appearance matches the proposal, then requested reduced box height; no separate event-warning/VoiceOver claim inferred. No CVA implementation begun. Final detailed source/review/release evidence retained on codex/ui-legacy-006-rotated.
 
