@@ -59,7 +59,8 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
     // Native synthetic events may be pooled after this handler returns. Capture
     // the primitive now; a deferred React state updater must never read event.
     const lines = event?.nativeEvent?.lines;
-    const width = Array.isArray(lines) && lines.length === 1 ? lines[0]?.width : null;
+    const candidateWidth = Array.isArray(lines) && lines.length === 1 ? lines[0]?.width : null;
+    const width = typeof candidateWidth === 'number' ? candidateWidth : null;
     setMeasurements(previous => recordLegacyScoreMeasurement(previous, measurementKey, metric, width));
   };
   const layout = legacyCardScoreLayout(rowWidth, fontScale, scale, widths, typography.text_caption.fontSize, scores);

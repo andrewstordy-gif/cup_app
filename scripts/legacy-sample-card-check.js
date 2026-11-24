@@ -188,6 +188,8 @@ async function main() {
   assert.strictEqual(hooks.find(value => value?.widths), stableMeasurement, 'queued duplicate native measurements retain state identity');
   probe(0).props.onTextLayout({ nativeEvent: { lines: [{ width: 20 }, { width: 10 }] } }); drainStateQueue();
   assert.strictEqual(hooks.find(value => value?.widths), stableMeasurement, 'multiline pooled input does not become a false narrow measurement');
+  probe(0).props.onTextLayout({ nativeEvent: { lines: [{ width: { value: 20 } }] } }); drainStateQueue();
+  assert.strictEqual(hooks.find(value => value?.widths), stableMeasurement, 'nonprimitive native width never enters deferred measurement state');
   deliverPooled(oldQualityCallback, 20); // queued before new scale is rendered
   props = { ...props, fontScale: 2 }; render();
   drainStateQueue(); render();
