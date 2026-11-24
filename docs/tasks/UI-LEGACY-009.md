@@ -23,6 +23,11 @@
 
 Andrew requested both drawers; do not lose the second stage. Canonical CVA preserves all source-specific noteGroups (including additional acidity/sweetness/mouthfeel/overall/general), correctly source-matched existing pills, per-cup bean/roast icons, neutral shared defect note, observation-only roast above Final score. It currently has no dedicated roast-note field and no canonical deduction component projection: no invented field or alternate score calculation. Current lazy detailData cache ignores saved status/revision and can retain cross-sample details. Next task must explicitly assign a render-keyed/cancelled fresh committed detail snapshot and tests for edit/sample/inactive/out-of-order contexts, with minimal parent/API ownership if needed. No input/schema/scoring changes in either UI stage; actual new CVA roast-note capture is separate later work.
 
+### Release preparation
+
+- Release Manager verified durable independent PASS **5e89978e3d1222ff7fb0755754dd0968c352a170** covers stable source **bc6cd2e713da34514fadf7c827c69890dc8ff84a** and author handoff **246eb70**; task tree yielded clean. Conditional PM go is satisfied before changelog/task edits. Current remote main **68160f189325dacb57e8fb2e3593e0f22667488f** remains an ancestor; no source/test/guide edits by Release Manager.
+- Required prospective then exact postmerge gates: Legacy+CVA card checks, current participant parity, creator activation, pending blind and explicit-source iOS JS bundle. No unrelated probes/fixtures, native build/install/version, data/backup or Metro operations. Actual Legacy appearance remains pending before separately tasked CVA Stage2.
+
 ## Handoff / review / Definition of Done / release
 
 Implementation complete at source bc6cd2e713da34514fadf7c827c69890dc8ff84a; review and integration pending.
