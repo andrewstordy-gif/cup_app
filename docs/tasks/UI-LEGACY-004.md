@@ -33,3 +33,16 @@
 - **Changelog-worthy:** Capture native score measurements before synthetic events are released, and size Legacy columns to their displayed values/captions so short values do not unnecessarily push the row offscreen.
 
 Exact implementation/test/bundle commits and independent PASS, prospective and post-merge evidence follow. Final commit/PR/main pending. No native build/data operations are applicable to this JavaScript-only scope.
+
+### Exact author validation — 24 November 2026
+
+Final runtime **bc4c2e4703450d2fc24d7e936b9b1ea96f485252**, following initial correction9263867. Clean source tree at validation. Reused official verified Node22.14.0 at `../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node`; no dependency or package edits.
+
+- `node22 scripts/legacy-sample-card-check.js`: **PASS**. Actual component callback is invoked while functional state updaters are queued; its event is then released with nativeEvent access configured to throw; only afterward are updaters drained. Measurements still settle to the displayed four-/five-character widths. This directly covers the native event lifetime omitted by the previous immediate-setter mock. Nonprimitive width payload, duplicate/malformed/multiline events, late/reordered font/content callbacks, same-total canonical rating-length swap, owner3L/05 mixed rows and existing card data/interaction cases pass.
+- `node22 scripts/participant-parity-finish-check.js`: **PASS**, all eight SQLite/two-device/UI-parity groups. No permission, activation, callback or CVA assertion changes.
+- `node22 node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-legacy-004-ios/main.jsbundle --assets-dest output/ui-legacy-004-ios --dev false`: **PASS**, Metro cache reported768 modules, four assets. Ignored entry registers candidate `../App`, not another checkout. Bundle SHA256 **1c399da4449a8dc1663822ddb7482d3aa6f4da07daf60843491023885a062dd1**. JavaScript bundle only; no native installation/signing/build.
+- `git diff --check`: **PASS**. Exactly the four allowed files differ from base834deaf3. No Metro feature-branch serving or main modification by author.
+- Independent reviewer has separately reported exact baseline834deaf3 pooled-event negative reproduction and correctionbc4c2e4 positive reproduction; reviewer records its own evidence and approval below. Author does not substitute that message for durable independent PASS.
+- Geometry fixtures show the owner's mixed rows fitting320/375/390 at ordinary corroborating font sizes because only Overall10.00 needs a wider numeric column; larger OS text may still require the existing scroll when its actual intrinsic width exceeds available space. This is not an actual-iPhone pass. Native UI003 failure remains until Andrew explicitly confirms the refreshed phone display and absence of reused-event warnings.
+
+Final runtime: **bc4c2e4**. Documentation-only handoff commit follows. Independent review / prospective integration / protected PR / merge / post-merge and owner acceptance remain pending at author handoff.
