@@ -9,6 +9,8 @@
 
 ## Design criteria
 
+- Latest owner refinement: keep the total/final-score number upright on both cards. Andrew also asked whether its size matches other numbers; the prior preview used11 for totals and13 for attributes. Updated totals to13/700 to match the other score numbers, default Rotate total too OFF, and reserve56px minimum total-column width for full upright values including100.00. Attribute numbers remain rotated; labels remain upright. Preview-only change, superseding earlier total-size/default descriptions.
+
 - Subsequent owner refinement: both forms should use rotated numbers and two decimal places. Updated both proposed cards with matching number size/weight, height, upright-caption treatment and neutral outlined totals. CVA8 is displayed8.00 only: its1–9 integer input scale/validation/scoring remain unchanged; this does not add quarter-point CVA choices. Legacy retains its independent quarter-point scale and seven attributes; CVA retains eight attributes. This supersedes the initial unrotated CVA reference below; no implementation authorization or runtime/specification change inferred.
 
 - Existing CVA ScoreRow uses score text13, weight700, no font-size layout scaling. Total currently uses11. Preview uses these same sizes/weights for comparative reference; illustrates both clockwise and counterclockwise rotation, rather than guessing the preferred direction.
