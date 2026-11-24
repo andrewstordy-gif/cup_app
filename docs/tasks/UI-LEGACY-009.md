@@ -42,6 +42,7 @@ Andrew requested both drawers; do not lose the second stage. Canonical CVA prese
 - Isolated checkout of exact53d3c90: **all five scoped probes PASS**, including all eight participant-parity groups, and explicit candidate-relative iOS JavaScript bundle **PASS**, SHA256 **0f906619f7547a353598d18cd5f9cccb08f820a0368c6a46745e4722b6608c5d**, identical to reviewed/prospective source. Clean checkout/`git diff --check` PASS. Ignored logs/results/bundle retained in `output/worktrees/ui-legacy-009-prospective/output/ui-legacy-009-release/postmerge-*` and postmerge.jsbundle.
 - Protected integration and exact post-merge software Definition of Done **PASS**. PM notified it may sync clean normal main and refresh existing Metro21778. Release Manager made no server/native/install/version/data/backup action. Owner Legacy appearance, native interaction/VoiceOver/NFC remain unverified, not pilot-ready evidence. **CVA Stage2 still waits actual Legacy checkpoint and its own scoped task.**
 - Post-merge evidence retained on task branch; merged main contains pre-merge approval snapshot. Task record yielded to PM after final evidence push.
+- PM live handoff: clean normal main fast-forwarded to **53d3c907**. Existing Metro21778 reload requested but reported **No apps connected**; no fresh phone bundle/load/appearance is claimed. Andrew must reopen the existing development client and expand Legacy for its checkpoint before CVA Stage2. No native/install/data operations or device launch attempt.
 
 ## Handoff / review / Definition of Done / release
 
