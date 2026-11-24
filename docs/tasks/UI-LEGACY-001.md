@@ -2,7 +2,7 @@
 
 - **Task ID:** UI-LEGACY-001
 - **Title:** Legacy Session Details and sample-card design proposal
-- **Status:** Product Owner approved designs; Stage 1 Legacy-only structure authorized 24 November. Implementation is isolated under UI-LEGACY-002 on codex/ui-legacy-002-stage1. CVA and later stages remain deferred.
+- **Status:** Stage 1 Legacy-only structure implemented, independently reviewed and integrated through protected PR #22 on 24 November. Remote main ae46f945 contains it; final UI-LEGACY-002 evidence retained on codex/ui-legacy-002-stage1 at 0b1a2fa. CVA and later stages remain deferred. Installed TestFlight app unchanged; distribution/device acceptance is the next separate checkpoint.
 - **Product Specification references:** Sections 6.5 (form meaning and adapted totals), 6.8.1–6.8.5 (roles, controls, local state); FR-010, FR-035
 - **Technical specification references:** UI_STYLE_GUIDE.md; NDEF_PROTOCOL.md unchanged
 - **Objective:** Propose cleaner Legacy Session Details and expandable sample cards, preserving the established CVA visual language and Legacy score meaning.
@@ -24,6 +24,7 @@
 
 ## Decisions
 
+- Stage 1 closeout: https://github.com/andrewstordy-gif/cup_app/pull/22. Independent author/reviewer/release roles completed scoped gates, prospective and exact merged-main checks (11 targeted probes and iOS bundle PASS). Two obsolete numeric-code fixture failures were reproduced unchanged on baseline and recorded explicitly, not counted as passes. Actual current participant parity checks pass all eight groups. No native-phone/VoiceOver/NFC verification or TestFlight build/upload performed. Preserve final evidence branch; original local main checkout remains at 8c0c49b until a deliberate clean synchronization, while remote main is ae46f945.
 - Andrew explicitly requested staged implementation and authorized Stage 1 only: Legacy sample-card structure using existing data, no CVA, scoring, NFC, storage, coloured-pill extraction or defect-icon changes. Canonical implementation record: docs/tasks/UI-LEGACY-002.md on codex/ui-legacy-002-stage1 (separate worktree under output/worktrees/ui-legacy-002). Independent implementation/review/release agents assigned; main and installed TestFlight app remain unchanged at task start.
 - Andrew chose appearance work on 23 November and resumed on 24 November 2026. Start with Legacy sample cards and Session Details, then address the tasting screen in a separate design step.
 - Design revision requested 24 November: Legacy's seven quality scores and total must be on one line, matching the CVA card. Updated both previews to a single row with two-decimal values retained; use F/A for the combined Fragrance/Aroma caption with its full accessible name. This supersedes the initial two-row proposal described in the historical handoff below. Whole-design approval and physical viewport checks remain pending.
