@@ -32,3 +32,17 @@
 - **Limits:** Test native hosts and corroborating macOS font metrics are not actual-iOS/VoiceOver acceptance. Owner still checks an existing CVA session after protected integration and normal-main Metro refresh. No feature-branch serving, native binary/build/install, signing or data operation by author.
 
 Exact source/test/bundle and independent review/integration records follow. Native binary/signing/NFC/storage-policy gates N/A with this JS-only/no-data-read-change rationale, not a full privacy/pilot conformance claim. Final commit/PR/main and owner acceptance pending. Author performs no push, merge, main/Metro or changelog changes.
+
+### Exact author validation —24 November2026
+
+Runtime **e916a14f61ce2371be5767f9d989bcfe8e0e8ba4**, clean task tree during checks. Reused official verified Node22.14.0 via `../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node`; no dependency edits.
+
+- `node22 scripts/cva-sample-card-check.js`: **PASS** immutable/display-only1–9 formatting; default/false ScoreRow rendered-tree/style and total-normalizer parity against exact main5c3d2f7; per-item final fill; missing/P/100/zero/signed-zero/negative totals; native rotated-bound geometry at actual parent insets320/375/390 and enlarged text; deferred synthetic-event release and stale font/value callbacks; real CoffeeSampleCard opt-in/control/inactive/blind-projection transitions with no new reads or old score/probe content.
+- `node22 scripts/legacy-sample-card-check.js`: **PASS** accepted Legacy compact rotation, centred48minimum/glyph growth, pooled-event and lifecycle regression unchanged.
+- `node22 scripts/participant-parity-finish-check.js`: **PASS**, all eight current SQLite/two-device/UI parity groups.
+- `node22 scripts/creator-scan-activation-check.js`: **PASS** current actual SQLite/restart/Details/card/navigation inactive/activation/read boundaries.
+- `node22 scripts/pending-blind-card-check.js`: **PASS** current actual SQLite/Card Pending Blind/Open roles and saved edit/write identity preservation.
+- `node22 node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-cva-001-ios/main.jsbundle --assets-dest output/ui-cva-001-ios --dev false`: **PASS**,771modules/fourassets. Ignored entry registers candidate `../App`, avoiding shared node_modules resolving another checkout. Bundle SHA256 **e3b022e62c5ee645277e847e1a08ae1ae0941e11a8e1e19c5df7a17803059258**. JavaScript bundle validation only, not a native build/install.
+- `git diff --check`: **PASS**. Seven declared files differ from base5c3d2f7. No Legacy/theme/form-contract/repository/CVA tasting-screen edits. No permitted test-compatibility/mock maintenance was needed; existing assertions remain unchanged.
+
+Final runtime **e916a14**; documentation-only evidence commit follows. Independent actual-source browser/code/privacy review and protected current-main prospective/head/PR/merge/post-merge checks remain pending. Actual owner phone acceptance requires the later usual-main Metro refresh; no native NFC/VoiceOver/full-device conformance is claimed here.
