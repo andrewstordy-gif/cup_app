@@ -40,6 +40,12 @@ Each entry should include the date, the agent that made the change, and a short 
   Font, rotation, alignment, widths, CVA and all other behaviour are unchanged.
   The Legacy owner-phone height checkpoint remains before CVA implementation.
 
+- UI-CVA-001 applies the accepted compact rotated summary to CVA Session Details
+  cards: eight clockwise quality values with two-decimal display, upright captions
+  and total, and measured 48-point cells. Integer CVA inputs/scoring, accepted
+  Legacy cards and default ScoreRow consumers are unchanged. Actual CVA phone
+  acceptance follows the protected software update through the existing client.
+
 ## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet

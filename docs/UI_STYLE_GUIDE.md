@@ -431,7 +431,12 @@ Rotation does not affect native layout bounds: measure unrotated width/height,
 then reserve the rotated height/width footprint explicitly. Capture native
 measurement scalars before pooled events are released and invalidate old font/
 orientation measurements. Expanded Final score retains its 44-point metric.
-This pattern is implemented for Legacy first; CVA adoption is a separate stage.
+CVA Session Details sample cards adopt the same numeric pattern for eight
+attributes (`FR`, `AR`, `FL`, `AF`, `AC`, `SW`, `MF`, `OV`) through an opt-in
+summary. CVA integer ratings display two decimals without changing stored
+values or inputs; missing ratings remain a dash and a pending total remains
+`P`. Preserve each item's final-fill state and an outlined, upright total.
+Other default `ScoreRow` callers retain their existing presentation.
 For either summary,
 retain full attribute names in accessibility labels. At enlarged text sizes,
 allow horizontal scrolling rather than clipping or shrinking precision. A
