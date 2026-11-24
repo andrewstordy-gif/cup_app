@@ -112,7 +112,7 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
           ))}
         </View>
       </ScrollView>
-      {presentation.resultLabel ? <Text style={[styles.state, { margin: spacing.xs * scale }]}>{presentation.resultLabel}</Text> : null}
+      {presentation.summaryLabel ? <Text style={[styles.summaryLabel, { margin: spacing.xs * scale }]}>{presentation.summaryLabel}</Text> : null}
     </Pressable> : <View style={{ paddingHorizontal: spacing.md * scale, paddingBottom: spacing.md * scale }}>
       <Text style={styles.value}>{name}</Text><Text style={styles.state}>{getProcessLabel(sample.process) || 'Process not set'}</Text>
     </View>}
@@ -163,6 +163,7 @@ const styles = StyleSheet.create({
   openArea: { flex: 1, minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   number: { ...typography.text_section_title, color: colors.ink },
   state: { ...typography.text_secondary_body, color: colors.inkSoft, flexShrink: 1 },
+  summaryLabel: { ...typography.text_caption, color: colors.inkSoft, letterSpacing: 0, textTransform: 'none', textAlign: 'right' },
   value: { ...typography.text_body, color: colors.ink },
   scoreRow: { flexDirection: 'row', paddingVertical: spacing.sm },
   caption: { ...typography.text_caption, color: colors.inkSoft, letterSpacing: 0, textAlign: 'center' },

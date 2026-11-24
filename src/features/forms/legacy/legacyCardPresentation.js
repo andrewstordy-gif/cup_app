@@ -20,6 +20,11 @@ function defectDescriptions(masks, types) {
 function legacyCardPresentation(saved) {
   const response = saved?.response;
   const result = saved?.complete && saved?.result?.ok ? saved.result : null;
+  // scoreResponse returns the physical count already checked against the saved
+  // session sample. Qualifying/consistent cup sets are judgments, not this count.
+  const count = result?.cup_count;
+  const validCount = Number.isInteger(count) && count >= 1 && count <= 8;
+  const summaryLabel = !result ? '' : !validCount ? result.label || '' : count === 5 ? '5 cups' : `Adapted · ${count} ${count === 1 ? 'cup' : 'cups'}`;
   const defect = response?.scored_defect;
   const severity = defect?.kind === 'taint' ? 'Taint' : defect?.kind === 'fault' ? 'Fault' : '';
   const affected = defect?.affected_cups;
@@ -35,7 +40,7 @@ function legacyCardPresentation(saved) {
       return { key, caption, label, value: Number.isInteger(quarter) && quarter >= 0 && quarter <= 40 ? scoreText(quarter) : null };
     }),
     total: result?.display_score != null ? String(result.display_score) : null,
-    final: Boolean(result), hasSavedResponse: Boolean(response), resultLabel: result?.label || '',
+    final: Boolean(result), hasSavedResponse: Boolean(response), resultLabel: result?.label || '', summaryLabel,
     extendedNote: result?.quality_scale_provenance?.note || '',
     aromaNotes: text(response?.aroma_qualities), generalNotes: text(response?.notes),
     defectNotes: text(response?.defect_description), roastNotes: text(response?.roast_level_note),
