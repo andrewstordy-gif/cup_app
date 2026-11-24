@@ -2,6 +2,7 @@ import React from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { colors } from "../../../theme/colors";
 import { typography } from "../../../theme/typography";
+import { CvaScoreSummary } from "../../cupping/components/CvaScoreSummary";
 
 // Repository results may carry decimal display strings. Normalize only for
 // presentation; empty or malformed values must not become a scored zero.
@@ -65,7 +66,8 @@ function TotalBox({ total, scale }) {
   );
 }
 
-export function ScoreRow({ scores, totalScore, scale }) {
+export function ScoreRow({ scores, totalScore, scale, rotatedSummary = false }) {
+  if (rotatedSummary) return <CvaScoreSummary scores={scores} totalScore={normalizeTotalScore(totalScore)} scale={scale} />;
   return (
     <View style={[styles.row, { gap: 4 * scale }]}>
       {scores.map(item => (

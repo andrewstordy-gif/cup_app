@@ -247,7 +247,7 @@ export function CoffeeSampleCard({
             /> : null}
           </View>
 
-          <ScoreRow scores={scoreItems} totalScore={totalScore} scale={scale} />
+          <ScoreRow scores={scoreItems} totalScore={totalScore} scale={scale} rotatedSummary />
           {!inactive && status?.resultLabel ? <Text style={styles.sectionLabel}>{status.resultLabel}</Text> : null}
           {inactive ? <Text style={styles.sectionLabel}>Scan cup to include in your tasting</Text> : null}
           {inactive && !sample.identityHidden ? <View style={styles.fieldBlock}>
