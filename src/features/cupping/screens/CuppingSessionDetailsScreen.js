@@ -65,6 +65,7 @@ import {
   findPendingSessionByCupUUID,
   getLocalTastingPresentation,
   getSessionSampleFinalStatus,
+  getLegacyResponse,
   saveSessionWithSamples,
   getSessionSetupAccess,
   getSessionLockReadiness,
@@ -197,7 +198,7 @@ export function CuppingSessionDetailsScreen({
   onQuickStartSampleReady,
   sessionId = null,
 }) {
-  const { width } = useWindowDimensions();
+  const { width, fontScale } = useWindowDimensions();
   const scale = Math.min(Math.max(width / 616, 0.58), 1.05);
   const [sessionUUID, setSessionUUID] = useState("");
   const [sessionDisplayId, setSessionDisplayId] = useState("");
@@ -2257,6 +2258,7 @@ export function CuppingSessionDetailsScreen({
 
           {samples.map((sample, index) => isSessionFormSupported && isLegacy ? (
             <LegacySampleCard key={sample.tastingActive == null ? sample.id : `${sample.id}:${sample.tastingActive ? 'active' : 'inactive'}`} sample={sessionId ? visibleIdentity.samples[index] : sample} inactive={sample.tastingActive === false} index={index} scale={scale} status={sampleStatusById?.[sample.id]}
+              sessionId={sessionStatusBadgeLabel === 'Draft' ? null : sessionId} refreshKey={presentationRevision} fontScale={fontScale} readSavedAssessment={getLegacyResponse}
               onRemove={handleRemoveSample} canRemove={sessionStatusBadgeLabel !== 'Draft' && Boolean(sample.localRemoval?.canRemove) && !isRemovingParticipantSample && !isCompletingSession}
               showRemove={sessionStatusBadgeLabel !== 'Draft' && Boolean(sample.localRemoval?.canRemove)}
               onPress={sample.tastingActive !== false && sessionStatusBadgeLabel !== 'Draft' && !isSessionDirty && sample.cupUUID && typeof onOpenSample === 'function'
