@@ -47,28 +47,32 @@ function legacyCardPresentation(saved) {
   };
 }
 
-function recordLegacyScoreMeasurement(previous, key, metric, width) {
+const LEGACY_SCORE_PATTERN = 'legacy-cw-quality-upright-total-v1';
+
+function recordLegacyScoreMeasurement(previous, key, metric, width, height) {
   const knownMetric = [...QUALITY_FIELDS.map(([field]) => field), 'total'].some(field => metric === `${field}:value` || metric === `${field}:caption`);
-  if (previous.key !== key || !knownMetric || !Number.isFinite(width) || width <= 0 || width >= 10000) return previous;
-  const measured = Math.ceil(width);
-  if (previous.widths[metric] === measured) return previous;
+  if (previous.key !== key || !knownMetric || !Number.isFinite(width) || width <= 0 || width >= 10000 ||
+    !Number.isFinite(height) || height <= 0 || height >= 10000) return previous;
+  const measured = { width: Math.ceil(width), height: Math.ceil(height) };
+  if (previous.widths[metric]?.width === measured.width && previous.widths[metric]?.height === measured.height) return previous;
   return { key, widths: { ...previous.widths, [metric]: measured } };
 }
 
-function legacyCardScoreLayout(width, fontScale = 1, scale = 1, measured = {}, fontSize = 12, scores = []) {
+function legacyCardScoreLayout(width, fontScale = 1, scale = 1, measured = {}, fontSize = 13, scores = [], lineHeight = 16, captionFontSize = 12) {
   const gap = 2 * scale;
-  // Until native same-style glyph measurements arrive, leave generous intrinsic
-  // space and scroll. Never squeeze a five-character value into a guessed 32pt.
-  // Three layout points cover both 1pt borders and native rounding.
   const cells = scores.length ? scores : [...QUALITY_FIELDS.map(([key, caption]) => ({ key, caption, value: '10.00' })), { key: 'total', caption: 'TOTAL', value: '100.00' }];
-  const minimumWidths = cells.map(({ key, caption, value }) => Math.max(
-    measured[`${key}:value`] || fontSize * String(value ?? '—').length * fontScale,
-    measured[`${key}:caption`] || fontSize * caption.length * fontScale,
-  ) + 3);
-  const intrinsicWidth = minimumWidths.reduce((sum, cell) => sum + cell, 0) + gap * 7;
-  const extra = Math.max(0, (width - intrinsicWidth) / 8);
-  const qualityWidths = minimumWidths.slice(0, 7).map(cell => cell + extra);
-  const totalWidth = minimumWidths[7] + extra;
-  return { gap, totalWidth, qualityWidths, contentWidth: intrinsicWidth + extra * 8 };
+  // Transform does not swap Yoga bounds. Keep an explicit unrotated text frame
+  // (including rounding allowance), then allocate its rotated H×W footprint.
+  const valueBounds = cells.map(({ key, value }) => ({
+    width: (measured[`${key}:value`]?.width || fontSize * String(value ?? '—').length * fontScale) + 1,
+    height: (measured[`${key}:value`]?.height || lineHeight * fontScale) + 1,
+  }));
+  const captionWidths = cells.map(({ key, caption }) => measured[`${key}:caption`]?.width || captionFontSize * caption.length * fontScale);
+  const qualityMinimum = Math.max(...valueBounds.slice(0, 7).map((bounds, i) => Math.max(bounds.height, captionWidths[i]) + 3));
+  const totalWidth = Math.max(56, valueBounds[7].width + 3, captionWidths[7] + 3);
+  const qualityWidth = Math.max(qualityMinimum, (width - totalWidth - gap * 7) / 7);
+  const cellHeight = Math.max(64, ...valueBounds.slice(0, 7).map(bounds => bounds.width + 3), valueBounds[7].height + 3);
+  return { gap, totalWidth, qualityWidths: Array(7).fill(qualityWidth), cellHeight, valueBounds,
+    contentWidth: qualityWidth * 7 + totalWidth + gap * 7 };
 }
-module.exports = { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement };
+module.exports = { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement, LEGACY_SCORE_PATTERN };

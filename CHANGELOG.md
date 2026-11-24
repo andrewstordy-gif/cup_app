@@ -29,6 +29,12 @@ Each entry should include the date, the agent that made the change, and a short 
   everywhere. Native owner acceptance remains pending after software integration.
   No typography, scoring, CVA, storage, NFC or native binary change.
 
+- UI-LEGACY-006 applies the approved Legacy-first compact score design: seven
+  complete quality values rotate clockwise, while captions and the total stay
+  upright. A new additive 13-point bold numeric token and explicit native-measured
+  bounds preserve digits and text scaling. Expanded results and CVA are unchanged;
+  the Legacy phone checkpoint precedes any CVA implementation.
+
 ## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet

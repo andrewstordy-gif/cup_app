@@ -77,4 +77,11 @@ export const typography = {
     textTransform: "uppercase",
     color: colors.textMuted,
   },
+  text_sample_score: {
+    ...classifiedText,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 16,
+    color: colors.ink,
+  },
 };
