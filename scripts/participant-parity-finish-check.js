@@ -84,12 +84,30 @@ async function uiChecks(){
  const label=find(list,n=>n.type==='ObjectProperty'&&n.key?.name==='uploadStatusLabel').value;assert.equal(evaluate(label,{presentation:{tasting:{activeSelection:true,isLocalCreator:false}},statusLabel:'Complete'}),'Not uploaded');assert.equal(evaluate(label,{presentation:{tasting:{activeSelection:false,isLocalCreator:false}},statusLabel:'Complete'}),null);
  const screenFile='src/features/cupping/screens/CuppingSessionDetailsScreen.js',current=fs.readFileSync(path.join(root,screenFile),'utf8'),prior=require('node:child_process').execFileSync('git',['show','e548a57:'+screenFile],{cwd:root,encoding:'utf8'}),priorAst=require('@babel/parser').parse(prior,{sourceType:'module',plugins:['jsx']});
  const render=tree=>find(tree,n=>n.type==='CallExpression'&&n.callee?.object?.name==='samples'&&n.callee?.property?.name==='map'&&all(n,x=>x.type==='JSXOpeningElement'&&x.name?.name==='CoffeeSampleCard').length),currentRender=render(details),priorRender=render(priorAst),normalized=JSON.parse(JSON.stringify(currentRender));assert(currentRender&&priorRender);
+ const code=node=>require('@babel/generator').default(node).code;
  for(const name of ['LegacySampleCard','CoffeeSampleCard']){const binding=tree=>find(tree,n=>n.type==='JSXOpeningElement'&&n.name?.name===name),now=binding(currentRender),old=binding(priorRender),copy=binding(normalized);const attr=(node,key)=>node.attributes.find(a=>a.name?.name===key);let opened=0;const sample={id:'fixture',cupUUID:'tag',localRemoval:{canRemove:true}},deps={sample,index:0,samples:[sample],lockOperationRef:{current:null},isRemovingParticipantSample:false,isCompletingSession:false,canEditSessionSetup:true,showInProgressFooter:false,isSessionDirty:false,onOpenSample(){opened++;},requestSetupExit:fn=>fn(),savedSessionIdRef:{current:S},sampleStatusById:{},handleOpenEditSheet(){opened++;}};
   for(const key of ['canRemove','showRemove',...(name==='CoffeeSampleCard'?['onEditSample']:[])]){const actual=attr(now,key),original=attr(old,key);assert.equal(evaluate(actual.value.expression,{...deps,sessionStatusBadgeLabel:'Draft'}),key==='onEditSample'?undefined:false,'DRAFT appearance grants no deferred action');for(const status of ['Pending','In Progress','Complete']){const a=evaluate(actual.value.expression,{...deps,sessionStatusBadgeLabel:status}),b=evaluate(original.value.expression,{...deps,sessionStatusBadgeLabel:status});assert.equal(typeof a,typeof b);if(typeof a!=='function')assert.equal(a,b);else a();}attr(copy,key).value=JSON.parse(JSON.stringify(original.value));}
   assert.equal(evaluate(attr(now,name==='LegacySampleCard'?'onPress':'onOpenSample').value.expression,{...deps,sessionStatusBadgeLabel:'Draft'}),undefined,'DRAFT cannot open tasting');
+  if(name==='LegacySampleCard'){
+   // UI-LEGACY-002 adds display-only saved-response inputs. Assert each exact
+   // binding before excluding only those four additions from historical parity.
+   const expected={sessionId:"sessionStatusBadgeLabel === 'Draft' ? null : sessionId",refreshKey:'presentationRevision',fontScale:'fontScale',readSavedAssessment:'getLegacyResponse'};
+   for(const [key,expression] of Object.entries(expected)){
+    assert.equal(now.attributes.filter(attribute=>attribute.name?.name===key).length,1,`exactly one Legacy ${key} binding`);
+    assert.equal(attr(old,key),undefined,`Legacy ${key} is an intentional addition`);
+    assert.equal(code(attr(now,key).value.expression),expression,`exact intended Legacy ${key} expression`);
+   }
+   const reader=()=>{},readDeps={sessionId:S,presentationRevision:17,fontScale:1.5,getLegacyResponse:reader};
+   assert.equal(evaluate(attr(now,'sessionId').value.expression,{...readDeps,sessionStatusBadgeLabel:'Draft'}),null,'DRAFT suppresses saved assessment reads');
+   for(const status of ['Pending','In Progress','Complete'])assert.equal(evaluate(attr(now,'sessionId').value.expression,{...readDeps,sessionStatusBadgeLabel:status}),S,'non-DRAFT reads retain exact session identity');
+   assert.equal(evaluate(attr(now,'refreshKey').value.expression,readDeps),17,'note-only presentation refresh is forwarded');
+   assert.equal(evaluate(attr(now,'fontScale').value.expression,readDeps),1.5,'native text scale is forwarded');
+   assert.equal(evaluate(attr(now,'readSavedAssessment').value.expression,readDeps),reader,'existing trusted read function is forwarded unchanged');
+   copy.attributes=copy.attributes.filter(attribute=>!Object.hasOwn(expected,attribute.name?.name));
+  }
  }
- const code=node=>require('@babel/generator').default(node).code;assert.equal(code(normalized),code(priorRender),'exact pre-R1-130 render structure and props except explicit DRAFT-only inert gates');assert(!current.includes('PreparationSampleCard'));assert(!fs.existsSync(path.join(root,'src/features/cupping/components/PreparationSampleCard.js')));
- console.log('PASS R1-131 exact pre-R1-130 card structure with DRAFT-only inert actions, non-DRAFT props unchanged; participant footer/list flags retained.');
+ assert.equal(code(normalized),code(priorRender),'exact pre-R1-130 render structure and props except explicit DRAFT-only inert gates and individually asserted Legacy display-read inputs');assert(!current.includes('PreparationSampleCard'));assert(!fs.existsSync(path.join(root,'src/features/cupping/components/PreparationSampleCard.js')));
+ console.log('PASS R1-131 exact pre-R1-130 card structure with DRAFT-only inert actions and four asserted Legacy display-read inputs; non-DRAFT actions, CVA props and participant footer/list flags retained.');
 }
 async function main(){for(const form of [1,2]){await lifecycle(form);await compatibility(form);}await negatives();await queue();await scanCaptureRaces();await uiChecks();}
 main().catch(error=>{console.error(error);process.exitCode=1;});
