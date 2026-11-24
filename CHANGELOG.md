@@ -46,6 +46,11 @@ Each entry should include the date, the agent that made the change, and a short 
   Legacy cards and default ScoreRow consumers are unchanged. Actual CVA phone
   acceptance follows the protected software update through the existing client.
 
+- UI-LEGACY-008 replaces the long Legacy collapsed scoring subtitle with the
+  validated physical cup count: `Adapted · N cup(s)` for non-five samples, or
+  `5 cups`. Full canonical scoring/extended-scale provenance stays in expanded
+  details. No scoring, geometry, CVA, stored data or native change.
+
 ## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet

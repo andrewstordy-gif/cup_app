@@ -1,6 +1,6 @@
 # UI-LEGACY-008 — Compact Legacy cup-count summary label
 
-- **Status:** Implementation ready for independent review, 24 November 2026. Andrew requested the app match the mockup's compact `Adapted · 1 cup` header subtitle.
+- **Status:** Independent software review PASS; controlled integration preparation authorized, 24 November 2026. Owner phone appearance check pending for the compact count subtitle.
 - **Objective:** Replace only Legacy card's long collapsed/header result-label line with an accurate compact physical cup-count label. Non-five counts use `Adapted · N cup(s)`; five uses `5 cups`. The mockup's one cup is illustrative, never a fixed count or authority to mark a five-cup standard score as adapted.
 - **Authority:** PRODUCT_SPEC §6.6 independent Legacy scoring, 1–8 cups, non-five totals explicitly adapted and extended-scale provenance; §6.8 card/inactive identity and lifecycle. UI_STYLE_GUIDE score summaries/typography. Existing full-card mockup `sample-drawers-rotated-headers.html` is visual guidance only. No NDEF/form-version/contract change.
 - **Base:** verified clean main/origin 1c73a45897af9c98234fc96ae9df7856fe435b5a. Branch `codex/ui-legacy-008-summary-label`, worktree `output/worktrees/ui-legacy-008`.
@@ -54,3 +54,9 @@ Author software handoff PASS; independent code/QA/UX review, protected prospecti
 - Independently verified candidate bundle SHA256 **efc300b302a26f99ce7ed30a174f8d0d7473ce35ca354ef15dc1f2cab8735aae**, matching the exact author's explicit-source771-module/four-asset export. No redundant native build or installation performed. `git diff --check` PASS; only declared presentation/test/guide/task files differ.
 
 **Yield:** Task record is yielded to Release Manager after this documentation commit. Software PASS permits the required current-main prospective checks and protected, head-matched PR process; it is not merge completion or pilot approval. Phone appearance remains pending after exact post-merge checks and clean normal-main Metro refresh. Native build/signing/data/NFC gates are N/A for this bounded JS-only subtitle change; no physical or accessibility-device verification is claimed.
+
+### Release preparation
+
+- Release Manager `/root/legacy_card_release` verified durable independent PASS **789fc254180570363ac2b3dc299e0e466c60a55c** for runtime **9dc909d** and author evidence **cc63129**, satisfying conditional PM go. Release edits add only this record and scoped changelog; no source/test/guide amendments.
+- Current live main **1c73a45897af9c98234fc96ae9df7856fe435b5a**. Required process gates remain durable independent approval, current-main prospective validation and protected exact-head PR integration; technical zero-review/no-CI configuration is not sufficient evidence by itself.
+- Required checks stay proportionate: Legacy and CVA card regressions, current participant-parity suite and explicit candidate iOS JavaScript bundle. No unrelated fixtures, six-gate reruns, native build/install/data/backup/version or Metro actions. Root PM owns normal-main synchronization/client refresh after software post-merge PASS; actual phone subtitle acceptance remains pending.
