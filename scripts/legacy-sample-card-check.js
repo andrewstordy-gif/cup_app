@@ -19,10 +19,11 @@ function saved(count = 1) {
   return { response, result, complete: true, recoveryDraft: { notes: 'UNCOMMITTED_SECRET' } };
 }
 
-for (const n of [1, 5, 8]) {
+for (const n of [1, 2, 5, 8]) {
   const snapshot = saved(n), view = legacyCardPresentation(snapshot);
   assert.equal(view.total, snapshot.result.display_score, 'canonical result is passed through');
   assert.equal(view.resultLabel, snapshot.result.label);
+  assert.equal(view.summaryLabel, n === 5 ? '5 cups' : `Adapted · ${n} ${n === 1 ? 'cup' : 'cups'}`);
   assert.deepEqual(view.quality.map(field => field.value), Array(7).fill('8.00'));
   assert.equal(view.checks[0].value, '10.00');
   assert.equal(view.aromaNotes, 'Floral aroma');
@@ -33,9 +34,15 @@ for (const n of [1, 5, 8]) {
 }
 const empty = legacyCardPresentation(null);
 assert.equal(empty.total, null); assert(empty.quality.every(row => row.value === null));
+assert.equal(empty.summaryLabel, '');
 const draft = legacyCardPresentation({ response: { quality_ratings: { fragrance_aroma: 0, flavor: 39 } }, complete: false, result: saved().result });
 assert.equal(draft.quality[0].value, '0.00'); assert.equal(draft.quality[1].value, '9.75');
 assert.equal(draft.total, null); assert(draft.checks.every(row => row.value === null), 'unscored cup checks stay unscored');
+assert.equal(draft.summaryLabel, '', 'a retained draft does not expose stale scored count/provenance');
+for (const cup_count of [undefined, null, 0, 9, -1, 1.5, '1', NaN]) {
+  const snapshot = saved(); snapshot.result = { ...snapshot.result, cup_count };
+  assert.equal(legacyCardPresentation(snapshot).summaryLabel, snapshot.result.label, 'unknown/invalid physical count keeps canonical provenance, never a guessed cup');
+}
 for (const affected_cups of [null, undefined, [], '1', [null], [99]]) {
   const incomplete = legacyCardPresentation({ response: { scored_defect: { kind: 'taint', affected_cups } }, complete: false });
   assert.equal(incomplete.scoredDefect, 'Taint · Cups not assessed', 'incomplete defect judgments never crash or invent a cup');
@@ -48,6 +55,7 @@ zero.response.consistent_cups = []; zero.response.sweet_cups = []; zero.response
 const identity = resolveForm(PROFILE, 2).identity;
 zero.result = scoreResponse({ profile: PROFILE, f: 2, identity, cup_count: 5, response: zero.response }, { profile: PROFILE, f: 2, identity });
 assert.equal(legacyCardPresentation(zero).total, '0.00');
+assert.equal(legacyCardPresentation(zero).summaryLabel, '5 cups', 'zero qualifying/consistent cups do not change the physical five-cup count');
 assert(legacyCardPresentation(zero).extendedNote.includes('Cup App'), 'extended-quality provenance remains visible');
 const typed = saved();
 typed.response.bean_defect_type_masks = { phenolic: [1] };
@@ -205,6 +213,10 @@ async function main() {
   render(); assert(strings(tree).includes('Loading saved assessment')); runEffects(); await flush(); assert.equal(reads, 1);
   first.resolve(saved()); await flush(); render();
   assert(strings(tree).includes('Total score: 86.00'));
+  const summaryNodes = () => findAll(tree, node => node.type === 'Text' && flatStyle(node.props?.style).textAlign === 'right');
+  assert.equal(summaryNodes()[0].props.children[0], 'Adapted · 1 cup');
+  assert.deepEqual([flatStyle(summaryNodes()[0].props.style).fontSize, flatStyle(summaryNodes()[0].props.style).fontWeight], [12, '600']);
+  assert(!strings(tree).includes(saved().result.label), 'collapsed card uses only the compact label');
   const probes = () => findAll(tree, node => node.type === 'Text' && typeof node.props.onTextLayout === 'function');
   const probe = (index, caption = false) => probes()[index * 2 + (caption ? 1 : 0)];
   function measureCurrent(factor = 1) {
@@ -268,12 +280,14 @@ async function main() {
   for (const label of ['Coffee / Process', 'Fragrance / Aroma', 'General notes', 'Defect notes', 'Cup assessment', 'Roast notes', 'Final score']) assert(rendered.includes(label), label);
   assert.equal(findAll(tree, node => node.type === 'Text' && flatStyle(node.props.style).fontSize === 44 && node.props.children[0] === '86.00').length, 1, 'expanded final result remains 44pt, not the compact numeric token');
   assert(rendered.indexOf('Roast notes') < rendered.indexOf('Final score'));
+  assert(rendered.includes(saved().result.label), 'expanded Final score retains the full canonical label');
   assert(!rendered.includes('UNCOMMITTED_SECRET'));
   findButton('Remove sample A1').props.onPress(); assert.equal(removes, 1); assert.equal(opens, 2, 'removal does not open tasting');
 
   const old = deferred(), newer = deferred(); let call = 0;
   props = { ...props, readSavedAssessment: () => (++call === 1 ? old.promise : newer.promise), status: { hasAnyFeedback: true } };
   render(); assert(!strings(tree).includes('Floral aroma'), 'changed source hides old snapshot immediately'); runEffects(); await flush();
+  assert.equal(summaryNodes().length, 0, 'loading a new snapshot hides the old physical count');
   props = { ...props, status: { hasAnyFeedback: true } }; // same ratings, new note-only snapshot
   render(); runEffects(); await flush();
   const edited = saved(); edited.response.aroma_qualities = 'NEW_NOTE'; newer.resolve(edited); await flush(); render();
@@ -283,12 +297,14 @@ async function main() {
   props = { ...props, inactive: true }; render(); runEffects();
   assert(strings(tree).includes('Scan cup to include in your tasting'));
   assert(!strings(tree).includes('NEW_NOTE')); assert(!strings(tree).includes('Total score'));
+  assert.equal(summaryNodes().length, 0, 'inactive cards hide scored cup-count labels');
   assert.equal(findAll(tree, node => node.props?.accessibilityState?.expanded != null).length, 0);
   const before = call; await flush(); assert.equal(call, before, 'inactive card never starts a read');
 
   props = { ...props, inactive: false, sessionId: 'session-b', sample: { ...props.sample, id: 'sample-b' }, readSavedAssessment: () => Promise.reject(Error('PRIVATE_DIAGNOSTIC')) };
   render(); runEffects(); await flush(); render();
   assert(strings(tree).includes('Saved assessment unavailable.')); assert(!strings(tree).includes('PRIVATE_DIAGNOSTIC')); assert(!strings(tree).includes('NEW_NOTE'));
+  assert.equal(summaryNodes().length, 0, 'failed reads do not preserve old cup-count labels');
   const retryButton = findAll(tree, node => node.type === 'Pressable' && strings(node).includes('Retry'))[0];
   props = { ...props, readSavedAssessment: () => Promise.resolve({ response: { notes: 'Recovered committed note' }, complete: false }) };
   retryButton.props.onPress(); render(); runEffects(); await flush(); render();
@@ -301,6 +317,7 @@ async function main() {
   render(); runEffects(); await flush(); render();
   assert.equal(findAll(tree, node => node.props?.accessibilityLabel?.match(/^(Fragrance \/ Aroma|Flavour|Aftertaste|Acidity|Body|Balance|Overall): 10\.00$/)).length, 7);
   assert(strings(tree).includes('Total score: 100.00'), 'all longest values remain exact');
+  assert(strings(tree).includes(maximum.result.quality_scale_provenance.note), 'expanded extended-scale provenance is retained');
   const oldTotalCallback = probe(7).props.onTextLayout;
   for (const total of ['-20.00', '0.00', '-0.00']) {
     props = { ...props, readSavedAssessment: () => Promise.resolve({ ...maximum, result: { ...maximum.result, display_score: total } }) };
@@ -341,6 +358,15 @@ async function main() {
     assert(strings(tree).includes(`Total score: ${row.total}`));
   }
 
-  console.log('PASS Legacy sample card: canonical values/lifecycle, centred13pt700 clockwise whole-quality rotation with upright total/captions, explicit rotated bounds, compact48pt/56pt minimums with measured near-threshold/larger-font growth, deferred pooled-event and stale width/height/font/orientation callbacks, owner3L/05 at320/375/390, full10.00/100.00/negative/zero/missing without shrink or clipping. Software only; native owner acceptance pending.');
+  const staleCount = deferred();
+  props = { ...props, readSavedAssessment: () => staleCount.promise };
+  render(); runEffects(); await flush(); assert.equal(summaryNodes().length, 0);
+  props = { ...props, readSavedAssessment: () => Promise.resolve(saved(5)) };
+  render(); runEffects(); await flush(); render();
+  assert.equal(summaryNodes()[0].props.children[0], '5 cups', 'fresh validated count replaces earlier non-five labels');
+  staleCount.resolve(saved(1)); await flush(); render();
+  assert.equal(summaryNodes()[0].props.children[0], '5 cups', 'late earlier count cannot overwrite current label');
+
+  console.log('PASS Legacy sample card: validated physical1/2/5/8 compact labels with safe fallback, canonical expanded/provenance retained, inactive/loading/error/stale-count guards, unchanged rotation/glyph geometry, deferred pooled events and card lifecycle. Software only; native owner acceptance pending.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

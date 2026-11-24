@@ -431,6 +431,11 @@ Rotation does not affect native layout bounds: measure unrotated width/height,
 then reserve the rotated height/width footprint explicitly. Capture native
 measurement scalars before pooled events are released and invalidate old font/
 orientation measurements. Expanded Final score retains its 44-point metric.
+For scored Legacy cards, use a trailing caption `Adapted · N cup(s)` for valid
+non-five physical counts and `5 cups` for five. Derive the count from the
+validated saved result, never selected judgments; retain full canonical result
+and extended-scale provenance in expanded Final score. If the physical count
+is unavailable, keep the canonical label rather than inventing a count.
 CVA Session Details sample cards adopt the same numeric pattern for eight
 attributes (`FR`, `AR`, `FL`, `AF`, `AC`, `SW`, `MF`, `OV`) through an opt-in
 summary. CVA integer ratings display two decimals without changing stored
