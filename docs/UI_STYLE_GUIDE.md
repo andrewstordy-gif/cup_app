@@ -442,6 +442,13 @@ summary. CVA integer ratings display two decimals without changing stored
 values or inputs; missing ratings remain a dash and a pending total remains
 `P`. Preserve each item's final-fill state and an outlined, upright total.
 Other default `ScoreRow` callers retain their existing presentation.
+CVA headers retain the existing sample code/edit and permitted remove controls,
+with a neutral `Saved` status only for a supported committed final result. Use
+the same trailing physical-count caption as Legacy from the sample's validated
+1–8 cup count; never infer it from assessment selections. Keep historical,
+unsupported or unrecognised result warnings visible in the collapsed card.
+Full canonical scoring provenance belongs alongside expanded Final Score,
+including saved results available before explicit local session completion.
 For either summary,
 retain full attribute names in accessibility labels. At enlarged text sizes,
 allow horizontal scrolling rather than clipping or shrinking precision. A

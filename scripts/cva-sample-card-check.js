@@ -177,6 +177,70 @@ async function main() {
   const disabledOpen = all(tree, node => node.type === 'Pressable' && node.props.accessibilityState?.disabled)[0];
   assert(disabledOpen); assert.equal(reads, 0, 'inactive row makes no descriptor/details reads');
   assert.equal(JSON.stringify(scores), original, 'complete render paths leave inputs immutable');
-  console.log('PASS CVA compact summary: two-decimal display-only1–9, immutable/per-item fill, exact default ScoreRow parity, actual parent opt-in/inactive/blind masking, native rotatedW/H bounds,48/56minimums, queued released-event/stale callbacks and normal/enlarged geometry. Software only; owner-phone acceptance pending.');
+  // Actual header states; status is a committed repository projection, never
+  // inferred from note presence or the selected defect/uniformity sets.
+  const ordinary = 'Adapted — five-cup-equivalent Cup App CVA interpretation — independent deductions';
+  const five = 'Cup App CVA interpretation — independent deductions';
+  const textNodes = value => all(tree, node => node.type === 'Text' && node.props.children[0] === value);
+  const base = { ...props, inactive: false, onEditSample: () => {}, sample: { ...props.sample, cupNumber: 2 },
+    status: { canonicalCva: true, isComplete: true, finalScore: '88.75', resultLabel: ordinary, scoresByField: ratings } };
+  for (const n of [1, 2, 5, 8]) {
+    reset(); props = { ...base, sample: { ...base.sample, cupNumber: n }, status: { ...base.status, resultLabel: n === 5 ? five : ordinary } };
+    render();
+    const label = n === 5 ? '5 cups' : `Adapted · ${n} ${n === 1 ? 'cup' : 'cups'}`;
+    assert.equal(textNodes(label).length, 1); assert.equal(textNodes('Saved').length, 1);
+    assert.equal(style(textNodes(label)[0].props.style).textAlign, 'right');
+    assert.equal(textNodes(ordinary).length, 0, 'ordinary provenance is compact until expanded');
+    all(tree, node => node.props?.accessibilityLabel === 'Expand sample')[0].props.onPress(); render();
+    assert.equal(textNodes(props.status.resultLabel).length, 1, 'full interpretation provenance survives expanded');
+    assert.equal(all(tree, node => node.props?.accessibilityLabel === 'Edit sample A1').length, 1);
+    assert.equal(all(tree, node => node.props?.accessibilityLabel === 'Remove sample A1').length, 1);
+  }
+  for (const n of [undefined, null, '2', 0, 9, 2.5]) {
+    reset(); props = { ...base, sample: { ...base.sample, cupNumber: n } }; render();
+    assert.equal(textNodes(ordinary).length, 1, 'invalid/missing count retains canonical provenance');
+    assert(!json(tree).includes('Adapted ·'), 'count never guessed or coerced');
+  }
+  const warnings = ['Saved under previous Cup App defect rule', 'Saved under previous Cup App rounding calculation',
+    'Unsupported saved calculation · total unavailable', `${ordinary} · Unknown future warning`];
+  for (const warning of warnings) {
+    reset(); props = { ...base, status: { ...base.status, resultLabel: warning } }; render();
+    assert.equal(textNodes(warning).length, 1); assert.equal(textNodes('Saved').length, 0);
+    props = { ...props, status: { ...props.status, isComplete: false } }; render();
+    all(tree, node => node.props?.accessibilityLabel === 'Expand sample')[0].props.onPress(); render();
+    assert.equal(textNodes(warning).length, 2, 'warning survives both collapsed header and expanded result before completion');
+    props = { ...props, inactive: true }; render();
+    assert.equal(textNodes(warning).length, 0); assert.equal(textNodes('Saved').length, 0);
+    assert.equal(textNodes('88.75').length, 0);
+  }
+  for (const state of [
+    { ...base.status, finalScore: null, isComplete: false, resultLabel: null },
+    { ...base.status, finalScore: '', isComplete: true, resultLabel: null },
+    { ...base.status, canonicalCva: false },
+    { ...base.status, isComplete: false },
+  ]) {
+    reset(); props = { ...base, status: state }; render(); assert.equal(textNodes('Saved').length, 0);
+  }
+  reset(); let edited = 0;
+  props = { ...base, status: { ...base.status, isComplete: false }, onEditSample: () => edited++ };
+  render();
+  const edit = all(tree, node => node.props?.accessibilityLabel === 'Edit sample A1')[0];
+  assert.equal(edit.props.disabled, false); edit.props.onPress({ stopPropagation() {} }); assert.equal(edited, 1);
+  assert.equal(all(tree, node => node.props?.accessibilityLabel === 'Remove sample A1')[0].props.disabled, false);
+  props = { ...props, canRemove: false }; render();
+  assert.equal(all(tree, node => node.props?.accessibilityLabel === 'Remove sample A1')[0].props.disabled, true);
+  reset(); props = { ...base, defaultExpanded: true, status: { ...base.status, isComplete: false, finalScore: null,
+    resultLabel: 'Unsupported saved calculation · total unavailable' } }; render();
+  assert.equal(textNodes('Unsupported saved calculation · total unavailable').length, 2);
+  assert.equal(textNodes('Final Score').length, 1, 'unavailable total retains expanded safety provenance');
+  for (const value of [0, -8.5]) {
+    reset(); props = { ...base, status: { ...base.status, finalScore: value } }; render();
+    assert.equal(textNodes('Saved').length, 1, 'finite canonical zero/negative final is saved');
+  }
+  reset(); props = { ...base, status: { ...base.status, isComplete: false }, defaultExpanded: true }; render();
+  assert.equal(textNodes(ordinary).length, 1, 'full provenance visible expanded without local completion');
+  props = { ...props, sample: { ...props.sample, id: 'other', cupNumber: 5 }, status: { isComplete: false, finalScore: null } }; render();
+  assert.equal(textNodes('Saved').length, 0); assert.equal(textNodes(ordinary).length, 0); assert(!json(tree).includes('Adapted ·'));
+  console.log('PASS CVA header saved/draft/count1/2/5/8/fallback/warnings/provenance/inactive/controls plus compact summary: two-decimal display-only1–9, immutable/per-item fill, exact default ScoreRow parity, actual parent opt-in/inactive/blind masking, native rotatedW/H bounds,48/56minimums, queued released-event/stale callbacks and normal/enlarged geometry. Software only; owner-phone acceptance pending.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -19,4 +19,25 @@
 
 ## Handoff / review / Definition of Done / release
 
-Pending. Record exact source/count and warning handling, validation commits/results, proportionate visual evidence and limits, all operating-model DoD PASS or N/A with rationale, independent review findings/disposition, changelog note, prospective/PR/main/postmerge provenance and owner handoff here. No implementation before this record is committed.
+Implementation ready for exact-commit validation; independent review and integration pending.
+
+### Implementation
+
+- Author legacy_card_stage1; branch/worktree above. Task a41b82d preceded all code. CoffeeSampleCard header only plus private cvaCardHeaderPresentation helper; CVA regression and bounded guide clarification. No shared geometry, Legacy, theme, data/status, scoring, NFC, contracts or default controls changed. No compatibility-script edits needed.
+- Physical count source is sample.cupNumber (repository local presentation maps the saved sample field directly; savedSessionIdentity also allowlists it). Canonical read validates the saved response cupCount against current sample.n. Helper strictly accepts integer1–8, never coerces strings, guesses a count or uses selected judgments. A finite result gets compact physical-count caption; invalid/missing count retains ordinary full label.
+- Exact known ordinary labels only are compacted. Every other nonempty label, including combined adaptation plus historical calculation/defect or unknown policy text, remains visible collapsed. Full original provenance now also accompanies expanded Final Score whenever total or provenance is available, independently of local completion. No recalculation.
+- Neutral Saved requires committed isComplete, finite normalized final (zero/negative valid), explicit canonicalCva or current exact-calculation marker, and no warning. Notes, partial ratings, absent support, unknown/historical warnings or inactive states never create Saved. Existing code/edit/remove/open/expand permissions and callbacks unchanged; existing rotated row unchanged.
+- Changelog: CVA sample headers now match approved Legacy count/status treatment while retaining historical/unsupported provenance warnings and expanded interpretation labels.
+
+### Validation / limitations
+
+Exact source commit, five regression results and candidate-source bundle hash will be appended after stable commit. Initial working-tree runs of CVA, unchanged Legacy, participant parity, creator activation and pending-blind all passed. Actual owner phone/VoiceOver/NFC testing not performed; no install/native build/Metro/data operation. Independent reviewer will perform proportionate actual-source320 header rendering. Bundling cannot establish native appearance or pilot readiness.
+
+### Definition of Done at author handoff
+
+- Acceptance / appropriate regression / existing relevant checks / candidate bundle: pending exact-commit evidence below.
+- Scope discipline and docs: PASS; presentation/guide only, no unrelated changes or behavioral/protocol contracts.
+- UI / accessibility: token-based neutral status, caption, existing labels/disabled controls retained; software checks plus independent visual review pending. Actual owner appearance and VoiceOver N/A at implementation gate, explicitly unverified and still needed for hardware claims.
+- Security/privacy/reliability: existing inactive blind/header suppression checked without new reads; independent reviewer checks scope. Persistence/network/NFC/data-loss changes N/A because none made.
+- Independent findings, prospective integration and exact postmerge: pending reviewer/Release Manager, not waived.
+- Clean committed history / concise handoff / changelog information: author commit and evidence follow; changelog note supplied above, Release Manager owns file.
