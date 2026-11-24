@@ -7,7 +7,7 @@ import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { getProcessLabel } from '../../cupping/constants/sessionDetails';
-import { legacyCardPresentation, legacyCardScoreLayout } from './legacyCardPresentation';
+import { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement } from './legacyCardPresentation';
 
 function Section({ title, children, scale }) {
   return <View style={[styles.section, { padding: spacing.md * scale }]}>
@@ -48,7 +48,14 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
   const name = sample.coffeeNameOrigin || 'Unnamed sample';
   const state = inactive ? 'Scan cup to include in your tasting' : loading ? 'Loading saved assessment…' :
     current?.failed ? 'Saved assessment unavailable.' : presentation.final ? 'Saved' : presentation.hasSavedResponse ? 'Draft saved' : 'Not assessed';
-  const layout = legacyCardScoreLayout(rowWidth, fontScale, scale);
+  const measurementKey = `${fontScale}:${presentation.total ?? '—'}`;
+  const [measurements, setMeasurements] = useState({ key: measurementKey, widths: {} });
+  // Reset before this render is committed. A late event from old content/text
+  // scale cannot overwrite widths collected for the current native layout.
+  if (measurements.key !== measurementKey) setMeasurements({ key: measurementKey, widths: {} });
+  const widths = measurements.key === measurementKey ? measurements.widths : {};
+  const measureScore = metric => event => setMeasurements(previous => recordLegacyScoreMeasurement(previous, measurementKey, metric, event));
+  const layout = legacyCardScoreLayout(rowWidth, fontScale, scale, widths, typography.text_caption.fontSize);
 
   return <View style={[styles.card, inactive && styles.inactive, { marginTop: spacing.md * scale }]}>
     <View style={[styles.top, { paddingHorizontal: spacing.md * scale, paddingTop: spacing.sm * scale }]}>
@@ -65,6 +72,12 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
       accessibilityState={{ disabled: !onPress }}
       accessibilityLabel={`Open Legacy sample ${number}. ${[...presentation.quality, { label: 'Total score', value: presentation.total }].map(score => `${score.label}: ${score.value ?? 'not scored'}`).join(', ')}`}
       style={{ paddingHorizontal: spacing.xs * scale }}>
+      <View key={measurementKey} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
+        pointerEvents="none" style={styles.measurementProbe}>
+        <Text accessible={false} style={styles.scoreValue} onTextLayout={measureScore('quality')}>10.00</Text>
+        <Text accessible={false} style={styles.scoreValue} onTextLayout={measureScore('totalLimit')}>100.00</Text>
+        <Text accessible={false} style={styles.scoreValue} onTextLayout={measureScore('totalActual')}>{presentation.total ?? '—'}</Text>
+      </View>
       <ScrollView horizontal onLayout={event => setRowWidth(event.nativeEvent.layout.width)}
         showsHorizontalScrollIndicator={layout.contentWidth > rowWidth}>
         <View style={[styles.scoreRow, { gap: layout.gap }]}>
@@ -135,6 +148,7 @@ const styles = StyleSheet.create({
   scoreRow: { flexDirection: 'row', paddingVertical: spacing.sm },
   caption: { ...typography.text_caption, color: colors.inkSoft, letterSpacing: 0, textAlign: 'center' },
   scoreValue: { ...typography.text_caption, color: colors.ink, letterSpacing: 0, fontVariant: ['tabular-nums'] },
+  measurementProbe: { position: 'absolute', left: 0, top: 0, width: 10000, opacity: 0, alignItems: 'flex-start' },
   scoreBox: { borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   finalBox: { backgroundColor: colors.ink, borderColor: colors.ink },
   finalValue: { color: colors.surface },

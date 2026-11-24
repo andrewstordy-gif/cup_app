@@ -17,6 +17,12 @@ Each entry should include the date, the agent that made the change, and a short 
   This is the first staged card update; flavour pills and defect badges remain
   deferred. No new app build has been distributed.
 
+- UI-LEGACY-003 corrects Legacy score values wrapping onto a second line by
+  sizing summary cells from native text measurements. Full exact values remain
+  readable; the existing horizontal scroll handles narrow or enlarged layouts.
+  No scoring, CVA, data or native binary change. Actual iPhone confirmation
+  follows the reviewed JavaScript update through the installed development client.
+
 ## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet
