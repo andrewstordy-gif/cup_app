@@ -2,7 +2,7 @@
 
 - **Task ID:** UI-LEGACY-001
 - **Title:** Legacy Session Details and sample-card design proposal
-- **Status:** Design proposal for Product Owner review; implementation not started
+- **Status:** Product Owner approved designs; Stage 1 Legacy-only structure authorized 24 November. Implementation is isolated under UI-LEGACY-002 on codex/ui-legacy-002-stage1. CVA and later stages remain deferred.
 - **Product Specification references:** Sections 6.5 (form meaning and adapted totals), 6.8.1–6.8.5 (roles, controls, local state); FR-010, FR-035
 - **Technical specification references:** UI_STYLE_GUIDE.md; NDEF_PROTOCOL.md unchanged
 - **Objective:** Propose cleaner Legacy Session Details and expandable sample cards, preserving the established CVA visual language and Legacy score meaning.
@@ -24,6 +24,7 @@
 
 ## Decisions
 
+- Andrew explicitly requested staged implementation and authorized Stage 1 only: Legacy sample-card structure using existing data, no CVA, scoring, NFC, storage, coloured-pill extraction or defect-icon changes. Canonical implementation record: docs/tasks/UI-LEGACY-002.md on codex/ui-legacy-002-stage1 (separate worktree under output/worktrees/ui-legacy-002). Independent implementation/review/release agents assigned; main and installed TestFlight app remain unchanged at task start.
 - Andrew chose appearance work on 23 November and resumed on 24 November 2026. Start with Legacy sample cards and Session Details, then address the tasting screen in a separate design step.
 - Design revision requested 24 November: Legacy's seven quality scores and total must be on one line, matching the CVA card. Updated both previews to a single row with two-decimal values retained; use F/A for the combined Fragrance/Aroma caption with its full accessible name. This supersedes the initial two-row proposal described in the historical handoff below. Whole-design approval and physical viewport checks remain pending.
 - Design revision requested 24 November: add Roast notes to the expanded CVA sample card, matching the Legacy card. Updated the comparison preview with the same notes-field treatment below Flavour notes; relates to TF-FB-012 (CVA item 11). This is a preview change only, not an addition of a new assessment field or a claim that the installed app has changed.
