@@ -71,7 +71,7 @@ function legacyCardScoreLayout(width, fontScale = 1, scale = 1, measured = {}, f
   const qualityMinimum = Math.max(...valueBounds.slice(0, 7).map((bounds, i) => Math.max(bounds.height, captionWidths[i]) + 3));
   const totalWidth = Math.max(56, valueBounds[7].width + 3, captionWidths[7] + 3);
   const qualityWidth = Math.max(qualityMinimum, (width - totalWidth - gap * 7) / 7);
-  const cellHeight = Math.max(64, ...valueBounds.slice(0, 7).map(bounds => bounds.width + 3), valueBounds[7].height + 3);
+  const cellHeight = Math.max(48, ...valueBounds.slice(0, 7).map(bounds => bounds.width + 3), valueBounds[7].height + 3);
   return { gap, totalWidth, qualityWidths: Array(7).fill(qualityWidth), cellHeight, valueBounds,
     contentWidth: qualityWidth * 7 + totalWidth + gap * 7 };
 }
