@@ -23,6 +23,12 @@ Each entry should include the date, the agent that made the change, and a short 
   No scoring, CVA, data or native binary change. Actual iPhone confirmation
   follows the reviewed JavaScript update through the installed development client.
 
+- UI-LEGACY-004 follows the failed UI-LEGACY-003 phone check: capture native
+  measurement scalars before pooled events are released, and size each Legacy
+  column for its displayed value/caption instead of reserving the longest value
+  everywhere. Native owner acceptance remains pending after software integration.
+  No typography, scoring, CVA, storage, NFC or native binary change.
+
 ## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet
