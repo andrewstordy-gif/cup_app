@@ -26,6 +26,7 @@
 
 - Andrew chose appearance work on 23 November and resumed on 24 November 2026. Start with Legacy sample cards and Session Details, then address the tasting screen in a separate design step.
 - Design revision requested 24 November: Legacy's seven quality scores and total must be on one line, matching the CVA card. Updated both previews to a single row with two-decimal values retained; use F/A for the combined Fragrance/Aroma caption with its full accessible name. This supersedes the initial two-row proposal described in the historical handoff below. Whole-design approval and physical viewport checks remain pending.
+- Design revision requested 24 November: add Roast notes to the expanded CVA sample card, matching the Legacy card. Updated the comparison preview with the same notes-field treatment below Flavour notes; relates to TF-FB-012 (CVA item 11). This is a preview change only, not an addition of a new assessment field or a claim that the installed app has changed.
 - Keep persistent form/mode context short; remove repetitive explanatory paragraphs from the ordinary view. Do not remove actionable errors, pending-write verification, adaptation or extended-score qualifications.
 - Compare score-first and coffee-first layouts using identical fictional data. Sample A1: 9.75 plus six 8.00 quality marks, three 10.00 cup checks, zero defects gives 87.75; one cup requires an adapted label. B2 is incomplete, with no final total.
 
