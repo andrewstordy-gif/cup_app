@@ -81,7 +81,7 @@ for (const width of [320, 375, 390]) {
     assert(layout.contentWidth <= available + 0.001, `owner mixed-value row fits ${width}pt with native-font fixture widths`);
     assert(layout.qualityWidths.every(value => value === layout.qualityWidths[0]), 'rotated qualities share coherent column widths');
     assert.equal(layout.totalWidth, 56, 'upright total preserves approved unscaled minimum');
-    assert.equal(layout.cellHeight, 64, 'ordinary cells preserve approved unscaled 64pt minimum');
+    assert.equal(layout.cellHeight, 48, 'ordinary cells use approved centred 48pt minimum');
     for (let i = 0; i < 7; i++) {
       assert(layout.qualityWidths[i] - 2 >= layout.valueBounds[i].height, 'rotated width reserves original text height inside borders');
       assert(layout.cellHeight - 2 >= layout.valueBounds[i].width, 'rotated height reserves full original string width inside borders');
@@ -90,7 +90,7 @@ for (const width of [320, 375, 390]) {
     for (const factor of [1.5, 2]) {
       const enlargedWidths = nativeWidthsFor(cells, factor);
       const enlarged = legacyCardScoreLayout(available, factor, scale, enlargedWidths, 13, cells);
-      assert.equal(enlarged.cellHeight, factor === 2 ? 80 : 64, 'native source width controls rotated height without double OS scaling');
+      assert.equal(enlarged.cellHeight, factor === 2 ? 80 : 61, 'native source width grows compact cells without double OS scaling');
       assert.equal(enlarged.valueBounds[6].height, 16 * factor + 1);
       assert(enlarged.qualityWidths[6] - 2 >= enlarged.valueBounds[6].height);
       assert(enlarged.cellHeight - 2 >= enlarged.valueBounds[6].width);
@@ -99,6 +99,22 @@ for (const width of [320, 375, 390]) {
   }
   const unmeasured = legacyCardScoreLayout(available, 1, scale);
   assert(unmeasured.cellHeight >= 69 && unmeasured.totalWidth >= 82, 'delayed native measurements use full unrotated-frame fallback bounds');
+}
+// Exercise the measured boundary, not just the replacement of a fixed minimum.
+// A rotated source width of44 needs48 including frame/borders;45 must grow49.
+const compactCells = scoreCells(ownerRows[0].values, ownerRows[0].total);
+for (const [sourceWidth, expectedHeight] of [[43, 48], [44, 48], [44.01, 49], [45, 49], [46, 50], [66, 70]]) {
+  const compactMetrics = nativeWidthsFor(compactCells);
+  const recorded = recordLegacyScoreMeasurement({ key: 'compact', widths: compactMetrics }, 'compact', 'overall:value', sourceWidth, 16);
+  const compact = legacyCardScoreLayout(279.04, 1, 0.58, recorded.widths, 13, compactCells);
+  assert.equal(compact.cellHeight, expectedHeight, `native rotated width${sourceWidth} keeps required safety allowance`);
+  assert(compact.cellHeight - 2 >= compact.valueBounds[6].width, 'centred rotated text fits within compact borders');
+  assert.equal(compact.totalWidth, 56, 'height-only refinement leaves total width unchanged');
+}
+const tallTotalMetrics = nativeWidthsFor(compactCells);
+for (const [sourceHeight, expectedHeight] of [[45, 49], [50, 54]]) {
+  tallTotalMetrics['total:value'] = { width: 48, height: sourceHeight };
+  assert.equal(legacyCardScoreLayout(279.04, 1, 0.58, tallTotalMetrics, 13, compactCells).cellHeight, expectedHeight, 'upright total height can also grow compact row when necessary');
 }
 const measureEvent = (width, height = 16) => ({ nativeEvent: { lines: [{ width, height }] } });
 let measurement = { key: '1:100.00', widths: {} };
@@ -296,7 +312,7 @@ async function main() {
     const totalCell = findAll(tree, node => node.props?.accessibilityLabel === `Total score: ${total}`)[0];
     assert(totalCell.props.style.width >= 56, 'upright total retains its approved minimum for negative, zero and signed zero');
     const totalBox = findAll(totalCell, node => flatStyle(node.props?.style).borderWidth === 1)[0];
-    assert(flatStyle(totalBox.props.style).height >= 64);
+    assert(flatStyle(totalBox.props.style).height >= 48);
   }
 
   // A rating may gain a digit without changing total. Its measurement context
@@ -325,6 +341,6 @@ async function main() {
     assert(strings(tree).includes(`Total score: ${row.total}`));
   }
 
-  console.log('PASS Legacy sample card: canonical values/lifecycle, 13pt700 clockwise whole-quality rotation with upright total/captions, explicit rotated width/height bounds, 64pt/56pt minimums, deferred pooled-event and stale width/height/font/orientation callbacks, owner3L/05 at320/375/390, full10.00/100.00/negative/zero/missing without shrink or clipping. Software only; native owner acceptance pending.');
+  console.log('PASS Legacy sample card: canonical values/lifecycle, centred13pt700 clockwise whole-quality rotation with upright total/captions, explicit rotated bounds, compact48pt/56pt minimums with measured near-threshold/larger-font growth, deferred pooled-event and stale width/height/font/orientation callbacks, owner3L/05 at320/375/390, full10.00/100.00/negative/zero/missing without shrink or clipping. Software only; native owner acceptance pending.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

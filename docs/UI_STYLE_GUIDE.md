@@ -425,7 +425,7 @@ summary row. Numeric strings use shared `text_sample_score` (13-point, 700,
 16-point line height), with seven quality values rotated clockwise as complete
 strings and the total upright at the same numeric size. Captions remain upright
 using `text_caption`. Neither token is responsively scaled. Quality cells have
-a 64-point minimum height; the upright total has a 56-point minimum width.
+a 48-point minimum height; the upright total has a 56-point minimum width.
 Enlarge these bounds for native text measurements rather than scaling them down.
 Rotation does not affect native layout bounds: measure unrotated width/height,
 then reserve the rotated height/width footprint explicitly. Capture native
