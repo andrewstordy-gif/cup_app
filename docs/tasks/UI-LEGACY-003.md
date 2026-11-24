@@ -31,6 +31,18 @@
 - **Changelog-worthy:** Legacy score summaries size cells from native text measurements, preserving complete exact values instead of wrapping digits; narrow/enlarged layouts scroll when needed.
 - **Device limit:** Owner screenshot's native FAIL remains unresolved until the reviewed fix is protected-merged, clean main is synchronized and the existing development client reloads through Metro, followed by Andrew's actual-phone confirmation. No feature-branch serving, installation, data operation or hardware claim performed.
 
+### Exact-source validation — 24 November 2026
+
+Runtime commit **6c11c4e2bd4118b30e8980650aa8b3a40bb7df12**; clean task tree when checks ran. Official verified Node22.14.0 runtime reused from `../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node`; no dependency/package changes.
+
+- `node22 scripts/legacy-sample-card-check.js`: **PASS**, including native callback width/rounding, duplicate-event stable state, rejected stale/invalid measurements, 320 intrinsic-scroll versus 375/390 fit with native-font fixtures, enlarged-text no double scaling, actual rendered callbacks driving cell widths, all seven 10.00 marks and 100.00 total, longer negative total, zero and signed zero, existing saved/draft/access/read/open/expand/remove regression checks.
+- `node22 scripts/participant-parity-finish-check.js`: **PASS**, all eight SQLite/two-device/actual UI binding output groups; unchanged actor/activation/permission/CVA parity semantics.
+- `node22 node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-legacy-003-ios/main.jsbundle --assets-dest output/ui-legacy-003-ios --dev false`: **PASS**, 769 modules, four assets. Ignored entry imports `registerRootComponent` from expo and candidate `../App`, avoiding shared-node_modules entry resolution into another checkout. Bundle SHA256 **50ed0cfb945122184e3ecd38d86e007deb357dd11311003873fce5f57faca206**. This is JavaScript bundle validation, not a native build or installation.
+- `git diff --check`: **PASS**. Only the four declared task/source/test files differ from base ae46f945; no new shared contracts.
+- Measurement callback tests use real component JSX/hooks with native hosts substituted and corroborating native macOS font-width fixtures; they cannot certify exact iOS text layout. The runtime measurement callbacks run on the eventual actual phone. Independent review and actual owner acceptance remain required; prior physical failure is not overwritten by software PASS.
+
+Final implementation runtime: **6c11c4e**. A following documentation-only handoff commit records these results; no push, merge, Metro feature-branch serving, native build or installation performed by author.
+
 ## Review / Definition of Done
 
 Pending independent PASS and required scoped checks. No native/NFC change; native binary/build/signing/storage gates N/A with this scope rationale, not a full-device conformance claim. Native score-text acceptance remains pending owner test. Final commit/PR/merge references pending.
