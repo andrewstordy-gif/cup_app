@@ -7,11 +7,34 @@ import { colors } from '../../../theme/colors';
 import { spacing } from '../../../theme/spacing';
 import { typography } from '../../../theme/typography';
 import { getProcessLabel } from '../../cupping/constants/sessionDetails';
+import { KeywordPillRow } from '../../cupping/components/KeywordPillRow';
+import { findFlavourKeywordPills } from '../../cupping/data/flavourKeywords';
 import { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement, LEGACY_SCORE_PATTERN } from './legacyCardPresentation';
 
 function Section({ title, children, scale }) {
   return <View style={[styles.section, { padding: spacing.md * scale }]}>
     {title ? <Text style={styles.heading}>{title}</Text> : null}{children}
+  </View>;
+}
+
+// Descriptors are a read-only view of this exact committed note source.
+function NoteSection({ title, note, scale }) {
+  return <Section title={title} scale={scale}>
+    <Text style={styles.notes}>{note}</Text>
+    <KeywordPillRow pills={findFlavourKeywordPills(note)} scale={scale} />
+  </Section>;
+}
+
+function DefectPills({ defects, scale }) {
+  return <View style={[styles.defectPills, { gap: spacing.xs * scale }]}>
+    {defects.map(defect => <View key={defect.key} style={[styles.defectPill, {
+      gap: spacing.xs * scale, paddingVertical: 3 * scale, paddingHorizontal: spacing.sm * scale, borderRadius: 15 * scale,
+    }]}>
+      <View accessible={false} style={[styles.defectIcon, { minWidth: 28 * scale, minHeight: 28 * scale, padding: spacing.xs * scale, borderRadius: 14 * scale }]}>
+        <AppIcon name={defect.icon} role="icon_compact" />
+      </View>
+      <Text style={styles.defectLabel}>{defect.label}</Text>
+    </View>)}
   </View>;
 }
 
@@ -121,8 +144,9 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
       <AppIcon name={expanded ? 'chevron-up' : 'chevron-down'} role="icon_navigation" />
     </Pressable> : null}
     {!inactive && expanded ? <>
-      <Section title="Coffee / Process" scale={scale}>
-        <Text style={styles.value}>{name}</Text><Text style={styles.state}>{getProcessLabel(sample.process) || 'Process not set'}</Text>
+      <Section scale={scale}>
+        <Text style={styles.heading}>Coffee name / Origin</Text><Text style={styles.value}>{name}</Text>
+        <Text style={styles.heading}>Process</Text><Text style={styles.value}>{getProcessLabel(sample.process) || 'Process not set'}</Text>
       </Section>
       {loading || current?.failed ? <View style={[styles.section, { padding: spacing.md * scale }]}>
         <Text style={styles.state} accessibilityLiveRegion="polite">{state}</Text>
@@ -130,10 +154,10 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
           <Text style={styles.value}>Retry</Text>
         </Pressable> : null}
       </View> : null}
-      {presentation.aromaNotes ? <Section title="Fragrance / Aroma" scale={scale}><Text style={styles.notes}>{presentation.aromaNotes}</Text></Section> : null}
-      {presentation.generalNotes ? <Section title="General notes" scale={scale}><Text style={styles.notes}>{presentation.generalNotes}</Text></Section> : null}
+      {presentation.aromaNotes ? <NoteSection title="Fragrance / Aroma" note={presentation.aromaNotes} scale={scale} /> : null}
+      {presentation.generalNotes ? <NoteSection title="General notes" note={presentation.generalNotes} scale={scale} /> : null}
       {presentation.beanDefects.length || presentation.scoredDefect ? <Section title="Bean defects" scale={scale}>
-        {presentation.beanDefects.map(value => <Text key={value} style={styles.value}>{value}</Text>)}
+        <DefectPills defects={presentation.beanDefects} scale={scale} />
         {presentation.scoredDefect ? <Text style={styles.state}>{presentation.scoredDefect}</Text> : null}
       </Section> : null}
       {presentation.defectNotes ? <Section title="Defect notes" scale={scale}><Text style={styles.notes}>{presentation.defectNotes}</Text></Section> : null}
@@ -145,7 +169,8 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
       {presentation.roastNotes || presentation.roastDefects.length ? <Section scale={scale}>
         {presentation.roastNotes ? <><Text style={styles.heading}>Roast notes</Text><Text style={styles.notes}>{presentation.roastNotes}</Text></> : null}
         {presentation.roastDefects.length ? <><Text style={styles.heading}>Roast defects</Text>
-          {presentation.roastDefects.map(value => <Text key={value} style={styles.value}>{value}</Text>)}
+          <DefectPills defects={presentation.roastDefects} scale={scale} />
+          <Text style={styles.state}>Recorded observation · no score deduction</Text>
         </> : null}
       </Section> : null}
       {presentation.final ? <Section title="Final score" scale={scale}>
@@ -178,6 +203,10 @@ const styles = StyleSheet.create({
   section: { borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
   heading: { ...typography.text_caption, color: colors.inkSoft },
   notes: { ...typography.text_body, color: colors.ink, backgroundColor: colors.input, padding: spacing.sm, borderRadius: 8 },
+  defectPills: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center' },
+  defectPill: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.border, maxWidth: '100%' },
+  defectIcon: { backgroundColor: colors.input, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  defectLabel: { ...typography.text_secondary_body, color: colors.ink, flexShrink: 1 },
   checkRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   retry: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start', paddingHorizontal: spacing.sm },
   score: { ...typography.text_primary_metric, color: colors.ink },

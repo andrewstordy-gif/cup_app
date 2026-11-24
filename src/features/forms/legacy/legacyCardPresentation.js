@@ -5,13 +5,13 @@ const QUALITY_FIELDS = [
   ['aftertaste', 'AF', 'Aftertaste'], ['acidity', 'AC', 'Acidity'], ['body', 'BD', 'Body'],
   ['balance', 'BA', 'Balance'], ['overall', 'OV', 'Overall'],
 ];
-const BEAN_TYPES = [['moldy', 'Mouldy'], ['phenolic', 'Phenolic'], ['potato', 'Potato'], ['otherBean', 'Other']];
-const ROAST_TYPES = [['underdeveloped', 'Underdeveloped'], ['baked', 'Baked'], ['unevenRoast', 'Uneven roast'], ['overdeveloped', 'Overdeveloped']];
+const BEAN_TYPES = [['moldy', 'Mouldy', 'defect-mouldy'], ['phenolic', 'Phenolic', 'defect-phenolic'], ['potato', 'Potato', 'defect-potato'], ['otherBean', 'Other', 'defect-other-bean']];
+const ROAST_TYPES = [['underdeveloped', 'Underdeveloped', 'defect-underdeveloped'], ['baked', 'Baked', 'defect-baked'], ['unevenRoast', 'Uneven roast', 'defect-uneven-roast'], ['overdeveloped', 'Overdeveloped', 'defect-overdeveloped']];
 const text = value => typeof value === 'string' ? value.trim() : '';
 function defectDescriptions(masks, types) {
-  return types.flatMap(([key, label]) => {
+  return types.flatMap(([key, label, icon]) => {
     const cups = masks?.[key];
-    return Array.isArray(cups) && cups.length ? [`${label} · ${cups.length === 1 ? 'Cup' : 'Cups'} ${cups.join(', ')}`] : [];
+    return Array.isArray(cups) && cups.length ? [{ key, icon, label: `${label} · ${cups.length === 1 ? 'Cup' : 'Cups'} ${cups.join(', ')}` }] : [];
   });
 }
 

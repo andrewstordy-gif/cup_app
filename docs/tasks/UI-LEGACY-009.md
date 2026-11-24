@@ -4,7 +4,7 @@
 - **Objective:** Match expanded Legacy drawer hierarchy, surfaces, recorded flavour pills and neutral defect icon pills to sample-drawers-rotated-headers.html while preserving the actual meaning of committed data.
 - **Authority:** PRODUCT_SPEC §6.6 independent Legacy response/scoring/provenance and 1–8 cup semantics; §6.8 role/identity/inactive/revision controls; FR-013/014/035. UI_STYLE_GUIDE existing Home/Cupping, notes/defects and summary guidance. Source fields/pins are evidence, never authority to redefine data. UI-LEGACY-002 source attribution guard remains in force.
 - **Base/branch/worktree:** clean verified main/origin 68160f189325dacb57e8fb2e3593e0f22667488f; codex/ui-legacy-009-expanded-drawer; output/worktrees/ui-legacy-009.
-- **Scope:** src/features/forms/legacy/LegacySampleCard.js; legacyCardPresentation.js; scripts/legacy-sample-card-check.js; bounded UI_STYLE_GUIDE update; this record. Reuse read-only imports KeywordPillRow, findFlavourKeywordPills, AppIcon; a Legacy-private read-only component/helper may be added if needed. No edits to those shared imports/theme/DefectsSection or CVA. Release Manager owns CHANGELOG. Any additional shared file/API needs PM coordination.
+- **Scope:** src/features/forms/legacy/LegacySampleCard.js; legacyCardPresentation.js; scripts/legacy-sample-card-check.js; narrowly authorized scripts/creator-scan-activation-check.js leaf-mock compatibility only; bounded UI_STYLE_GUIDE update; this record. Reuse read-only imports KeywordPillRow, findFlavourKeywordPills, AppIcon; a Legacy-private read-only component/helper may be added if needed. No edits to those shared imports/theme/DefectsSection or CVA. Release Manager owns CHANGELOG. Any additional shared file/API needs PM coordination.
 - **Non-scope:** Accepted headers/subtitles/rotated-score geometry, tasting inputs, schemas/manifests/form pins/migrations, stored values/scoring, NFC/access/network/storage, CVA, native install/build/versioning/data operations. No broad cleanup.
 - **Author/review:** temporary legacy_card_stage1 author; different independent legacy_card_review covers code/QA/UX/privacy/read-boundary; legacy_card_release protected integration. Moderate saved-data/UI risk.
 
@@ -25,4 +25,29 @@ Andrew requested both drawers; do not lose the second stage. Canonical CVA prese
 
 ## Handoff / review / Definition of Done / release
 
-Pending. Record exact source/check commits, note/defect source map, browser limitations and owner appearance, all operating-model DoD PASS/N/A rationales, independent findings/disposition, changelog note and prospective/PR/main/postmerge provenance. Physical NFC/VoiceOver/pilot validation is not established by these UI checks.
+Implementation ready for exact-commit validation; review and integration pending.
+
+### Bounded test compatibility decision
+
+PM approved adding scripts/creator-scan-activation-check.js after a reproduced failure: its Legacy-specific loader transpiles the card but sends newly imported KeywordPillRow.js through a non-JSX loader, producing BABEL_PARSE_ERROR at line26. Add only a KeywordPillRow leaf mock in that isolated loader; preserve every activation/privacy/SQLite assertion. Actual Legacy regression continues rendering the real shared KeywordPillRow, so this compatibility change does not replace descriptor/colour coverage.
+
+### Author handoff
+
+- Task e7ca8eb preceded implementation. Only LegacySampleCard.js, its private legacyCardPresentation.js, existing Legacy regression, the authorized creator-activation leaf mock, bounded guide and this record changed. Accepted header/summary/measurement code, response reader, snapshot keys/cancellation and controls remain untouched. No new reads, writes or API changes.
+- Expanded identity labels now separate Coffee name / Origin and Process. Existing neutral note surfaces retain committed aroma_qualities under Fragrance / Aroma, notes under General notes, defect_description under neutral Defect notes, roast_level_note under Roast notes only when present. General/mixed content is never reclassified as flavour-only or roast-only.
+- Each aroma/general note independently uses existing read-only findFlavourKeywordPills and actual KeywordPillRow. Dictionary colours and within-source deduplication are reused; the same keyword can legitimately appear under both sources. Unknown descriptions remain in original full note. No persisted descriptor extraction/storage or recoveryDraft use.
+- Private defect descriptions now include existing AppIcon name plus unchanged exact type/cup text. Neutral icon pills preserve bean/roast masks; original scored severity/affected-cup line stays independent. Icon wrappers grow intrinsically with glyphs rather than fixed clipping bounds. Roast observations explicitly state no score deduction. Cup assessment remains the sole canonical deduction display; no new calculation/duplicated deduction. Final total/full label/extended-range provenance remain unchanged below roast.
+- Changelog-worthy: Legacy expanded sample drawers show separate identity labels, source-specific coloured note descriptors and existing neutral defect glyphs with physical cup lists, retaining canonical scoring and source attribution.
+
+### Validation / limitations
+
+Exact source/check and candidate bundle evidence follow after stable commit. Existing snapshot/error/retry/inactive behavior is exercised by actual JSX regression; added checks cover full section order, source-local colours/deduplication, icon names/cups, mixed defect-note isolation, canonical components/provenance, frozen saved/recovery bytes, no extra reads, cross-sample late replies and source-less draft omissions. No native/device/VoiceOver/NFC validation performed and no build/install/Metro/data operations. Independent actual-source320/390/enlarged browser inspection pending; browser evidence is not iOS proof. Legacy phone checkpoint precedes separately scoped CVA follow-up above.
+
+### Definition of Done at author handoff
+
+- Task acceptance/appropriate regression/existing relevant checks/bundle: pending exact-commit evidence below.
+- Scope and contract discipline: PASS, no unrelated refactoring or behavior/pins/schema/scoring changes; guide updated for scoped presentation.
+- UI/accessibility: existing caption/body/metric tokens and neutral colours, dictionary colours only actual saved-note matches; decorative icons and readable type/cup labels retained. Independent review/browser checks pending; physical VoiceOver and owner appearance N/A at author software gate, explicitly unverified.
+- Security/privacy/reliability: no access/data policy change; inactive/current-context/recovery exclusion regressions retained and expanded; independent saved-data-boundary review pending. Persistence/network/NFC/data-loss changes N/A because none made.
+- Independent findings/approval, prospective and exact postmerge checks: pending reviewer/Release Manager, no gate waived.
+- Clean inspectable history/handoff/changelog information: source and evidence commits follow; changelog note supplied above, Release Manager owns file.
