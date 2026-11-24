@@ -48,14 +48,22 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
   const name = sample.coffeeNameOrigin || 'Unnamed sample';
   const state = inactive ? 'Scan cup to include in your tasting' : loading ? 'Loading saved assessment…' :
     current?.failed ? 'Saved assessment unavailable.' : presentation.final ? 'Saved' : presentation.hasSavedResponse ? 'Draft saved' : 'Not assessed';
-  const measurementKey = `${fontScale}:${presentation.total ?? '—'}`;
+  const scores = [...presentation.quality, { key: 'total', caption: 'TOTAL', label: 'Total score', value: presentation.total }];
+  const measurementKey = JSON.stringify([fontScale, ...scores.map(score => score.value ?? '—')]);
   const [measurements, setMeasurements] = useState({ key: measurementKey, widths: {} });
   // Reset before this render is committed. A late event from old content/text
   // scale cannot overwrite widths collected for the current native layout.
   if (measurements.key !== measurementKey) setMeasurements({ key: measurementKey, widths: {} });
   const widths = measurements.key === measurementKey ? measurements.widths : {};
-  const measureScore = metric => event => setMeasurements(previous => recordLegacyScoreMeasurement(previous, measurementKey, metric, event));
-  const layout = legacyCardScoreLayout(rowWidth, fontScale, scale, widths, typography.text_caption.fontSize);
+  const measureScore = metric => event => {
+    // Native synthetic events may be pooled after this handler returns. Capture
+    // the primitive now; a deferred React state updater must never read event.
+    const lines = event?.nativeEvent?.lines;
+    const candidateWidth = Array.isArray(lines) && lines.length === 1 ? lines[0]?.width : null;
+    const width = typeof candidateWidth === 'number' ? candidateWidth : null;
+    setMeasurements(previous => recordLegacyScoreMeasurement(previous, measurementKey, metric, width));
+  };
+  const layout = legacyCardScoreLayout(rowWidth, fontScale, scale, widths, typography.text_caption.fontSize, scores);
 
   return <View style={[styles.card, inactive && styles.inactive, { marginTop: spacing.md * scale }]}>
     <View style={[styles.top, { paddingHorizontal: spacing.md * scale, paddingTop: spacing.sm * scale }]}>
@@ -74,16 +82,17 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
       style={{ paddingHorizontal: spacing.xs * scale }}>
       <View key={measurementKey} accessible={false} accessibilityElementsHidden importantForAccessibility="no-hide-descendants"
         pointerEvents="none" style={styles.measurementProbe}>
-        <Text accessible={false} style={styles.scoreValue} onTextLayout={measureScore('quality')}>10.00</Text>
-        <Text accessible={false} style={styles.scoreValue} onTextLayout={measureScore('totalLimit')}>100.00</Text>
-        <Text accessible={false} style={styles.scoreValue} onTextLayout={measureScore('totalActual')}>{presentation.total ?? '—'}</Text>
+        {scores.map(score => <React.Fragment key={score.key}>
+          <Text accessible={false} style={styles.scoreValue} onTextLayout={measureScore(`${score.key}:value`)}>{score.value ?? '—'}</Text>
+          <Text accessible={false} style={styles.caption} onTextLayout={measureScore(`${score.key}:caption`)}>{score.caption}</Text>
+        </React.Fragment>)}
       </View>
       <ScrollView horizontal onLayout={event => setRowWidth(event.nativeEvent.layout.width)}
         showsHorizontalScrollIndicator={layout.contentWidth > rowWidth}>
         <View style={[styles.scoreRow, { gap: layout.gap }]}>
-          {[...presentation.quality, { key: 'total', caption: 'TOTAL', label: 'Total score', value: presentation.total }].map((score, i) => (
+          {scores.map((score, i) => (
             <View key={score.key} accessible accessibilityLabel={`${score.label}: ${score.value ?? 'not scored'}`}
-              style={{ width: i === 7 ? layout.totalWidth : layout.qualityWidth, gap: spacing.xs * scale }}>
+              style={{ width: i === 7 ? layout.totalWidth : layout.qualityWidths[i], gap: spacing.xs * scale }}>
               <Text style={styles.caption}>{score.caption}</Text>
               <View style={[styles.scoreBox, presentation.final && i !== 7 && styles.finalBox,
                 i === 7 && styles.totalBox, { minHeight: 36 * scale, borderRadius: 7 * scale }]}>
