@@ -1,5 +1,9 @@
 # UI-LEGACY-004 — Correct native measurement event lifetime and oversized row
 
+## Subsequent owner feedback — 24 November
+
+Andrew answered the post-refresh question about all seven scores/total being present: They are there, then reported the numbers look too small compared with CVA and requested trying a90-degree rotation at CVA text size. This confirms reported value visibility, not full visual acceptance. Absence of the prior pooled-event warning was not separately confirmed. Design-only follow-up UI-LEGACY-005 is recorded on the PM coordination branch codex/china-testflight; the installed app remains at b20b530 during exploration. No new implementation/native acceptance is inferred from this design request.
+
 - **Status:** Corrective software merged and exact post-merge checks PASS, 24 November 2026. Native owner acceptance remains pending; no unrelated merges/stages while this regression is unresolved.
 - **Evidence/base:** Main834deaf3c45561f3b64bdc5cd32700ea94dfce49 / PR23. Owner Screenshot 2026-11-24 at 12.39.58.png shows only about four full columns, others beyond the card, plus native warning This synthetic event is reused…. Previous UI003 actual-phone acceptance FAILED; software PASS did not establish native success.
 - **Cause to verify:** measureScore currently retains a React native event inside a deferred functional state updater, then reads nativeEvent.lines later. Pooled event may be released, leaving generous bootstrap widths permanent. Inspect/test actual callback lifetime, not just the pure helper.
