@@ -81,14 +81,15 @@ No diff to CoffeeSampleCard.js, sessionRepository.js, form-contract definitions 
 - Fresh iOS bundle on the prospective source using ignored candidate-relative `output/stage1-entry.js`, Node22 and existing Expo CLI: **PASS**, four assets; Metro cache reported 744 modules. SHA256 **09b18672f9744432123bdc6f05063abae1c7aaa2c2f80f6e6528fa668f3d9f88**, identical to reviewed runtime output. No binary signing, installation or NFC test implied.
 - Subsequent evidence/changelog edits are documentation only. Final exact-head/base checks, PR and controlled merge remain pending; main unchanged at this checkpoint.
 
-## Definition of Done
-
-### Release probe maintenance — participant JSX parity
+## Release probe maintenance — participant JSX parity
 
 - Release validation found `scripts/participant-parity-finish-check.js` passed its seven SQLite/two-device behavioural groups, then failed its historical exact-JSX comparison because Stage 1 intentionally adds `sessionId`, `refreshKey`, `fontScale` and `readSavedAssessment` to LegacySampleCard. No runtime behavioural failure was identified by that probe.
 - PM authorized bounded maintenance on 24 November before editing: assert each exact new expression and exclude only those four additions from historical render normalization. The test now also checks one occurrence per prop, absence from the predecessor, DRAFT-null read suppression, exact non-DRAFT session identity, forwarded note-refresh revision, text scale and unchanged trusted reader reference. Existing removal/open/edit permission, CVA and two-device assertions are unchanged. Any other unexpected JSX change still fails the full historical equality.
 - Initial full rerun on the maintenance diff over **64df8a8**: PASS all eight output groups using official verified Node22.14.0. No runtime source changes, no additional app bundle required for test-only changes. Independent review and exact-commit rerun follow; release remains paused pending those gates.
+- Exact maintenance commit **e3f16d9** rerun: `output/node22/node-v22.14.0-darwin-arm64/bin/node scripts/participant-parity-finish-check.js` PASS, exit 0, all eight behavioural/parity output groups. `git diff --check` PASS. This docs-only evidence update does not change the tested script or production tree. Independent review is still required before the paused release process resumes.
 - This does not repair or waive unrelated obsolete numeric-code fixtures that fail before card rendering on both baseline and candidate.
+
+## Definition of Done
 
 - **PASS:** Scoped acceptance criteria — implementation/hook/canonical-result checks plus independent actual-card browser review, with truthful General notes/Defect notes mapping and no deferred pills/icons implied complete.
 - **PASS:** Appropriate automated checks added and affected existing checks pass. The unchanged saved-score-card fixture failure is explicitly baseline-equivalent before rendering; current affected-path regression probes pass.
