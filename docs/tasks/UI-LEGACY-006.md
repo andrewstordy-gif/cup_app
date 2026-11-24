@@ -33,3 +33,15 @@
 - **Changelog-worthy:** Legacy compact quality scores now use the approved clockwise13-bold whole-number design, with upright captions/total and explicitly allocated native measured rotated bounds.
 
 Exact source/tests/bundle, independent review and integration records follow. No physical NFC/VoiceOver/full native conformance claim. Native build/signing/storage policy gates N/A for this JS-only scope; actual phone UI acceptance remains pending until supplied. Final commit/PR/main pending. Author performs no push, merge, feature-branch Metro serving, new binary or data operation.
+
+### Exact author validation — 24 November2026
+
+Runtime **7e636ea23b3d3d5943b3691066334db8cd02acc5**, clean task tree during validation. Official verified Node22.14.0 reused from `../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node` without dependency edits.
+
+- `node22 scripts/legacy-sample-card-check.js`: **PASS** actual component/lifecycle plus explicit13/700/16 token assertions, seven whole-string90CW numeric frames, upright compact total/captions, unchanged expanded44-point result, explicit rotated width/height/border containment,64/56minimums, normal320/375/390 and enlarged1.5/2geometry, deferred pooled-event width/height capture, invalid/duplicate/stale callbacks and old12-point/old-orientation Fast Refresh state. Zero/missing/10.00/100.00/negative values and owner3L/05 examples retain full strings. No ellipsis, typography shrinking or disabled native text scaling.
+- `node22 scripts/participant-parity-finish-check.js`: **PASS**, all eight existing SQLite/two-device/actual binding parity groups; no assertion or permission changes.
+- `node22 node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-legacy-006-ios/main.jsbundle --assets-dest output/ui-legacy-006-ios --dev false`: **PASS**,769modules/fourassets. Ignored entry registers candidate `../App` to avoid shared node_modules resolving another checkout. Bundle SHA256 **baec49d4a4ba945099aef48ba7b0ae842839aa3e2efb255b2874f7996e920869**. This is JavaScript bundle validation, not a native build/install.
+- `git diff --check`: **PASS**. Six declared files differ from mainb20b530; typography diff adds only the7-line text_sample_score token, leaving every existing token unchanged. CVA source/usage and expanded controls remain unchanged.
+- Independent reviewer supplied native macOS13-bold/tabular measurements (10.00≈39.05×16,100.00≈47.70×16 ordinary;10.00≈75.11×32 at2×) and inspected actual-source RN-web screenshots. These corroborate geometry, not exactiOS/VoiceOver/DynamicType acceptance; reviewer records its own durable PASS and preserved artifacts separately.
+
+Final runtime **7e636ea**; documentation-only evidence commit follows. Independent review, protected prospective integration/PR/merge/post-merge and the Legacy owner-phone checkpoint remain pending at author handoff. CVA implementation has not started.
