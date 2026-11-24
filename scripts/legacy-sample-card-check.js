@@ -61,8 +61,8 @@ const typed = saved();
 typed.response.bean_defect_type_masks = { phenolic: [1] };
 typed.response.roast_defect_type_masks = { baked: [1] };
 typed.response.scored_defect = { kind: 'taint', affected_cups: [1] };
-assert.deepEqual(legacyCardPresentation(typed).beanDefects, ['Phenolic · Cup 1']);
-assert.deepEqual(legacyCardPresentation(typed).roastDefects, ['Baked · Cup 1']);
+assert.deepEqual(legacyCardPresentation(typed).beanDefects, [{ key: 'phenolic', icon: 'defect-phenolic', label: 'Phenolic · Cup 1' }]);
+assert.deepEqual(legacyCardPresentation(typed).roastDefects, [{ key: 'baked', icon: 'defect-baked', label: 'Baked · Cup 1' }]);
 
 const ownerRows = [
   { values: ['8.50', '9.50', '9.25', '7.00', '7.75', '8.50', '10.00'], total: '82.50' },
@@ -277,7 +277,7 @@ async function main() {
   findButton('Expand sample A1').props.onPress(); render(); runEffects();
   assert.equal(reads, 1, 'expanding does not reread or write'); assert.equal(opens, 2);
   const rendered = strings(tree);
-  for (const label of ['Coffee / Process', 'Fragrance / Aroma', 'General notes', 'Defect notes', 'Cup assessment', 'Roast notes', 'Final score']) assert(rendered.includes(label), label);
+  for (const label of ['Coffee name / Origin', 'Process', 'Fragrance / Aroma', 'General notes', 'Defect notes', 'Cup assessment', 'Roast notes', 'Final score']) assert(rendered.includes(label), label);
   assert.equal(findAll(tree, node => node.type === 'Text' && flatStyle(node.props.style).fontSize === 44 && node.props.children[0] === '86.00').length, 1, 'expanded final result remains 44pt, not the compact numeric token');
   assert(rendered.indexOf('Roast notes') < rendered.indexOf('Final score'));
   assert(rendered.includes(saved().result.label), 'expanded Final score retains the full canonical label');
@@ -367,6 +367,63 @@ async function main() {
   staleCount.resolve(saved(1)); await flush(); render();
   assert.equal(summaryNodes()[0].props.children[0], '5 cups', 'late earlier count cannot overwrite current label');
 
-  console.log('PASS Legacy sample card: validated physical1/2/5/8 compact labels with safe fallback, canonical expanded/provenance retained, inactive/loading/error/stale-count guards, unchanged rotation/glyph geometry, deferred pooled events and card lifecycle. Software only; native owner acceptance pending.');
+  // Full expanded actual JSX: source-local coloured descriptors, existing
+  // neutral defect glyphs/cups, unchanged canonical components and no writes.
+  deferUpdaters = false;
+  const rich = saved(2);
+  Object.assign(rich.response, { aroma_qualities: 'Floral floral and apple, unknown floral description.',
+    notes: 'Apple apple strawberry and a mystery descriptor.', roast_level_note: 'Flat dull roast.',
+    defect_description: 'Shared bean or roast description.', clean_cups: [],
+    bean_defect_type_masks: { phenolic: [1, 2], otherBean: [2] },
+    roast_defect_type_masks: { baked: [1] }, scored_defect: { kind: 'taint', affected_cups: [1, 2] } });
+  rich.result = scoreResponse({ profile: PROFILE, f: 2, identity, cup_count: 2, response: rich.response }, { profile: PROFILE, f: 2, identity });
+  assert.equal(rich.result.ok, true);
+  rich.recoveryDraft = { response: { notes: 'RECOVERY_STRAWBERRY_SECRET', aroma_qualities: 'RECOVERY_FLORAL_SECRET' } };
+  const savedBytes = JSON.stringify(rich);
+  const freeze = value => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } };
+  freeze(rich);
+  let richReads = 0;
+  props = { ...props, status: { hasAnyFeedback: true }, readSavedAssessment: () => { richReads++; return Promise.resolve(rich); } };
+  render(); runEffects(); await flush(); render();
+  const sections = () => findAll(tree, node => node.type === 'View' && flatStyle(node.props?.style).borderTopWidth === 1);
+  const textValues = node => findAll(node, child => child.type === 'Text').map(child => child.props.children[0]);
+  const sectionNames = sections().map(section => textValues(section)[0]);
+  assert.deepEqual(sectionNames, ['Coffee name / Origin', 'Fragrance / Aroma', 'General notes', 'Bean defects', 'Defect notes', 'Cup assessment', 'Roast notes', 'Final score']);
+  const byTitle = title => sections().find(section => textValues(section)[0] === title);
+  assert(textValues(byTitle('Coffee name / Origin')).includes('Process'));
+  const pillColours = title => findAll(byTitle(title), node => node.type === 'View')
+    .map(node => flatStyle(node.props?.style).backgroundColor).filter(colour => /^#[0-9a-f]{6}$/i.test(colour));
+  assert.deepEqual(pillColours('Fragrance / Aroma'), ['#E61E8A', '#66BB6A'], 'aroma-only dictionary matches preserve recorded colours and deduplicate repeats');
+  assert.deepEqual(pillColours('General notes'), ['#66BB6A', '#E63946'], 'general-note pills stay with their source; apple may occur independently in both notes');
+  assert(textValues(byTitle('General notes')).includes(rich.response.notes), 'unknown descriptors remain fully in original text');
+  assert(!strings(byTitle('General notes')).includes('floral'), 'aroma descriptors do not migrate to general notes');
+  for (const [title, icon, label] of [['Bean defects', 'defect-phenolic', 'Phenolic · Cups 1, 2'], ['Bean defects', 'defect-other-bean', 'Other · Cup 2'], ['Roast notes', 'defect-baked', 'Baked · Cup 1']]) {
+    assert(textValues(byTitle(title)).includes(label));
+    assert.equal(findAll(byTitle(title), node => node.type === 'AppIcon' && node.props.name === icon).length, 1);
+    assert(!pillColours(title).includes('#E63946'), 'defect pills remain neutral, never flavour coloured');
+  }
+  assert(textValues(byTitle('Bean defects')).includes('Taint · Cups 1, 2'), 'severity and affected cups remain explicit independently of descriptive type');
+  assert.equal(textValues(tree).filter(value => value === 'Defect deduction').length, 1, 'canonical deduction is not duplicated under Bean defects');
+  assert(textValues(byTitle('Defect notes')).includes(rich.response.defect_description));
+  assert(!strings(byTitle('Bean defects')).includes(rich.response.defect_description), 'shared defect description is never bean-attributed');
+  assert(textValues(byTitle('Roast notes')).includes('Recorded observation · no score deduction'));
+  const canonicalView = legacyCardPresentation(rich);
+  for (const check of canonicalView.checks) assert(textValues(byTitle('Cup assessment')).includes(check.value));
+  assert(textValues(byTitle('Final score')).includes(rich.result.display_score));
+  assert(textValues(byTitle('Final score')).includes(rich.result.label));
+  assert(!strings(tree).includes('RECOVERY_')); assert.equal(JSON.stringify(rich), savedBytes, 'presentation leaves all response/result/recovery bytes untouched');
+  assert.equal(richReads, 1, 'notes/icons/pills add no repository calls');
+
+  const lateRich = deferred();
+  props = { ...props, refreshKey: 'refresh-rich', readSavedAssessment: () => lateRich.promise };
+  render(); runEffects(); await flush();
+  for (const secret of ['Floral floral', 'Phenolic · Cups', 'Flat dull roast', '#E61E8A']) assert(!strings(tree).includes(secret), 'new context hides previous note/pill/defect during loading');
+  props = { ...props, sample: { ...props.sample, id: 'new-sample' }, readSavedAssessment: () => Promise.resolve({ response: { notes: 'Plain draft note' }, complete: false }) };
+  render(); runEffects(); await flush(); render();
+  lateRich.resolve(rich); await flush(); render();
+  assert(strings(tree).includes('Plain draft note')); assert(!strings(tree).includes('Floral floral')); assert(!strings(tree).includes('Final score'));
+  assert(!strings(tree).includes('Roast notes'), 'missing source never creates roast placeholder or invented note');
+  props = { ...props, inactive: true }; render(); runEffects(); assert(!strings(tree).includes('Plain draft note'));
+  console.log('PASS Legacy expanded source-local notes/coloured pills/dedup/icons/cups/neutral attribution/canonical components/immutability plus validated physical1/2/5/8 compact labels with safe fallback, canonical expanded/provenance retained, inactive/loading/error/stale-count guards, unchanged rotation/glyph geometry, deferred pooled events and card lifecycle. Software only; native owner acceptance pending.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

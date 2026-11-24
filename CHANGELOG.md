@@ -10,6 +10,12 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ## [2026-11-24] — Codex PM/Release Manager
 
+- UI-LEGACY-009 aligns expanded Legacy sample drawers with the approved design:
+  source-labelled notes and their recorded descriptor pills, neutral per-cup
+  defect icons, canonical cup assessments, and roast observations above Final
+  score. Existing headers, calculations and CVA drawers are unchanged. CVA
+  drawer work follows a separate Legacy appearance checkpoint.
+
 - UI-LEGACY-002 improves Legacy session sample cards with a precise single-row
   saved-score summary and separate expandable details for source-labelled notes,
   cup assessments, defects and final results. Existing open, removal and inactive

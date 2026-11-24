@@ -456,6 +456,15 @@ separate 44-point chevron expands saved details; tapping the permitted header
 or score region opens the tasting form. Inactive cards show no saved scores or
 notes. Keep optional details grouped by their actual saved source, with roast
 details above the final score and its canonical result/provenance label.
+Legacy expanded drawers label identity and process separately. Fragrance /
+Aroma and General notes retain their distinct saved sources, neutral note
+surfaces and source-local dictionary-coloured descriptor pills. Derive pills
+read-only from each note; never move descriptors or rename general notes as
+flavour-only. Use existing decorative defect glyphs in neutral labelled pills
+with exact physical cup numbers. Keep shared Defect notes separate from bean/
+roast attribution, retain canonical Cup assessment values, and explain roast
+observations have no score deduction. Show Roast notes only from a dedicated
+saved roast-note source; do not invent one from shared text.
 
 The eight score summary boxes on the Active Session screen indicate whether each cupping attribute has been scored and whether it is final.
 
