@@ -28,3 +28,14 @@
 - **Limits:** No new native build/install, Metro feature-branch serving or data operation. Native phone height/readability acceptance remains a separate owner checkpoint after protected integration and usual-main refresh; CVA implementation remains deferred.
 
 Exact source/test/bundle and independent review/integration evidence follow. Native binary/signing/NFC/storage gates N/A for this pure JS geometry change. Native height/readability acceptance pending. Final commit/PR/main pending. Author performs no push, merge, main/Metro or changelog edit.
+
+### Exact author validation —24 November2026
+
+Runtime **636a4ad0ea0393cc70aa5db8dbe8c3f22028ae3b**; clean tree during validation. Official verified Node22.14.0 reused from `../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node` without dependency changes.
+
+- `node22 scripts/legacy-sample-card-check.js`: **PASS**, retained full actual card/lifecycle, rotation, native-event/deferred-updater and stale measurements coverage, plus compact48threshold/rounding and larger-glyph growth. Both raw fractional width44.01 and upright total height can grow the row above48; no clipping/shrinking introduced.
+- `node22 scripts/participant-parity-finish-check.js`: **PASS**, all eight SQLite/two-device/UI parity groups; no permission/CVA assertion changes.
+- `node22 node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-legacy-007-ios/main.jsbundle --assets-dest output/ui-legacy-007-ios --dev false`: **PASS**,769modules/fourassets. Ignored entry registers candidate `../App`. Bundle SHA256 **14033a1432488951d9728b74f83a860316240b8e24a9a2100f11138e4dac5949**. JavaScript bundle only, no new native binary/install.
+- `git diff --check`: **PASS**. Production diff against fd423c9 is exactly one64→48 height-floor line; LegacySampleCard.js, all other source/tokens/width/alignment and CVA unchanged. Guide diff only updates the declared minimum.
+
+Final runtime **636a4ad**; following documentation-only commit records evidence. Independent review, protected prospective/head/PR/merge/post-merge and actual phone acceptance remain pending. CVA implementation has not started.
