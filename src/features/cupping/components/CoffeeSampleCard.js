@@ -18,6 +18,7 @@ import { normalizeTotalScore, ScoreRow } from "../../style-guide/components/Scor
 import { getProcessLabel } from "../constants/sessionDetails";
 import { BEAN_DEFECT_OPTIONS, ROAST_DEFECT_OPTIONS } from "./DefectsSection";
 import { KeywordPillRow } from "./KeywordPillRow";
+import { cvaCardHeaderPresentation } from "./cvaCardHeaderPresentation";
 
 const FRAGRANCE_AROMA_FIELDS = ["Fragrance", "Aroma"];
 const FLAVOUR_FIELDS = ["Flavour", "Aftertaste", "Acidity", "Sweetness", "Mouthfeel", "Overall"];
@@ -113,6 +114,7 @@ export function CoffeeSampleCard({
   const isComplete = !inactive && Boolean(status?.isComplete);
   const finalScore = inactive ? null : normalizeTotalScore(status?.finalScore);
   const totalScore = finalScore;
+  const header = cvaCardHeaderPresentation(sample, status, finalScore, inactive);
   const scoresByField = status?.scoresByField || {};
   const hasScoreBreakdown = !inactive && (Boolean(status?.hasAnyFeedback) || Object.keys(scoresByField).length > 0);
   const scoreItems = hasScoreBreakdown
@@ -239,16 +241,20 @@ export function CoffeeSampleCard({
                 </Pressable>
               ) : null}
             </View>
-            {showRemove && !inactive ? <IconButton name="close"
-              onPress={handleRemovePress}
-              disabled={removeDisabled}
-              accessibilityLabel={`Remove sample ${displaySampleNumber}`}
-              color={removeDisabled ? colors.muted : colors.inkSoft}
-            /> : null}
+            <View style={[styles.headerActions, { gap: spacing.sm * scale }]}>
+              {header.saved ? <Text style={styles.savedStatus}>Saved</Text> : null}
+              {showRemove && !inactive ? <IconButton name="close"
+                onPress={handleRemovePress}
+                disabled={removeDisabled}
+                accessibilityLabel={`Remove sample ${displaySampleNumber}`}
+                color={removeDisabled ? colors.muted : colors.inkSoft}
+              /> : null}
+            </View>
           </View>
 
           <ScoreRow scores={scoreItems} totalScore={totalScore} scale={scale} rotatedSummary />
-          {!inactive && status?.resultLabel ? <Text style={styles.sectionLabel}>{status.resultLabel}</Text> : null}
+          {header.subtitle ? <Text style={styles.summaryLabel}>{header.subtitle}</Text> : null}
+          {header.warning ? <Text style={styles.sectionLabel}>{header.warning}</Text> : null}
           {inactive ? <Text style={styles.sectionLabel}>Scan cup to include in your tasting</Text> : null}
           {inactive && !sample.identityHidden ? <View style={styles.fieldBlock}>
             <Text style={styles.sectionValue}>{sample.coffeeNameOrigin || "Coffee not set"}</Text>
@@ -378,7 +384,7 @@ export function CoffeeSampleCard({
             </View>
           </View>
 
-          {isComplete && (finalScore != null || status?.resultLabel) ? (
+          {finalScore != null || header.provenance ? (
             <>
               <View style={styles.divider} />
               <View
@@ -389,6 +395,7 @@ export function CoffeeSampleCard({
               >
                 <Text style={styles.sectionLabel}>Final Score</Text>
                 <Text style={[styles.finalScoreText, { marginTop: 2 * scale }]}>{finalScore == null ? '—' : finalScore.toFixed(2)}</Text>
+                {header.provenance ? <Text style={styles.sectionLabel}>{header.provenance}</Text> : null}
               </View>
             </>
           ) : null}
@@ -417,6 +424,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  headerActions: { flexDirection: "row", alignItems: "center" },
+  savedStatus: { ...typography.text_secondary_body, color: colors.inkSoft },
+  summaryLabel: { ...typography.text_caption, color: colors.inkSoft, letterSpacing: 0, textTransform: "none", textAlign: "right" },
   sampleLabel: {
     ...typography.text_section_title,
     letterSpacing: 0,
