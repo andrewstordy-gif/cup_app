@@ -15,10 +15,15 @@ function defectDescriptions(masks, types) {
   });
 }
 
-// Present the repository-validated committed response only. Never score a draft.
+// Present committed responses only. Complete results are repository-validated;
+// incomplete drafts can retain invalid/unassessed judgments. Never score them.
 function legacyCardPresentation(saved) {
   const response = saved?.response;
   const result = saved?.complete && saved?.result?.ok ? saved.result : null;
+  const defect = response?.scored_defect;
+  const severity = defect?.kind === 'taint' ? 'Taint' : defect?.kind === 'fault' ? 'Fault' : '';
+  const affected = defect?.affected_cups;
+  const knownCups = Array.isArray(affected) && affected.length > 0 && affected.every(cup => Number.isInteger(cup) && cup >= 1 && cup <= 8);
   const componentText = key => {
     const fraction = result?.components?.[key];
     if (!fraction) return null;
@@ -36,7 +41,7 @@ function legacyCardPresentation(saved) {
     defectNotes: text(response?.defect_description), roastNotes: text(response?.roast_level_note),
     beanDefects: defectDescriptions(response?.bean_defect_type_masks, BEAN_TYPES),
     roastDefects: defectDescriptions(response?.roast_defect_type_masks, ROAST_TYPES),
-    scoredDefect: response?.scored_defect?.kind ? `${response.scored_defect.kind === 'taint' ? 'Taint' : 'Fault'} · Cups ${response.scored_defect.affected_cups.join(', ')}` : '',
+    scoredDefect: severity ? `${severity} · ${knownCups ? `Cups ${affected.join(', ')}` : 'Cups not assessed'}` : '',
     checks: [['uniformity', 'Uniformity'], ['sweetness', 'Sweetness'], ['clean_cup', 'Clean Cup'], ['defect_deduction', 'Defect deduction']]
       .map(([key, label]) => ({ key, label, value: componentText(key) })),
   };

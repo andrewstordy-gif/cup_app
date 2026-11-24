@@ -36,6 +36,12 @@ assert.equal(empty.total, null); assert(empty.quality.every(row => row.value ===
 const draft = legacyCardPresentation({ response: { quality_ratings: { fragrance_aroma: 0, flavor: 39 } }, complete: false, result: saved().result });
 assert.equal(draft.quality[0].value, '0.00'); assert.equal(draft.quality[1].value, '9.75');
 assert.equal(draft.total, null); assert(draft.checks.every(row => row.value === null), 'unscored cup checks stay unscored');
+for (const affected_cups of [null, undefined, [], '1', [null], [99]]) {
+  const incomplete = legacyCardPresentation({ response: { scored_defect: { kind: 'taint', affected_cups } }, complete: false });
+  assert.equal(incomplete.scoredDefect, 'Taint · Cups not assessed', 'incomplete defect judgments never crash or invent a cup');
+  assert.equal(incomplete.total, null);
+}
+assert.equal(legacyCardPresentation({ response: { scored_defect: { kind: 'unknown', affected_cups: [1] } } }).scoredDefect, '', 'unknown severity is never guessed as Fault');
 const zero = saved(5);
 zero.response.quality_ratings = Object.fromEntries(fields.map(key => [key, 0]));
 zero.response.consistent_cups = []; zero.response.sweet_cups = []; zero.response.clean_cups = [];

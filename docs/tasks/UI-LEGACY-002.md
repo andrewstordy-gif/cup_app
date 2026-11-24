@@ -34,6 +34,7 @@
 - **Limitations:** No physical iPhone, NFC or native Dynamic Type verification. Independent reviewer is checking actual-card RN-web geometry separately; browser evidence does not certify native hardware. Later stages remain deferred, including CVA design, descriptor pills and defect badges. No release metadata, distribution or main integration performed.
 - **Changelog-worthy:** Legacy session sample cards now show precise saved score summaries with expandable source-labelled notes, cup checks, defects and final results while preserving existing open/remove/inactive behaviour.
 - PM visual refinement after preliminary screenshots: omit the redundant outer Roast heading, retaining Roast notes/Roast defects headings and their shared divider grouping. No other layout or data change.
+- Independent pre-review robustness finding corrected: incomplete saved Legacy rows may retain invalid/unassessed judgments even though completed results are validated. Guard missing/malformed scored-defect affected-cup arrays and unknown severity; display Cups not assessed for a known incomplete severity instead of crashing or guessing cup membership. Added draft regressions; no scoring/validation changes.
 
 ## Review / integration evidence
 
