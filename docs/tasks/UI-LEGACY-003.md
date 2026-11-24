@@ -45,6 +45,12 @@ Final implementation runtime: **6c11c4e**. A following documentation-only handof
 
 ## Review / Definition of Done
 
+### PM development-client handoff, 24 November
+
+- After Release Manager exact-post-merge PASS, fast-forwarded clean usual main checkout to 834deaf3. Existing Metro session23693 serves this source; no duplicate server or native build/install/data operation.
+- Reload initially found no connected client. Reopened the existing Cup development client using devicectl with the same exp+cup Metro URL; launch succeeded at12:38:20UTC. Metro then reported iOS bundle456ms from Expo AppEntry. This is launch/bundle evidence only, not visual confirmation of intact digits.
+- Andrew's next bounded check: open the same Legacy session and inspect Overall10.00 on the previous sample cards. Native owner acceptance remains pending; the original screenshot failure has not yet been marked resolved. On sufficiently narrow screens, measured full-width scores can require horizontal scrolling, as recorded above.
+
 ### Independent review — 24 November 2026
 
 - **PASS for scoped software implementation, QA and UX/accessibility review**, reviewer `/root/legacy_card_review`, different instance from author. Reviewed exact runtime **6c11c4e2bd4118b30e8980650aa8b3a40bb7df12**, plus documentation-only handoff **42d5a9c901271b53175d2493c606a1809207b3bb**. Complete diff inspected against named main **ae46f945**; only the two declared Legacy source files, their probe and this task changed. No unresolved software findings; this is approval to proceed to prospective integration, not native owner acceptance or a merge action.
