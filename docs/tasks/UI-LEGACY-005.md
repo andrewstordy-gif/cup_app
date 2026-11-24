@@ -1,6 +1,6 @@
 # UI-LEGACY-005 — Shared rotated score-number design proposal
 
-- **Status:** Design exploration requested by Andrew, 24 November 2026; no production implementation authorized by this record.
+- **Status:** Andrew approved the currently shown design on24 November2026: clockwise quality numbers, two decimal places, upright labels and upright13-point total. Implementation staged under UI-LEGACY-006 (Legacy first); CVA waits for the Legacy phone checkpoint.
 - **Objective:** Preview both CVA and Legacy score numbers at the existing CVA nominal size/weight, rotated90 degrees with two decimal places, following Andrew's subsequent request for matching presentation. Keep attribute labels upright and every value visible within the card in the preview.
 - **Authority:** Andrew says the scores are now present after UI004 but look too small compared with CVA; requests trying sideways numbers. PRODUCT_SPEC6.5 exact independent Legacy meaning/precision; UI_STYLE_GUIDE; existing CVA ScoreRow source is reference, not product policy.
 - **Scope/files:** This coordination record; conversation-only preview at /Users/andrewstordy/.codex/visualizations/2026/10/01/01a0f756-62fe-7000-ad2f-08245b4001db/legacy-rotated-scores.html. No runtime, score, storage, NFC, native build, Metro or main changes. Design work on existing PM coordination branch codex/china-testflight; implementation would require a separately approved isolated task.
@@ -8,6 +8,8 @@
 - **PM/author:** /root, proposal only. Product Owner chooses direction/treatment before implementation; independent UX/accessibility/native layout review required for future implementation.
 
 ## Design criteria
+
+- Implementation authorization: Andrew said lets go with that design. PM retains the earlier staged-change agreement: UI-LEGACY-006 on codex/ui-legacy-006-rotated implements the Legacy compact row only, followed by native owner review; matching CVA implementation is a separate later task. No simultaneous full-card/CVA/tasting/NFC/storage redesign.
 
 - Latest owner refinement: keep the total/final-score number upright on both cards. Andrew also asked whether its size matches other numbers; the prior preview used11 for totals and13 for attributes. Updated totals to13/700 to match the other score numbers, default Rotate total too OFF, and reserve56px minimum total-column width for full upright values including100.00. Attribute numbers remain rotated; labels remain upright. Preview-only change, superseding earlier total-size/default descriptions.
 
