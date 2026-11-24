@@ -35,7 +35,7 @@ Each entry should include the date, the agent that made the change, and a short 
   bounds preserve digits and text scaling. Expanded results and CVA are unchanged;
   the Legacy phone checkpoint precedes any CVA implementation.
 
-- UI-LEGACY-007 shortens the approved centred Legacy score boxes to a48-point
+- UI-LEGACY-007 shortens the approved centred Legacy score boxes to a 48-point
   minimum, retaining native measured growth when larger glyphs need more room.
   Font, rotation, alignment, widths, CVA and all other behaviour are unchanged.
   The Legacy owner-phone height checkpoint remains before CVA implementation.
