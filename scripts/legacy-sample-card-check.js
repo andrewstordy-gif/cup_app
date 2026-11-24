@@ -5,7 +5,7 @@ const path = require('node:path');
 const Module = require('node:module');
 const { transformSync } = require('@babel/core');
 const { PROFILE, resolveForm, scoreResponse } = require('../src/features/forms/contract');
-const { legacyCardPresentation, legacyCardScoreLayout } = require('../src/features/forms/legacy/legacyCardPresentation');
+const { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement } = require('../src/features/forms/legacy/legacyCardPresentation');
 const root = path.resolve(__dirname, '..');
 const fields = ['fragrance_aroma', 'flavor', 'aftertaste', 'acidity', 'body', 'balance', 'overall'];
 const cups = n => Array.from({ length: n }, (_, i) => i + 1);
@@ -56,13 +56,29 @@ typed.response.scored_defect = { kind: 'taint', affected_cups: [1] };
 assert.deepEqual(legacyCardPresentation(typed).beanDefects, ['Phenolic · Cup 1']);
 assert.deepEqual(legacyCardPresentation(typed).roastDefects, ['Baked · Cup 1']);
 
+const nativeWidths = { quality: 36, totalLimit: 44, totalActual: 42 };
 for (const width of [320, 375, 390]) {
   const scale = Math.max(width / 616, 0.58), available = width - 32 - 2 - 12 * scale;
-  const layout = legacyCardScoreLayout(available, 1, scale);
-  assert(layout.contentWidth <= available + 0.001, `single row fits ordinary ${width}pt screen`);
-  assert(layout.qualityWidth >= 32, '10.00 precision is not squeezed');
-  assert(legacyCardScoreLayout(available, 2, scale).contentWidth > available, 'larger text gets scrollable width');
+  const layout = legacyCardScoreLayout(available, 1, scale, nativeWidths);
+  assert(layout.qualityWidth >= 39, 'native five-character 10.00 width has both borders and rounding allowance');
+  assert(layout.totalWidth >= 47, 'native six-character 100.00 width retains all digits');
+  assert(width === 320 ? layout.contentWidth > available : layout.contentWidth <= available + 0.001,
+    `${width}pt keeps an exact single row, scrolling only if measured native cells cannot fit`);
+  const enlargedWidths = { quality: 68, totalLimit: 83, totalActual: 80 };
+  const enlarged = legacyCardScoreLayout(available, 2, scale, enlargedWidths);
+  assert.equal(enlarged.totalWidth, 86, 'native measurements are already font-scaled; never multiply them twice');
+  assert(enlarged.contentWidth > available, 'larger text gets scrollable width');
+  assert(legacyCardScoreLayout(available, 1, scale).qualityWidth >= 63, 'delayed measurements use generous scrollable bootstrap, not old 32pt guess');
 }
+const measureEvent = width => ({ nativeEvent: { lines: [{ width }] } });
+let measurement = { key: '1:100.00', widths: {} };
+measurement = recordLegacyScoreMeasurement(measurement, measurement.key, 'quality', measureEvent(35.44));
+assert.equal(measurement.widths.quality, 36, 'native fractional glyph width rounds upward');
+assert.strictEqual(recordLegacyScoreMeasurement(measurement, measurement.key, 'quality', measureEvent(35.44)), measurement, 'same native geometry does not create a state loop');
+for (const invalid of [measureEvent(NaN), measureEvent(0), measureEvent(Infinity), measureEvent(10000), { nativeEvent: { lines: [{ width: 20 }, { width: 10 }] } }, null]) {
+  assert.strictEqual(recordLegacyScoreMeasurement(measurement, measurement.key, 'quality', invalid), measurement);
+}
+assert.strictEqual(recordLegacyScoreMeasurement(measurement, '2:100.00', 'quality', measureEvent(68)), measurement, 'stale native text callbacks cannot overwrite current geometry');
 
 // Execute the real JSX and hooks with native hosts substituted, including
 // effect cleanup, async replies and prop changes. This is not device evidence.
@@ -127,6 +143,28 @@ async function main() {
   render(); assert(strings(tree).includes('Loading saved assessment')); runEffects(); await flush(); assert.equal(reads, 1);
   first.resolve(saved()); await flush(); render();
   assert(strings(tree).includes('Total score: 86.00'));
+  const probes = () => findAll(tree, node => node.type === 'Text' && typeof node.props.onTextLayout === 'function');
+  const probe = value => probes().find(node => node.props.children[0] === value);
+  assert.equal(probes().length, 3, 'same native Text style measures max quality, max total and actual total');
+  const hidden = findAll(tree, node => node.props?.importantForAccessibility === 'no-hide-descendants')[0];
+  assert.equal(hidden.props.accessible, false); assert.equal(hidden.props.accessibilityElementsHidden, true);
+  assert.equal(hidden.props.pointerEvents, 'none'); assert.equal(hidden.props.style.width, 10000);
+  assert.equal(hidden.props.style.opacity, 0, 'probes do not appear or receive interaction');
+  const oldQualityCallback = probe('10.00').props.onTextLayout;
+  probe('10.00').props.onTextLayout(measureEvent(35.44));
+  probe('100.00').props.onTextLayout(measureEvent(43.32));
+  probe('86.00').props.onTextLayout(measureEvent(35.44)); render();
+  const qualityCell = findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0];
+  assert.equal(qualityCell.props.style.width, 39, 'actual card applies measured native glyph width plus borders');
+  props = { ...props, fontScale: 2 }; render();
+  oldQualityCallback(measureEvent(20)); render();
+  assert(findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0].props.style.width >= 123, 'old font-scale callback cannot shrink current fallback');
+  probe('10.00').props.onTextLayout(measureEvent(67.37));
+  probe('100.00').props.onTextLayout(measureEvent(82.5));
+  probe('86.00').props.onTextLayout(measureEvent(67.37)); render();
+  assert.equal(findAll(tree, node => node.props?.accessibilityLabel === 'Fragrance / Aroma: 8.00')[0].props.style.width, 71);
+  const allText = findAll(tree, node => node.type === 'Text');
+  assert(allText.every(node => node.props.allowFontScaling !== false && !node.props.adjustsFontSizeToFit && node.props.ellipsizeMode == null), 'no scaling disable, shrink-to-fit or clipping/ellipsis remedy');
   const header = findAll(tree, node => node.type === 'Pressable' && node.props.accessibilityLabel?.startsWith('Open Legacy sample'));
   assert.equal(header.length, 2, 'header and score row can open tasting'); header.forEach(button => button.props.onPress()); assert.equal(opens, 2);
   findButton('Expand sample A1').props.onPress(); render(); runEffects();
@@ -161,6 +199,26 @@ async function main() {
   assert(strings(tree).includes('Recovered committed note')); assert(!strings(tree).includes('Final score'));
   props = { ...props, sessionId: null }; render(); runEffects(); assert(!strings(tree).includes('Recovered committed note'), 'unsaved/DRAFT read suppression clears loaded data');
 
-  console.log('PASS Legacy sample card: canonical 1/5/8-cup values, zero/draft/empty, provenance, notes mapping, normal/enlarged geometry, actual JSX/hooks open/expand/remove separation, note-only refresh, stale replies, inactive suppression and generic errors/retry. Software only.');
+  const maximum = saved(5); maximum.response.quality_ratings = Object.fromEntries(fields.map(key => [key, 40]));
+  maximum.result = scoreResponse({ profile: PROFILE, f: 2, identity, cup_count: 5, response: maximum.response }, { profile: PROFILE, f: 2, identity });
+  props = { ...props, sessionId: 'session-max', fontScale: 1, readSavedAssessment: () => Promise.resolve(maximum) };
+  render(); runEffects(); await flush(); render();
+  assert.equal(findAll(tree, node => node.props?.accessibilityLabel?.match(/^(Fragrance \/ Aroma|Flavour|Aftertaste|Acidity|Body|Balance|Overall): 10\.00$/)).length, 7);
+  assert(strings(tree).includes('Total score: 100.00'), 'all longest values remain exact');
+  const oldTotalCallback = probe('100.00').props.onTextLayout;
+  for (const total of ['-20.00', '0.00', '-0.00']) {
+    props = { ...props, readSavedAssessment: () => Promise.resolve({ ...maximum, result: { ...maximum.result, display_score: total } }) };
+    render(); runEffects(); await flush(); render();
+    oldTotalCallback(measureEvent(10)); render();
+    const actual = probe(total); assert(actual, `${total} is measured without losing signs/zero`);
+    actual.props.onTextLayout(measureEvent(total === '-20.00' ? 45.2 : 29));
+    probe('100.00').props.onTextLayout(measureEvent(43.32));
+    probe('10.00').props.onTextLayout(measureEvent(35.44)); render();
+    assert(strings(tree).includes(`Total score: ${total}`));
+    const totalCell = findAll(tree, node => node.props?.accessibilityLabel === `Total score: ${total}`)[0];
+    assert(totalCell.props.style.width >= (total === '-20.00' ? 49 : 47), 'actual longer negative total drives its cell width');
+  }
+
+  console.log('PASS Legacy sample card: canonical 1/5/8-cup values, zero/draft/empty, provenance, notes mapping, native glyph measurement callback/context guards, full10.00/100.00/negative/zero values, normal/enlarged scrolling geometry, actual JSX/hooks open/expand/remove separation, note-only refresh, stale replies, inactive suppression and generic errors/retry. Software only; native owner acceptance pending.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

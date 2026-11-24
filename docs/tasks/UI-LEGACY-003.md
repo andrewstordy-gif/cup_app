@@ -1,6 +1,6 @@
 # UI-LEGACY-003 — Keep exact Legacy score values on one line
 
-- **Status:** Approved for implementation, 24 November 2026.
+- **Status:** Implementation ready for independent review; native owner acceptance pending, 24 November 2026.
 - **Authority:** Andrew approved correcting the 10.00 wrapping first after comparing the physical-device screenshot with the mockup. Stage 1 is main ae46f94589729aec3c3d9bf0a98628bde1e77004 (PR22).
 - **Product/UI references:** PRODUCT_SPEC §6.5 (exact Legacy quarter-point marks), §6.8.1 (card opening/expansion), FR-035; UI_STYLE_GUIDE typography/responsive/accessibility rules. Existing form/result/NDEF contracts unchanged.
 - **Evidence:** Screenshot 2026-11-24 at 12.19.01.png shows Overall 10.00 split into 10.0 and 0 on samples 3L and 05. REL-DEV-STAGE1 on codex/rel-dev-stage1 records this native Stage 1 failure. Previous browser/geometry checks did not prove five-character values fit native Text.
@@ -22,7 +22,14 @@
 
 ## Handoff / evidence
 
-Pending. Record exact implementation/review/test/prospective/merge commits, commands, limitations and changelog-worthy note. All validation must distinguish software from actual phone evidence; preserve the prior native FAIL until superseded by real owner evidence.
+- **Author:** /root/legacy_card_stage1. Allowed production changes are confined to LegacySampleCard.js and legacyCardPresentation.js; regression changes only in scripts/legacy-sample-card-check.js. No source edits to CVA, callbacks/navigation, scoring, persistence, NFC, typography tokens, package/native configuration or release metadata.
+- **Correction:** Same-style, unbounded hidden native Text probes measure 10.00, 100.00 and the actual total through onTextLayout. Probe view is 10000pt wide (not constrained by score cells), invisible, noninteractive and excluded from accessibility. Recorded glyph widths round upward and receive three layout points for both 1pt borders plus native rounding. Existing equal-quality-cell row uses those measured minima; total uses the larger maximum/actual measured total. Font sizes, fontVariant and OS text scaling are unchanged; no truncation, ellipsis or shrink-to-fit property was added.
+- **Before native callbacks:** Generous character-count × current typography size × OS scale bootstrap dimensions preserve full values in the existing horizontal scroll row rather than immediately squeezing into an unverified 32pt cell. Native events replace the bootstrap. Content/font-scale keys reset measurements before commit; stale-key, malformed, nonfinite, zero, multiline or constrained-width callbacks are ignored; identical rounded widths retain the same state object to prevent layout feedback loops.
+- **Ordinary narrow-screen tradeoff:** Independent reviewer macOS AppKit tabular semibold12 measurement found 10.00≈35.44pt and 100.00≈43.32pt before borders (not iOS proof). With safe boundaries the worst-case full row needs about328pt, exceeding about279pt available at320. PM explicitly approved the existing horizontal-scroll fallback at320 when intrinsic widths cannot fit; 375/390 should keep the full row visible when measured metrics allow. No typography shrink or hidden precision is accepted to force-fit. This is source-only; no new signed/native build is needed.
+- **Regression:** Actual JSX/hooks checks now exercise native measurement callbacks and context changes, invalid/duplicate/stale events, full seven10.00 values plus100.00, actual negative/zero/signedzero totals, normal/enlarged measured widths, initial delayed-measurement safety and unchanged open/expand/remove/read lifecycle. Native-width fixtures corroborate geometry but are not device acceptance.
+- **Initial check:** Existing card check with new cases PASS before commit. Exact source commit, scoped participant parity and bundle results follow after stable commit.
+- **Changelog-worthy:** Legacy score summaries size cells from native text measurements, preserving complete exact values instead of wrapping digits; narrow/enlarged layouts scroll when needed.
+- **Device limit:** Owner screenshot's native FAIL remains unresolved until the reviewed fix is protected-merged, clean main is synchronized and the existing development client reloads through Metro, followed by Andrew's actual-phone confirmation. No feature-branch serving, installation, data operation or hardware claim performed.
 
 ## Review / Definition of Done
 

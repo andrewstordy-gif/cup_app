@@ -47,10 +47,24 @@ function legacyCardPresentation(saved) {
   };
 }
 
-function legacyCardScoreLayout(width, fontScale = 1, scale = 1) {
+function recordLegacyScoreMeasurement(previous, key, metric, event) {
+  if (previous.key !== key || !['quality', 'totalLimit', 'totalActual'].includes(metric)) return previous;
+  const lines = event?.nativeEvent?.lines;
+  const width = lines?.[0]?.width;
+  if (!Array.isArray(lines) || lines.length !== 1 || !Number.isFinite(width) || width <= 0 || width >= 10000) return previous;
+  const measured = Math.ceil(width);
+  if (previous.widths[metric] === measured) return previous;
+  return { key, widths: { ...previous.widths, [metric]: measured } };
+}
+
+function legacyCardScoreLayout(width, fontScale = 1, scale = 1, measured = {}, fontSize = 12) {
   const gap = 2 * scale;
-  const totalWidth = 44 * fontScale;
-  const qualityWidth = Math.max(32 * fontScale, (width - totalWidth - gap * 7) / 7);
+  // Until native same-style glyph measurements arrive, leave generous intrinsic
+  // space and scroll. Never squeeze a five-character value into a guessed 32pt.
+  // Three layout points cover both 1pt borders and native rounding.
+  const totalWidth = Math.max(measured.totalLimit || fontSize * 6 * fontScale, measured.totalActual || fontSize * 6 * fontScale) + 3;
+  const qualityMinimum = (measured.quality || fontSize * 5 * fontScale) + 3;
+  const qualityWidth = Math.max(qualityMinimum, (width - totalWidth - gap * 7) / 7);
   return { gap, totalWidth, qualityWidth, contentWidth: qualityWidth * 7 + totalWidth + gap * 7 };
 }
-module.exports = { legacyCardPresentation, legacyCardScoreLayout };
+module.exports = { legacyCardPresentation, legacyCardScoreLayout, recordLegacyScoreMeasurement };
