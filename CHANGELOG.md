@@ -8,6 +8,15 @@ Each entry should include the date, the agent that made the change, and a short 
 
 ---
 
+## [2026-11-24] — Codex PM/Release Manager
+
+- UI-LEGACY-002 improves Legacy session sample cards with a precise single-row
+  saved-score summary and separate expandable details for source-labelled notes,
+  cup assessments, defects and final results. Existing open, removal and inactive
+  card behaviour is preserved. CVA cards, scoring, storage and NFC are unchanged.
+  This is the first staged card update; flavour pills and defect badges remain
+  deferred. No new app build has been distributed.
+
 ## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet

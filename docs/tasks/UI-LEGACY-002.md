@@ -1,6 +1,6 @@
 # UI-LEGACY-002 — Legacy sample card structure, Stage 1
 
-- **Status:** Implementation complete; awaiting independent review, 24 November 2026.
+- **Status:** Independent review PASS; controlled integration validation in progress, 24 November 2026.
 - **Product references:** PRODUCT_SPEC §§6.5, 6.8.1–6.8.5; FR-010, FR-013/014 (preserve existing identity boundary), FR-035. UI_STYLE_GUIDE is mandatory.
 - **Technical references:** Existing versioned Legacy response/result contract and read API; NDEF_PROTOCOL unchanged.
 - **Objective:** Implement the approved Legacy-only sample-card structure using existing saved data. Deliver one bounded, independently reviewed increment before CVA or later presentation work.
@@ -67,9 +67,24 @@ No diff to CoffeeSampleCard.js, sessionRepository.js, form-contract definitions 
 - Inspected author's exact iOS bundle evidence and independently verified output hash **09b18672f9744432123bdc6f05063abae1c7aaa2c2f80f6e6528fa668f3d9f88**; reviewer did not rerun Metro bundling. The bundle is not a signed or installed app.
 - **Remaining gates:** Release Manager must verify current main/clean provenance, validate the prospective integrated result before merge, use protected PR integration and run post-merge checks on the exact main commit. No physical/device or full Pilot-Ready claim is authorized by this PASS.
 
+### Release preparation — 24 November 2026
+
+- Release Manager `/root/legacy_card_release`, separate from implementation author and independent reviewer, received PM authorization after durable independent PASS **2d5d7f3**. No runtime difference from reviewed **ca18a5b**. Scoped changelog consolidation is the only additional non-task-document edit; no production changes during release preparation.
+- Live repository access confirmed via connected GitHub tools. Main protection: administrators enforced, PR rule present with zero required approvals, no required status checks, force pushes and deletion disabled. Consequently GitHub green/mergeable status does not replace durable independent review or process validation.
+- Local main/origin/main/live main were **8c0c49b3a8110cb80aab696561efac16946c2319** during preparation. Prospective integration and protected PR evidence follow below; no direct main push or distribution is permitted.
+
 ## Definition of Done
 
-Pending acceptance, implementation checks, UI/accessibility review, independent approval and clean task branch. No storage/identity policy changes: security review focuses on new rendering/read boundaries. Native hardware remains unverified until actual owner testing; no NFC semantics change. Distribution is a separate release step after this implementation gate. Every applicable gate must be recorded; no full pilot-readiness claim.
+- **PASS:** Scoped acceptance criteria — implementation/hook/canonical-result checks plus independent actual-card browser review, with truthful General notes/Defect notes mapping and no deferred pills/icons implied complete.
+- **PASS:** Appropriate automated checks added and affected existing checks pass. The unchanged saved-score-card fixture failure is explicitly baseline-equivalent before rendering; current affected-path regression probes pass.
+- **PASS:** iOS bundle validated on exact reviewed runtime. No signed binary or installation claimed.
+- **PASS:** Manual rendered browser UI review at 320/375/390 and emulated enlarged text; this is not native phone/VoiceOver/Dynamic Type/NFC validation. Native owner acceptance remains a separate user-test-build gate.
+- **PASS:** No unrelated runtime/refactoring/product changes; CVA, scoring, form definitions, persistence and NFC unchanged.
+- **PASS:** UI guide documents the bounded Legacy summary pattern; no behavioural/protocol/schema changes requiring canonical contract amendments.
+- **PASS:** Independent scoped code, UX/accessibility, QA and read-access/privacy review; findings resolved with exact commit evidence above.
+- **N/A — native hardware regression before software integration:** no native/NFC code, permission, entitlement or firmware behaviour changed. Physical user-test evidence is still required for any future device/release claim and is not waived.
+- **PASS:** Inspectable implementation history, clean task branch at review handoff, tests identify exact runtime, author/reviewer handoffs and changelog consolidation recorded.
+- **PENDING:** Prospective integrated-main validation before merge, protected PR/process approval, exact post-merge confirmation and final clean-state handoff. Until these are recorded the integration gate is not complete.
 
 ## Final references
 
