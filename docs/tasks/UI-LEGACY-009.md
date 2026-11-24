@@ -25,7 +25,7 @@ Andrew requested both drawers; do not lose the second stage. Canonical CVA prese
 
 ## Handoff / review / Definition of Done / release
 
-Implementation ready for exact-commit validation; review and integration pending.
+Implementation complete at source bc6cd2e713da34514fadf7c827c69890dc8ff84a; review and integration pending.
 
 ### Bounded test compatibility decision
 
@@ -41,13 +41,23 @@ PM approved adding scripts/creator-scan-activation-check.js after a reproduced f
 
 ### Validation / limitations
 
-Exact source/check and candidate bundle evidence follow after stable commit. Existing snapshot/error/retry/inactive behavior is exercised by actual JSX regression; added checks cover full section order, source-local colours/deduplication, icon names/cups, mixed defect-note isolation, canonical components/provenance, frozen saved/recovery bytes, no extra reads, cross-sample late replies and source-less draft omissions. No native/device/VoiceOver/NFC validation performed and no build/install/Metro/data operations. Independent actual-source320/390/enlarged browser inspection pending; browser evidence is not iOS proof. Legacy phone checkpoint precedes separately scoped CVA follow-up above.
+Exact source **bc6cd2e713da34514fadf7c827c69890dc8ff84a**, clean while checked. Runtime Node22.14.0 at ../ui-legacy-002/output/node22/node-v22.14.0-darwin-arm64/bin/node, previously verified official validation runtime. All commands below exited0:
+
+- `node scripts/legacy-sample-card-check.js`: PASS actual expanded JSX order/labels, real shared tokenizer/pills/source colours/dedup, existing glyph names and exact cups, neutral mixed-note attribution, canonical checks/total/provenance, frozen saved/recovery data and no extra reads; all existing header/rotated measurement/queued-event/lifecycle/retry/inactive tests retained.
+- `node scripts/cva-sample-card-check.js`: PASS unchanged CVA header/default ScoreRow/rotated-row regressions.
+- `node scripts/participant-parity-finish-check.js`: PASS two-form two-device actual SQLite, state/ownership/callback and exact parent-binding assertions.
+- `node scripts/creator-scan-activation-check.js`: PASS actual SQLite/restart and actual Details/card/scan/Nav, with the single authorized leaf mock described above; all privacy/activation assertions retained.
+- `node scripts/pending-blind-card-check.js`: PASS actual SQLite and card/screen JSX for Pending Blind/Open role/order masking and raw-data preservation.
+- `git diff --check`: PASS.
+- Explicit candidate-source iOS JavaScript bundle: PASS772modules/4assets. Command `node node_modules/expo/node_modules/@expo/cli/build/bin/cli export:embed --entry-file output/stage1-entry.js --platform ios --bundle-output output/ui-legacy-009-ios/main.jsbundle --assets-dest output/ui-legacy-009-ios --dev false`. Ignored entry imports registerRootComponent from expo and App from ../App, then registers App, explicitly resolving candidate App/src rather than the main checkout behind shared node_modules. Bundle SHA256 **0f906619f7547a353598d18cd5f9cccb08f820a0368c6a46745e4722b6608c5d**. Validation entry/bundle/runtime are ignored artifacts, no package/config changes.
+
+ Existing snapshot/error/retry/inactive behavior is exercised by actual JSX regression; added checks cover full section order, source-local colours/deduplication, icon names/cups, mixed defect-note isolation, canonical components/provenance, frozen saved/recovery bytes, no extra reads, cross-sample late replies and source-less draft omissions. No native/device/VoiceOver/NFC validation performed and no build/install/Metro/data operations. Independent actual-source320/390/enlarged browser inspection pending; browser evidence is not iOS proof. Legacy phone checkpoint precedes separately scoped CVA follow-up above.
 
 ### Definition of Done at author handoff
 
-- Task acceptance/appropriate regression/existing relevant checks/bundle: pending exact-commit evidence below.
+- Task acceptance/appropriate regression/existing relevant checks/bundle: PASS author software evidence above; independent visual review and phone appearance remain separate.
 - Scope and contract discipline: PASS, no unrelated refactoring or behavior/pins/schema/scoring changes; guide updated for scoped presentation.
 - UI/accessibility: existing caption/body/metric tokens and neutral colours, dictionary colours only actual saved-note matches; decorative icons and readable type/cup labels retained. Independent review/browser checks pending; physical VoiceOver and owner appearance N/A at author software gate, explicitly unverified.
 - Security/privacy/reliability: no access/data policy change; inactive/current-context/recovery exclusion regressions retained and expanded; independent saved-data-boundary review pending. Persistence/network/NFC/data-loss changes N/A because none made.
 - Independent findings/approval, prospective and exact postmerge checks: pending reviewer/Release Manager, no gate waived.
-- Clean inspectable history/handoff/changelog information: source and evidence commits follow; changelog note supplied above, Release Manager owns file.
+- Clean inspectable history/handoff/changelog information: PASS source bc6cd2e and evidence-only follow-up commit; changelog note supplied above, Release Manager owns file.
