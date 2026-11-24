@@ -419,6 +419,16 @@ Prefer dividers between rows rather than floating cards.
 
 ### Score Summary Boxes
 
+Legacy sample cards use seven exact two-decimal quality marks (`F/A`, `FL`,
+`AF`, `AC`, `BD`, `BA`, `OV`) plus the canonical total in a single horizontal
+summary row. Use the caption typography token without responsive font scaling;
+retain full attribute names in accessibility labels. At enlarged text sizes,
+allow horizontal scrolling rather than clipping or shrinking precision. A
+separate 44-point chevron expands saved details; tapping the permitted header
+or score region opens the tasting form. Inactive cards show no saved scores or
+notes. Keep optional details grouped by their actual saved source, with roast
+details above the final score and its canonical result/provenance label.
+
 The eight score summary boxes on the Active Session screen indicate whether each cupping attribute has been scored and whether it is final.
 
 - Size: `46 × 46` before scaling
