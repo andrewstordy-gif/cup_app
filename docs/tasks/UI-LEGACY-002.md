@@ -1,6 +1,6 @@
 # UI-LEGACY-002 — Legacy sample card structure, Stage 1
 
-- **Status:** Independent review and final prospective validation PASS; protected PR integration approved, 24 November 2026.
+- **Status:** Stage 1 software increment merged and post-merge validated, 24 November 2026. Owner phone acceptance awaits a separate user-test build; later card stages remain deferred.
 - **Product references:** PRODUCT_SPEC §§6.5, 6.8.1–6.8.5; FR-010, FR-013/014 (preserve existing identity boundary), FR-035. UI_STYLE_GUIDE is mandatory.
 - **Technical references:** Existing versioned Legacy response/result contract and read API; NDEF_PROTOCOL unchanged.
 - **Objective:** Implement the approved Legacy-only sample-card structure using existing saved data. Deliver one bounded, independently reviewed increment before CVA or later presentation work.
@@ -105,6 +105,14 @@ No diff to CoffeeSampleCard.js, sessionRepository.js, form-contract definitions 
 - Protected [PR #22](https://github.com/andrewstordy-gif/cup_app/pull/22) created as draft pending final gates. Connected GitHub read access works but mutation returned HTTP 403 Resource not accessible by integration; existing authenticated `gh` is used for authorized PR mutations. This was not an approval-review rejection and no permissions were changed.
 - Release Manager approves this bounded software increment for exact-head PR integration after final live head/base checks. No TestFlight/version/signing/build-distribution operation is authorized by this approval. Exact merge/post-merge evidence follows after the operation.
 
+### Protected merge and exact post-merge validation — 24 November 2026
+
+- Final PR head **67d8b610376c62ab324e27283af4b7b6a3935b26** differs from tested/re-reviewed **d482723** only in task evidence. `git diff --exit-code d482723 HEAD -- src scripts docs/UI_STYLE_GUIDE.md CHANGELOG.md` passed. Main live ref remained **8c0c49b**; final prospective merge tree equalled head tree **e0c1d6d851c9666012c8bf9e440033eeaf1c414f**. PR was non-draft/mergeable with the exact expected head/base; no CI statuses were configured, so explicit durable reviews and process checks supplied the gate.
+- Release Manager performed protected [PR #22](https://github.com/andrewstordy-gif/cup_app/pull/22) merge using `gh pr merge --merge --match-head-commit 67d8b610376c62ab324e27283af4b7b6a3935b26`, without admin bypass or direct main push. GitHub confirms merged at **2026-11-24 11:30:24 UTC**. Exact merged main **ae46f94589729aec3c3d9bf0a98628bde1e77004** has parents **8c0c49b** and **67d8b610**, and tree **e0c1d6d851c9666012c8bf9e440033eeaf1c414f**, byte-identical to the prospectively validated final candidate.
+- Checked out that exact actual main commit in the isolated detached validation worktree. All **11** final targeted probes listed above reran **PASS**, including participant-parity-finish's eight groups; `git diff --exit-code 67d8b610 HEAD` and clean-state checks passed. Post-merge logs/results remain under `output/ui-legacy-002-release/postmerge-*` in that checkout.
+- Fresh exact-main iOS bundle **PASS**, four assets (cached Metro reported 752 modules), same SHA256 **09b18672f9744432123bdc6f05063abae1c7aaa2c2f80f6e6528fa668f3d9f88**. Software/bundle evidence only: no native installation, NFC, VoiceOver or owner acceptance claimed.
+- Main/TestFlight runtime is not rewritten by this final evidence note. This post-merge task handoff is preserved on remote `codex/ui-legacy-002-stage1`; merged main contains the pre-merge approval/evidence snapshot. Keep the evidence branch/worktree until intentionally reconciled through a later protected documentation change. The existing main checkout and TestFlight installation were left undisturbed; no version/build/signing/upload/distribution action occurred.
+
 ## Definition of Done
 
 - **PASS:** Scoped acceptance criteria — implementation/hook/canonical-result checks plus independent actual-card browser review, with truthful General notes/Defect notes mapping and no deferred pills/icons implied complete.
@@ -117,8 +125,8 @@ No diff to CoffeeSampleCard.js, sessionRepository.js, form-contract definitions 
 - **N/A — native hardware regression before software integration:** no native/NFC code, permission, entitlement or firmware behaviour changed. Physical user-test evidence is still required for any future device/release claim and is not waived.
 - **PASS:** Inspectable implementation history, clean task branch at review handoff, tests identify exact runtime, author/reviewer handoffs and changelog consolidation recorded.
 - **PASS:** Prospective integrated-main validation before merge and Release Manager process approval, with exact candidate/base/tree recorded above.
-- **PENDING:** Controlled protected PR merge, exact post-merge confirmation and final clean-state handoff. Until these are recorded integration is not complete.
+- **PASS:** Controlled protected PR merge, exact post-merge confirmation and clean validation checkout. Scoped software integration is complete; installed-phone acceptance and distribution remain explicitly outside this software gate.
 
 ## Final references
 
-Implementation runtime commit: **ca18a5b1026e8615378c6f63489458c78d3032c2** (preceded by cb28b04 and 219ee6c). Test-only maintenance **e3f16d9**. Independent approvals **2d5d7f3** and **d482723**. Protected **PR #22**. Final prospective validation **d482723** against main **8c0c49b**. Merge/post-merge references pending.
+Implementation runtime commit: **ca18a5b1026e8615378c6f63489458c78d3032c2** (preceded by cb28b04 and 219ee6c). Test-only maintenance **e3f16d9**. Independent approvals **2d5d7f3** and **d482723**. Protected **PR #22**, merged head **67d8b610**. Final prospective validation **d482723** against main **8c0c49b**, with documentation-only final-head equivalence checked. Exact merged/post-merge-tested main: **ae46f94589729aec3c3d9bf0a98628bde1e77004**. Final post-merge documentation preserved on **codex/ui-legacy-002-stage1**.
