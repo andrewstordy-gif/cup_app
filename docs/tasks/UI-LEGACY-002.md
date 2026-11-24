@@ -73,6 +73,14 @@ No diff to CoffeeSampleCard.js, sessionRepository.js, form-contract definitions 
 - Live repository access confirmed via connected GitHub tools. Main protection: administrators enforced, PR rule present with zero required approvals, no required status checks, force pushes and deletion disabled. Consequently GitHub green/mergeable status does not replace durable independent review or process validation.
 - Local main/origin/main/live main were **8c0c49b3a8110cb80aab696561efac16946c2319** during preparation. Prospective integration and protected PR evidence follow below; no direct main push or distribution is permitted.
 
+### Prospective integration validation — 24 November 2026
+
+- Isolated detached worktree `output/worktrees/ui-legacy-002-prospective` validated candidate **213945c50f1aa8cc32df8d00103d16dea63ee11d** against freshly fetched current main **8c0c49b3a8110cb80aab696561efac16946c2319**, before main changed. Main is an ancestor; `git merge-tree --write-tree origin/main HEAD` produced **6542724e4d6e0ad460971b5b436efac1c1c1183a**, exactly the candidate tree. No conflict resolution or runtime changes after independent approval.
+- Official verified Node22 rerun: **10 PASS** — legacy-sample-card, form-contract (239), legacy-ui, legacy-save-queue, local-tasting-ui, legacy-select-all, assessment-sample-identity, creator-scan-activation, pending-blind-card, current-rating-progress. Logs and structured results remain in prospective checkout `output/ui-legacy-002-release/`.
+- **One baseline-equivalent fixture failure:** participant-sample-lifecycle-check.js stops at line 116 with `Unsupported or damaged sample-code assignment. No local data was changed.` before any new card code. Same Node22 invocation independently reproduced identical failure on clean main **8c0c49b**, in unchanged sampleCodeProfile/sessionRepository code. This is additional to the old saved-score-card fixture limitation above; neither check is claimed passing or weakened. Current activation, Pending Blind/CVA and new card behaviour probes provide the affected-path evidence; independent reviewer disposition requested before merge.
+- Fresh iOS bundle on the prospective source using ignored candidate-relative `output/stage1-entry.js`, Node22 and existing Expo CLI: **PASS**, four assets; Metro cache reported 744 modules. SHA256 **09b18672f9744432123bdc6f05063abae1c7aaa2c2f80f6e6528fa668f3d9f88**, identical to reviewed runtime output. No binary signing, installation or NFC test implied.
+- Subsequent evidence/changelog edits are documentation only. Final exact-head/base checks, PR and controlled merge remain pending; main unchanged at this checkpoint.
+
 ## Definition of Done
 
 - **PASS:** Scoped acceptance criteria — implementation/hook/canonical-result checks plus independent actual-card browser review, with truthful General notes/Defect notes mapping and no deferred pills/icons implied complete.
