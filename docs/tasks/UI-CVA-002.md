@@ -69,3 +69,22 @@ Exact source **c1487239832d3a798dc33522a19f576bbf011b4c**, clean while checked. 
 - Release Manager `/root/legacy_card_release` verified durable independent PASS **b964061d7c860745b04ea9d12d061f52853545da** for runtime **c148723** and author evidence **f8b807c**, satisfying conditional PM go before release edits. Only this task record and scoped changelog are added; reviewed source/test/guide remain unchanged.
 - Current main **ff941765d13d9e3978b7b4555819d24ab4b080d4**. Explicit durable independent approval, current-main prospective checks and protected exact-head PR integration remain mandatory despite zero technical review count/no CI statuses.
 - Scoped gates: CVA and unchanged Legacy card regressions, current participant parity, creator activation, pending blind and explicit candidate iOS JavaScript bundle. No unrelated fixtures, native build/install/data/backup/version or Metro action. Root PM owns normal-main synchronization/client refresh after exact post-merge software PASS; actual owner header appearance remains pending.
+
+### Prospective validation / software integration approval
+
+- Isolated prospective checkout validated **f6685dd579f3c7cdf71bd3e75ea22ca740800929** against freshly fetched current main **ff941765d13d9e3978b7b4555819d24ab4b080d4**, before main changed. Main is an ancestor; candidate/prospective merge tree both **4b151e4459fe59ca7be1bacca040abc5c1b70916**, no conflicts/material changes. Reviewed source/test/guide remain **c148723** bytes.
+- Verified Node22 **all five probes PASS**: CVA card/header, unchanged Legacy card, participant-parity all eight groups, creator activation and pending blind. Clean checkout / `git diff --check` PASS. Logs and structured results retained under prospective `output/ui-cva-002-release/prospective-*`; no broader fixture or compatibility changes.
+- Explicit exact-prospective iOS JavaScript bundle **PASS**,772modules/fourassets, SHA256 **1d2b7a8ae5167895453db4e7b9173c39acbeb64958579162a865e7e68d67dd2c**, identical to reviewed runtime. Ignored candidate-relative entry/output in prospective `output/ui-cva-002-release/`; not a native build/install.
+- Release Manager software integration gate **PASS** after durable independent **b964061d**, all six scoped prospective gates and changelog. Final task-only evidence delta must preserve source/test/guide/changelog and exact live head/base/tree before protected PR merge. **Actual owner CVA header appearance remains pending; software evidence is not a physical-device/NFC/VoiceOver or pilot claim.**
+
+### Software Definition of Done before protected merge
+
+- **PASS:** Scoped software acceptance, including genuine Saved/current result evidence, strict count source, unknown/historical collapsed warnings and full expanded provenance; owner appearance remains the planned post-merge checkpoint.
+- **PASS:** Appropriate regression tests added; all existing relevant card, role, inactive/blind and lifecycle checks pass without compatibility changes or weakened assertions.
+- **PASS:** Explicit candidate iOS JavaScript bundle; **N/A native binary build** because no native/configuration/dependency change.
+- **PASS:** Manual actual-source browser UI check and token/accessibility-structure review, with native-adapter limits disclosed; no native touch/VoiceOver acceptance claimed. **N/A pre-merge physical radio verification:** no radio/native path change.
+- **PASS:** No unrelated changes/refactor; source/guide/task scope only. Matching UI guidance updated. **N/A protocol/schema/scoring amendments:** no contracts or stored representations changed.
+- **PASS:** Independent inactive/provenance/read-boundary/privacy review; no new reads, writes, permissions, network or data-loss path.
+- **PASS:** Required regression paths executed and exact author/runtime/prospective evidence separated; hardware limits explicitly distinguished.
+- **PASS:** Independent findings resolved/no open blocker; clean inspectable history, author/reviewer handoffs and scoped changelog supplied.
+- **PASS:** Current-main prospective integrated-tree validation before main changes. Protected merge and exact post-merge checks remain mandatory execution-phase gates, not prematurely marked complete.
