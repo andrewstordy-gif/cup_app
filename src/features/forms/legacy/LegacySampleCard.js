@@ -11,7 +11,7 @@ import { legacyCardPresentation, legacyCardScoreLayout } from './legacyCardPrese
 
 function Section({ title, children, scale }) {
   return <View style={[styles.section, { padding: spacing.md * scale }]}>
-    <Text style={styles.heading}>{title}</Text>{children}
+    {title ? <Text style={styles.heading}>{title}</Text> : null}{children}
   </View>;
 }
 
@@ -110,7 +110,7 @@ export function LegacySampleCard({ sample, index, status, scale = 1, fontScale =
           <Text style={styles.state}>{check.label}</Text><Text style={styles.value}>{check.value ?? '—'}</Text>
         </View>)}
       </Section> : null}
-      {presentation.roastNotes || presentation.roastDefects.length ? <Section title="Roast" scale={scale}>
+      {presentation.roastNotes || presentation.roastDefects.length ? <Section scale={scale}>
         {presentation.roastNotes ? <><Text style={styles.heading}>Roast notes</Text><Text style={styles.notes}>{presentation.roastNotes}</Text></> : null}
         {presentation.roastDefects.length ? <><Text style={styles.heading}>Roast defects</Text>
           {presentation.roastDefects.map(value => <Text key={value} style={styles.value}>{value}</Text>)}

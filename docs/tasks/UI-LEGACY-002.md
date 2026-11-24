@@ -33,6 +33,7 @@
 - **Validation runtime:** Official node-v22.14.0-darwin-arm64 downloaded to ignored output/node22; archive SHA256 e9404633bc02a5162c5c573b1e2490f5fb44648345d64a958b17e325729a5e42 matches official SHASUMS256.txt. No dependency/lockfile changes. Tests requiring node:sqlite use that binary; Node18/20 cannot run those probes.
 - **Limitations:** No physical iPhone, NFC or native Dynamic Type verification. Independent reviewer is checking actual-card RN-web geometry separately; browser evidence does not certify native hardware. Later stages remain deferred, including CVA design, descriptor pills and defect badges. No release metadata, distribution or main integration performed.
 - **Changelog-worthy:** Legacy session sample cards now show precise saved score summaries with expandable source-labelled notes, cup checks, defects and final results while preserving existing open/remove/inactive behaviour.
+- PM visual refinement after preliminary screenshots: omit the redundant outer Roast heading, retaining Roast notes/Roast defects headings and their shared divider grouping. No other layout or data change.
 
 ## Review / integration evidence
 
