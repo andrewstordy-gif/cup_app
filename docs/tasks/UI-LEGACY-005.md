@@ -1,6 +1,6 @@
 # UI-LEGACY-005 — Shared rotated score-number design proposal
 
-- **Status:** Andrew approved the currently shown design on24 November2026: clockwise quality numbers, two decimal places, upright labels and upright13-point total. Implementation staged under UI-LEGACY-006 (Legacy first); CVA waits for the Legacy phone checkpoint.
+- **Status:** Approved design; Legacy software implemented under UI-LEGACY-006 through protected PR25, main fd423c9210e21afe4915d821e60f7039fe267c49, and loaded through existing Metro. Actual Legacy phone acceptance pending; CVA implementation remains deferred until that checkpoint.
 - **Objective:** Preview both CVA and Legacy score numbers at the existing CVA nominal size/weight, rotated90 degrees with two decimal places, following Andrew's subsequent request for matching presentation. Keep attribute labels upright and every value visible within the card in the preview.
 - **Authority:** Andrew says the scores are now present after UI004 but look too small compared with CVA; requests trying sideways numbers. PRODUCT_SPEC6.5 exact independent Legacy meaning/precision; UI_STYLE_GUIDE; existing CVA ScoreRow source is reference, not product policy.
 - **Scope/files:** This coordination record; conversation-only preview at /Users/andrewstordy/.codex/visualizations/2026/10/01/01a0f756-62fe-7000-ad2f-08245b4001db/legacy-rotated-scores.html. No runtime, score, storage, NFC, native build, Metro or main changes. Design work on existing PM coordination branch codex/china-testflight; implementation would require a separately approved isolated task.
@@ -22,5 +22,7 @@
 - Local optional control may keep total upright for comparison; no app mutation. Check preview fits320px without clipped rotated bounds; browser geometry is not physical iPhone/VoiceOver/Dynamic Type acceptance.
 
 ## Handoff / evidence / review
+
+- Legacy implementation checkpoint: https://github.com/andrewstordy-gif/cup_app/pull/25. Independent review and exact prospective/post-merge card/participant-parity/JS-bundle checks passed; no native rebuild/install/data operation. Clean usual main synchronized tofd423c9; existing Metro23693 reloaded with fresh243ms/127ms iOS bundles. Owner has not yet confirmed actual rotated Legacy appearance. No CVA implementation begun. Final detailed source/review/release evidence retained on codex/ui-legacy-006-rotated.
 
 Preview now shows proposed rotated CVA and Legacy cards with clockwise/counterclockwise alternatives, upright matching captions and a local Rotate total too option applying to both. Both share score typography13/700 and total11/700; all displayed values have two decimal places. JavaScript syntax/literal-fragment checks passed. Updated shared proposal visually inspected in an isolated browser with320px constrained stage: both complete rows/labels and rotated numbers fit the shown boxes; the earlier Legacy-only preview was also checked at390px. Native iPhone/VoiceOver/Dynamic Type behaviour is not established by this preview. No app code changes, test build, Metro update or release. Product-owner direction/treatment choice and future independent implementation review remain pending.
