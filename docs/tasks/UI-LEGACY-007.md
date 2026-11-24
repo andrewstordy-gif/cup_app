@@ -1,5 +1,9 @@
 # UI-LEGACY-007 — Compact approved Legacy score-box height
 
+## Owner visual checkpoint — 24 November2026
+
+Andrew reported That looks good, can you implement on the CVA form after the compact Legacy update. Record the shorter Legacy visual-height checkpoint as owner-accepted; no separate physical NFC, VoiceOver or other unreported test is inferred. CVA compact-row work is now assigned under UI-CVA-001 on codex/ui-cva-001-rotated from main5c3d2f7. Earlier connection failure is historical; this owner report supplies subsequent visual acceptance without inventing how reconnection occurred.
+
 - **Status:** Compact Legacy software integrated and exact post-merge checks PASS,24 November2026. Legacy phone-height checkpoint pending; CVA deferred.
 - **Authority:** UI-LEGACY-005 proposal on codex/china-testflight, current48-point-centred preview /Users/andrewstordy/.codex/visualizations/2026/10/01/01a0f756-62fe-7000-ad2f-08245b4001db/legacy-rotated-scores.html. PRODUCT_SPEC6.5 exact Legacy meaning;6.8.1 card behaviour. UI_STYLE_GUIDE approved summary pattern.
 - **Objective:** Lower the Legacy compact score-cell minimum from64 to48 points while retaining measured glyph-bound growth. Preserve centred clockwise13-point-bold quality numbers, upright captions/total, two decimals and all other accepted Legacy behaviour.
