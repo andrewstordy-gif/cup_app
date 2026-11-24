@@ -9,6 +9,8 @@
 
 ## Design criteria
 
+- Final alignment refinement: Andrew preferred the previous centred arrangement after viewing top alignment. Restored centred numeric alignment in both proposal rows, retaining48-point boxes,13/700 numbers and upright totals. This supersedes the top-inset experiment below. Installed app remains unchanged; shorter-height implementation still awaits approval.
+
 - Latest mockup refinement: Andrew requested numbers aligned to the top of the boxes instead of centred. Updated both proposed rows with a4-point top inset, accounting for rotated bounding boxes in either direction; upright totals also top-aligned.48-point height,13/700 numeric typography, two decimals and upright captions/totals remain. Preview only; installed app unchanged.
 
 - Height refinement requested after Legacy phone check: Andrew confirmed the rotated design matches, then found the boxes unnecessarily tall. Reduced BOTH proposal rows from64 to48 points (25percent shorter), preserving13/700 numbers, clockwise/counterclockwise alternatives, upright labels and upright total. This is a mockup-only refinement; installed Legacy remains at its64-point minimum on fd423c9. CVA work remains deferred while this height refinement is reviewed; no production implementation started for the compact height.
