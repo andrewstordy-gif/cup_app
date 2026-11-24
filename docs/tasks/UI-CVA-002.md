@@ -1,6 +1,6 @@
 # UI-CVA-002 — Match CVA sample-card header to approved design
 
-- **Status:** Independent software review PASS; controlled integration preparation authorized, 24 November 2026. Owner CVA header appearance pending.
+- **Status:** Protected PR29 merged; exact post-merge software PASS, 24 November 2026. Owner CVA header appearance pending.
 - **Objective:** Match the CVA collapsed card header to Legacy/mockup: sample code and existing edit control, Saved status for an actually saved final result beside existing permitted remove control, unchanged rotated row, compact trailing physical-cup-count subtitle. Non-five counts use `Adapted · N cup(s)`; five uses `5 cups`.
 - **Authority:** PRODUCT_SPEC §6.6 CVA independent versioned scoring, 1–8 cups, explicit adaptation/provenance; §6.8 roles/controls/inactive/blind identity; FR-013/014/035. UI_STYLE_GUIDE existing card summary tokens and UI-LEGACY-008 compact label. Full-card mockup sample-drawers-rotated-headers.html. No NDEF/form-contract/schema change.
 - **Base/branch/worktree:** Clean verified main/origin ff941765d13d9e3978b7b4555819d24ab4b080d4; codex/ui-cva-002-card-header; output/worktrees/ui-cva-002.
@@ -88,3 +88,11 @@ Exact source **c1487239832d3a798dc33522a19f576bbf011b4c**, clean while checked. 
 - **PASS:** Required regression paths executed and exact author/runtime/prospective evidence separated; hardware limits explicitly distinguished.
 - **PASS:** Independent findings resolved/no open blocker; clean inspectable history, author/reviewer handoffs and scoped changelog supplied.
 - **PASS:** Current-main prospective integrated-tree validation before main changes. Protected merge and exact post-merge checks remain mandatory execution-phase gates, not prematurely marked complete.
+
+### Protected integration / exact post-merge evidence
+
+- Protected [PR29](https://github.com/andrewstordy-gif/cup_app/pull/29) merged exact final head **1a3d0513311cce10ab690f874a60828093d27cdf** into unchanged live base **ff941765d13d9e3978b7b4555819d24ab4b080d4**. Final head differs from prospective f6685dd only by task evidence/DoD; reviewed source, probes, guide and changelog unchanged. Fresh connected PR metadata confirmed non-draft/mergeable/exact head/base; combined statuses empty. Durable independent and executed software gates supply required evidence, not an empty-check inference.
+- Live protection verified: enforced for administrators, pull-request process, no force pushes/deletions; technical approval count zero and no CI required. Used normal `gh pr merge --merge --match-head-commit` without bypass/direct main push. Result **68160f189325dacb57e8fb2e3593e0f22667488f**, parents ff941765 and1a3d051, tree **b14be5a075db069cb3ef95ec256cca9c1348c77d**, exactly equal to validated final prospective merge tree.
+- Isolated checkout of that exact remote merge: **all five probes PASS**, including all eight participant-parity groups, unchanged Legacy, CVA, creator activation and pending blind. Explicit candidate-relative iOS JavaScript bundle **PASS**, SHA256 **1d2b7a8ae5167895453db4e7b9173c39acbeb64958579162a865e7e68d67dd2c**, identical to independent/prospective source. Clean checkout and `git diff --check` PASS. Ignored evidence: `output/worktrees/ui-cva-002-prospective/output/ui-cva-002-release/postmerge-*` plus postmerge.jsbundle.
+- Protected integration and exact post-merge Definition of Done software gates **PASS**. PM notified exact main may be synchronized into normal checkout and existing Metro21778 refreshed. Release Manager performed no Metro/native/install/version/data/backup action. Actual owner header appearance, native interaction, VoiceOver and NFC remain unverified; no pilot-ready claim.
+- Final post-merge evidence is retained on the task branch; merged main contains the pre-merge approval snapshot. Root PM owns user checkpoint and any subsequent scope.
