@@ -1,6 +1,6 @@
 # UI-LEGACY-003 — Keep exact Legacy score values on one line
 
-- **Status:** Independent software review PASS; prospective integration and native owner acceptance pending, 24 November 2026.
+- **Status:** Independent software review PASS; controlled integration preparation authorized, native owner acceptance pending, 24 November 2026.
 - **Authority:** Andrew approved correcting the 10.00 wrapping first after comparing the physical-device screenshot with the mockup. Stage 1 is main ae46f94589729aec3c3d9bf0a98628bde1e77004 (PR22).
 - **Product/UI references:** PRODUCT_SPEC §6.5 (exact Legacy quarter-point marks), §6.8.1 (card opening/expansion), FR-035; UI_STYLE_GUIDE typography/responsive/accessibility rules. Existing form/result/NDEF contracts unchanged.
 - **Evidence:** Screenshot 2026-11-24 at 12.19.01.png shows Overall 10.00 split into 10.0 and 0 on samples 3L and 05. REL-DEV-STAGE1 on codex/rel-dev-stage1 records this native Stage 1 failure. Previous browser/geometry checks did not prove five-character values fit native Text.
@@ -55,3 +55,10 @@ Final implementation runtime: **6c11c4e**. A following documentation-only handof
 - **Gate status:** scoped source/test review and software regression checks PASS; no unrelated changes PASS; native binary/signing/build/storage gates **N/A because no native or persistence changes**. Prospective current-main validation, protected PR integration and exact post-merge checks remain pending Release Manager. Actual iPhone score-text acceptance remains **PENDING**: preserve the prior device FAIL until Andrew confirms the same 10.00 values intact after protected integration and existing-client Metro refresh. No new signed app, installation, data copy or feature-branch phone serving is authorized or claimed by this review.
 
 Final reviewed runtime: **6c11c4e**. Independent review evidence commit follows; PR/merge and owner phone result remain pending.
+
+## Release preparation — 24 November 2026
+
+- Release Manager `/root/legacy_card_release` received PM go after durable independent PASS **b3708ff** for exact runtime **6c11c4e** and docs **42d5a9c**. Preparation adds only this record and the scoped changelog note; no source/test amendments after review.
+- Current main **ae46f94589729aec3c3d9bf0a98628bde1e77004**; live protection still enforces administrators and forbids force pushes/deletion, with zero required review count and no CI status checks. Durable independent approval and explicit prospective validation remain mandatory process gates.
+- Required release checks are intentionally limited to the affected actual-card/lifecycle probe, current participant-parity suite and iOS JavaScript bundle. No repeat full-project suite, native rebuild/install, data copy or Metro feature-branch serving. After validated protected integration, root PM will synchronize clean normal main and refresh the existing Metro client for Andrew's native acceptance.
+- Prospective head/base/validation and protected PR references follow after execution. Main and the running installed client remain unchanged at this checkpoint.
