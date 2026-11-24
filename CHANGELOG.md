@@ -51,6 +51,11 @@ Each entry should include the date, the agent that made the change, and a short 
   `5 cups`. Full canonical scoring/extended-scale provenance stays in expanded
   details. No scoring, geometry, CVA, stored data or native change.
 
+- UI-CVA-002 matches the CVA card header to the accepted design with genuine
+  local Saved status and a compact physical-cup-count subtitle. Historical or
+  unknown warnings remain visible, and full provenance is retained in expanded
+  results. Existing controls, score geometry, Legacy and data policy are unchanged.
+
 ## Pending integration — 2026-10-27 — Codex PM/Release Manager
 
 - R1-149 prepares the reviewed local session workflow for PR review, **not yet

@@ -1,6 +1,6 @@
 # UI-CVA-002 — Match CVA sample-card header to approved design
 
-- **Status:** Independent software review PASS 24 November 2026; protected integration and owner-phone appearance pending. Andrew requested the same design as UI-LEGACY-008 so the entire CVA cup title/header element matches the full-card mockup.
+- **Status:** Independent software review PASS; controlled integration preparation authorized, 24 November 2026. Owner CVA header appearance pending.
 - **Objective:** Match the CVA collapsed card header to Legacy/mockup: sample code and existing edit control, Saved status for an actually saved final result beside existing permitted remove control, unchanged rotated row, compact trailing physical-cup-count subtitle. Non-five counts use `Adapted · N cup(s)`; five uses `5 cups`.
 - **Authority:** PRODUCT_SPEC §6.6 CVA independent versioned scoring, 1–8 cups, explicit adaptation/provenance; §6.8 roles/controls/inactive/blind identity; FR-013/014/035. UI_STYLE_GUIDE existing card summary tokens and UI-LEGACY-008 compact label. Full-card mockup sample-drawers-rotated-headers.html. No NDEF/form-contract/schema change.
 - **Base/branch/worktree:** Clean verified main/origin ff941765d13d9e3978b7b4555819d24ab4b080d4; codex/ui-cva-002-card-header; output/worktrees/ui-cva-002.
@@ -63,3 +63,9 @@ Exact source **c1487239832d3a798dc33522a19f576bbf011b4c**, clean while checked. 
 - `git diff --check` PASS. Only assigned card/private helper, bounded test/guide/task files changed; no source outside approved scope and no unresolved privacy/data-loss regression in this display-only change.
 
 **Release handoff:** Record yielded to Release Manager after this documentation commit. Software PASS permits required current-main prospective validation and protected head-matched PR process, not direct integration or pilot approval. Phone appearance remains pending after exact postmerge validation and clean normal-main Metro refresh. Native build/install/signing/data/NFC gates are N/A for this JS-only/no-new-read presentation change; no native conformance is claimed.
+
+### Release preparation
+
+- Release Manager `/root/legacy_card_release` verified durable independent PASS **b964061d7c860745b04ea9d12d061f52853545da** for runtime **c148723** and author evidence **f8b807c**, satisfying conditional PM go before release edits. Only this task record and scoped changelog are added; reviewed source/test/guide remain unchanged.
+- Current main **ff941765d13d9e3978b7b4555819d24ab4b080d4**. Explicit durable independent approval, current-main prospective checks and protected exact-head PR integration remain mandatory despite zero technical review count/no CI statuses.
+- Scoped gates: CVA and unchanged Legacy card regressions, current participant parity, creator activation, pending blind and explicit candidate iOS JavaScript bundle. No unrelated fixtures, native build/install/data/backup/version or Metro action. Root PM owns normal-main synchronization/client refresh after exact post-merge software PASS; actual owner header appearance remains pending.
